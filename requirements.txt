@@ -13,7 +13,6 @@ enum34
 flaky
 mock
 nose
-nose-test-select
 parse
 pep8
 psutil
