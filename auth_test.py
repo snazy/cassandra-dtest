@@ -2559,6 +2559,16 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         cassandra.execute("UPDATE system_auth.roles SET member_of = {'role1'} where role = 'mike'")
         assert_all(cassandra, "LIST ROLES OF mike", [list(mike_role)])
 
+    @since('3.10')
+    def default_role_initial_timestamp_test(self):
+        """
+        The default role created in a fresh cluster should be written with
+        timestamp 0 to prevent races when nodes are started simultaneously
+        @jira_ticket APOLLO-18
+        """
+        cassandra = self.get_session(user='cassandra', password='cassandra')
+        assert_one(cassandra, "SELECT writetime(salted_hash) FROM system_auth.roles WHERE role = 'cassandra'", [0])
+
     def setup_table(self, session):
         session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':1}")
         session.execute("CREATE TABLE ks.t1 (k int PRIMARY KEY, v int)")
