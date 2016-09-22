@@ -1,5 +1,4 @@
 from collections import namedtuple
-from distutils.version import LooseVersion
 
 from dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD,
                    RUN_STATIC_UPGRADE_MATRIX, debug)
@@ -13,7 +12,7 @@ def _get_version_family():
     """
     Detects the version family (line) using dtest.py:CASSANDRA_VERSION_FROM_BUILD
     """
-    current_version = LooseVersion(CASSANDRA_VERSION_FROM_BUILD)
+    current_version = CASSANDRA_VERSION_FROM_BUILD
 
     version_family = 'unknown'
     if current_version.vstring.startswith('2.0'):
@@ -72,7 +71,7 @@ indev_2_2_x = VersionMeta(name='indev_2_2_x', family='2.2.x', variant='indev', v
 current_2_2_x = VersionMeta(name='current_2_2_x', family='2.2.x', variant='current', version='2.2.7', min_proto_v=1, max_proto_v=4, java_versions=(7, 8))
 
 indev_3_0_x = VersionMeta(name='indev_3_0_x', family='3.0.x', variant='indev', version='git:cassandra-3.0', min_proto_v=3, max_proto_v=4, java_versions=(8,))
-current_3_0_x = VersionMeta(name='current_3_0_x', family='3.0.x', variant='current', version='3.0.8', min_proto_v=3, max_proto_v=4, java_versions=(8,))
+current_3_0_x = VersionMeta(name='current_3_0_x', family='3.0.x', variant='current', version='3.0.9', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 
 indev_3_x = VersionMeta(name='indev_3_x', family='3.x', variant='indev', version='git:trunk', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 current_3_x = VersionMeta(name='current_3_x', family='3.x', variant='current', version='3.7', min_proto_v=3, max_proto_v=4, java_versions=(8,))

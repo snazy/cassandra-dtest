@@ -9,9 +9,8 @@ from cassandra.query import SimpleStatement
 from ccmlib.node import Node
 from nose.plugins.attrib import attr
 
-from bootstrap_test import assert_bootstrap_state
 from dtest import CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, Tester, debug
-from tools.assertions import assert_all, assert_not_running
+from tools.assertions import assert_bootstrap_state, assert_all, assert_not_running
 from tools.data import rows_to_list
 from tools.decorators import known_failure, since
 from tools.misc import ImmutableMapping
@@ -453,6 +452,9 @@ class TestReplaceAddress(BaseReplaceAddressTest):
 
     @since('2.2')
     @attr('resource-intensive')
+    @known_failure(failure_source='test',
+                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12656',
+                   flaky=True)
     def restart_failed_replace_test(self):
         """
         Test that if a node fails to replace, it can join the cluster even if the data is wiped.
@@ -460,7 +462,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         self._test_restart_failed_replace(mode='wipe')
 
     def _test_restart_failed_replace(self, mode):
-        self.ignore_log_patterns.append(r'Error while waiting on bootstrap to complete')
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'Error while waiting on bootstrap to complete']
         self._setup(n=3, enable_byteman=True)
         self._insert_data(n="1k")
 

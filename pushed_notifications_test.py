@@ -151,6 +151,9 @@ class TestPushedNotifications(Tester):
             notifications = waiter.wait_for_notifications(30.0)
             self.assertEquals(1 if waiter.node is node1 else 0, len(notifications), notifications)
 
+    @known_failure(failure_source='test',
+                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12678',
+                   flaky=True)
     def restart_node_test(self):
         """
         @jira_ticket CASSANDRA-7816
@@ -170,7 +173,7 @@ class TestPushedNotifications(Tester):
 
         # On versions prior to 2.2, an additional NEW_NODE notification is sent when a node
         # is restarted. This bug was fixed in CASSANDRA-11038 (see also CASSANDRA-11360)
-        version = LooseVersion(self.cluster.cassandra_version())
+        version = self.cluster.cassandra_version()
         expected_notifications = 2 if version >= '2.2' else 3
         for i in range(5):
             debug("Restarting second node...")
@@ -325,7 +328,7 @@ class TestVariousNotifications(Tester):
         @jira_ticket CASSANDRA-7886
         """
 
-        have_v5_protocol = LooseVersion(self.cluster.version()) >= LooseVersion('3.10')
+        have_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
 
         self.allow_log_errors = True
         self.cluster.set_configuration_options(
