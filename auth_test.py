@@ -6,24 +6,30 @@ from cassandra import AuthenticationFailed, InvalidRequest, Unauthorized
 from cassandra.cluster import NoHostAvailable
 from cassandra.protocol import SyntaxException
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
+from dtest import CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester, debug, wait_for_any_log
 from tools.assertions import (assert_all, assert_invalid, assert_one,
-                              assert_unauthorized)
+                              assert_unauthorized, assert_length_equal)
 from tools.decorators import known_failure, since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import ImmutableMapping
 from tools.metadata_wrapper import UpdatingKeyspaceMetadataWrapper
 
+class AuthMixin():
 
-class TestAuth(Tester):
+    def get_session(Tester, node_idx=0, user=None, password=None):
+        """
+        Connect with a set of credentials to a given node. Connection is not exclusive to that node.
+        @param node_idx Initial node to connect to
+        @param user User to connect as
+        @param password Password to use
+        @return Session as user, to specified node
+        """
+        node = Tester.cluster.nodelist()[node_idx]
+        session = Tester.patient_cql_connection(node, user=user, password=password)
+        return session
 
-    ignore_log_patterns = (
-        # This one occurs if we do a non-rolling upgrade, the node
-        # it's trying to send the migration to hasn't started yet,
-        # and when it does, it gets replayed and everything is fine.
-        r'Can\'t send migration request: node.*is down',
-    )
+class TestAuthThreeNodes(Tester, AuthMixin):
 
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12456',
@@ -39,8 +45,15 @@ class TestAuth(Tester):
 
         @jira_ticket CASSANDRA-10655
         """
-        self.prepare(nodes=3)
-        debug("nodes started")
+        cluster = self.cluster
+        config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                                    'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                                    'permissions_validity_in_ms': 0}
+        self.cluster.set_configuration_options(values=config)
+        cluster.set_configuration_options(values=config)
+        cluster.populate(3).start(wait_for_binary_proto=True)
+
+        wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
 
         session = self.get_session(user='cassandra', password='cassandra')
         auth_metadata = UpdatingKeyspaceMetadataWrapper(
@@ -77,6 +90,49 @@ class TestAuth(Tester):
             )
             self.assertEquals(3, exclusive_auth_metadata.replication_strategy.replication_factor)
 
+
+class TestAuthOneNode(ReusableClusterTester, AuthMixin):
+
+    ignore_log_patterns = (
+        # This one occurs if we do a non-rolling upgrade, the node
+        # it's trying to send the migration to hasn't started yet,
+        # and when it does, it gets replayed and everything is fine.
+        r'Can\'t send migration request: node.*is down',
+    )
+
+    default_config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                  'permissions_validity_in_ms': 0}
+
+    @classmethod
+    def post_initialize_cluster(cls):
+        cluster = cls.cluster
+        cluster.set_datadir_count(1)
+        cluster.populate(1)
+
+        cluster.set_configuration_options(values=cls.default_config)
+
+        remove_perf_disable_shared_mem(cluster.nodelist()[0])
+        cluster.start(wait_for_binary_proto=True)
+
+        n = wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
+        debug("Default role created by " + n.name)
+
+    def setUp(self):
+        ReusableClusterTester.setUp(self)
+        self._cleanup_schema()
+
+    def _cleanup_schema(self):
+        session = self.get_session(user='cassandra', password='cassandra')
+        session.execute("DROP USER IF EXISTS cathy")
+        session.execute("DROP USER IF EXISTS bob")
+        session.execute("DROP USER IF EXISTS test")
+        session.execute("DROP USER IF EXISTS dave")
+        session.execute("DROP USER IF EXISTS jackob")
+        session.execute("DROP USER IF EXISTS alex")
+        session.execute("DROP USER IF EXISTS 'james@example.com'")
+        session.execute("DROP KEYSPACE IF EXISTS ks")
+
     def login_test(self):
         """
         * Launch a one node cluster
@@ -85,7 +141,6 @@ class TestAuth(Tester):
         * Verify that bad user gives AuthenticationFailed exception
         """
         # also tests default user creation (cassandra/cassandra)
-        self.prepare()
         self.get_session(user='cassandra', password='cassandra')
         try:
             self.get_session(user='cassandra', password='badpassword')
@@ -106,7 +161,6 @@ class TestAuth(Tester):
         * Connect as the new user, 'jackob'
         * Verify we cannot create a second user as 'jackob'
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER jackob WITH PASSWORD '12345' NOSUPERUSER")
@@ -122,7 +176,6 @@ class TestAuth(Tester):
         * Verify we cannot create a new user without specifying a password for them
         * Verify we can create the new user if the password is specified
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         assert_invalid(session, "CREATE USER jackob NOSUPERUSER", 'PasswordAuthenticator requires PASSWORD option')
@@ -135,7 +188,6 @@ class TestAuth(Tester):
         * Create a new user
         * Verify that attempting to create a duplicate user fails with InvalidRequest
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         session.execute("CREATE USER 'james@example.com' WITH PASSWORD '12345' NOSUPERUSER")
@@ -150,7 +202,6 @@ class TestAuth(Tester):
         * Verify that the correct users are listed as super users.
         * Connect as one of the new users, and check that the LIST USERS behavior is also correct there.
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         session.execute("CREATE USER alex WITH PASSWORD '12345' NOSUPERUSER")
@@ -187,7 +238,6 @@ class TestAuth(Tester):
         * Connect as the default superuser
         * Verify the superuser can't drop themselves
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         # handle different error messages between versions pre and post 2.2.0
@@ -205,23 +255,22 @@ class TestAuth(Tester):
         * Verify that 'cathy', not being a superuser, cannot drop other users, and gets an Unauthorized exception
         * Verify the default superuser can drop other users
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345' NOSUPERUSER")
         cassandra.execute("CREATE USER dave WITH PASSWORD '12345' NOSUPERUSER")
         rows = list(cassandra.execute("LIST USERS"))
-        self.assertEqual(3, len(rows))
+        assert_length_equal(rows, 3)
 
         cathy = self.get_session(user='cathy', password='12345')
         assert_unauthorized(cathy, 'DROP USER dave', 'Only superusers are allowed to perform DROP (\[ROLE\|USER\]|USER) queries')
 
         rows = list(cassandra.execute("LIST USERS"))
-        self.assertEqual(3, len(rows))
+        assert_length_equal(rows, 3)
 
         cassandra.execute('DROP USER dave')
         rows = list(cassandra.execute("LIST USERS"))
-        self.assertEqual(2, len(rows))
+        assert_length_equal(rows, 2)
 
     def dropping_nonexistent_user_throws_exception_test(self):
         """
@@ -229,7 +278,6 @@ class TestAuth(Tester):
         * Connect as the default superuser
         * Verify that dropping a nonexistent user throws InvalidRequest
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         assert_invalid(session, 'DROP USER nonexistent', "nonexistent doesn't exist")
@@ -241,7 +289,6 @@ class TestAuth(Tester):
         * Create a user, 'Test'
         * Verify that the drop user statement is case sensitive
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER Test WITH PASSWORD '12345'")
 
@@ -268,7 +315,6 @@ class TestAuth(Tester):
         * Create a user, 'Test'
         * Verify that ALTER statements on the user are case sensitive
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER Test WITH PASSWORD '12345'")
         cassandra.execute("ALTER USER Test WITH PASSWORD '54321'")
@@ -290,7 +336,6 @@ class TestAuth(Tester):
         * Verify 'cathy' can alter her own password
         * Verify that if 'cathy' tries to alter bob's password, it throws Unauthorized
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -308,7 +353,6 @@ class TestAuth(Tester):
         * Connect as the default superuser
         * Attempt to remove our own superuser status. Assert this throws Unauthorized
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         assert_unauthorized(session, "ALTER USER cassandra NOSUPERUSER", "You aren't allowed to alter your own superuser status")
@@ -322,7 +366,6 @@ class TestAuth(Tester):
         * Verify that Unauthorized is thrown if cathy attempts to alter another user's superuser status
         * Verify that the default superuser can alter cathy's superuser status
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -338,7 +381,6 @@ class TestAuth(Tester):
         * Connect as the default superuser
         * Assert that altering a nonexistent user throws InvalidRequest
         """
-        self.prepare()
 
         session = self.get_session(user='cassandra', password='cassandra')
         assert_invalid(session, "ALTER USER nonexistent WITH PASSWORD 'doesn''tmatter'", "nonexistent doesn't exist")
@@ -352,7 +394,6 @@ class TestAuth(Tester):
         * Attempt to DROP USER IF EXISTS, twice. Ensure both succeed.
         * Verify only the default superuser remains
         """
-        self.prepare()
         session = self.get_session(user='cassandra', password='cassandra')
 
         assert_one(session, "LIST USERS", ['cassandra', True])
@@ -380,7 +421,6 @@ class TestAuth(Tester):
         * Grant 'cathy' create permissions
         * Assert that 'cathy' can create a ks
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -403,7 +443,6 @@ class TestAuth(Tester):
         * Grant 'cathy' create permissions
         * Assert that 'cathy' can create a table
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -426,7 +465,6 @@ class TestAuth(Tester):
         * Grant 'cathy' alter permissions
         * Assert that 'cathy' can alter a ks
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -453,7 +491,6 @@ class TestAuth(Tester):
         * Assert that trying to alter a table as 'cathy' throws Unauthorized
         * Repeat the grant/revoke loop two more times
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -495,7 +532,6 @@ class TestAuth(Tester):
         * Revoke cathy's ALTER permissions, assert DROP MV throws Unauthorized
         * Restore cathy's ALTER permissions, DROP MV successfully
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -538,7 +574,6 @@ class TestAuth(Tester):
         * Try to DROP ks, assert throws Unauthorized
         * Grant DROP permission to cathy, drop ks successfully
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -560,7 +595,6 @@ class TestAuth(Tester):
         * Try to DROP ks.cf, assert throws Unauthorized
         * Grant DROP permission to cathy, drop ks.cf successfully
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -585,7 +619,6 @@ class TestAuth(Tester):
         * Assert insert, update, delete, and truncate all throw Unauthorized
         * Grant MODIFY to cathy, verify she can now perform all modification queries
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -633,7 +666,6 @@ class TestAuth(Tester):
         * Verify she can grant bob SELECT
         # Verify bob can SELECT
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -666,7 +698,6 @@ class TestAuth(Tester):
         * Grant and Revoke permissions to cathy on a nonexistent keyspace, assert throws InvalidRequest
         * Grant and Revoke permissions to a nonexistent user to ks, assert throws InvalidRequest
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -693,7 +724,6 @@ class TestAuth(Tester):
         * DROP and CREATE ks.cf
         * Verify cathy's permissions on ks.cf are gone, and operations throw Unauthorized
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -742,7 +772,14 @@ class TestAuth(Tester):
 
         @jira_ticket CASSANDRA-8194
         """
-        self.prepare(permissions_validity=2000)
+        cluster = self.cluster
+        cluster.stop()
+        config = self.default_config.copy()
+        config['permissions_validity_in_ms'] = 2000
+        cluster.set_configuration_options(values=config)
+        cluster.start(wait_for_binary_proto=True)
+
+        time.sleep(12) # Wait for -Dcassandra.superuser_setup_delay_ms to expire
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -790,6 +827,13 @@ class TestAuth(Tester):
 
         self.assertTrue(success)
 
+        # EITHER the test will run correctly, and we reset the config
+        # OR the test will error, in which case tearDown will handle re-creating the cluster
+        cluster.stop()
+        cluster.set_configuration_options(values=self.default_config)
+        cluster.start(wait_for_binary_proto=True)
+        time.sleep(12) # Wait for -Dcassandra.superuser_setup_delay_ms to expire
+
     def list_permissions_test(self):
         """
         * Launch a one node cluster
@@ -802,7 +846,6 @@ class TestAuth(Tester):
 
         @jira_ticket CASSANDRA-7216
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -875,7 +918,6 @@ class TestAuth(Tester):
         * Try to create, alter, and drop types. Assert throws Unauthorized
         * Grant CREATE, ALTER, and DROP permissions to cathy, verify she can now do so
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -902,7 +944,6 @@ class TestAuth(Tester):
         * Stop the cluster, switch back to auth, restart the cluster
         * Check all user auth data was preserved
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
         cassandra.execute("CREATE USER philip WITH PASSWORD 'strongpass'")
@@ -922,6 +963,8 @@ class TestAuth(Tester):
         self.cluster.set_configuration_options(values=config)
         self.cluster.start(wait_for_binary_proto=True)
 
+        time.sleep(12) # We need to wait for -Dcassandra.superuser_setup_delay_ms
+
         philip = self.get_session(user='philip', password='strongpass')
         cathy = self.get_session(user='cathy', password='12345')
         assert_unauthorized(cathy, "SELECT * FROM ks.cf", "User cathy has no SELECT permission on <table ks.cf> or any of its parents")
@@ -936,13 +979,11 @@ class TestAuth(Tester):
         """
 
         cluster = self.cluster
-        config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
-                  'permissions_validity_in_ms': 0}
-        self.cluster.set_configuration_options(values=config)
-        cluster.set_datadir_count(1)
-        cluster.populate(1)
-        [node] = cluster.nodelist()
+        node = cluster.nodelist()[0]
+
+        # Clear the cluster, so that these metrics are zero, as expected
+        cluster.stop(gently=False)
+        cluster.clear()
         remove_perf_disable_shared_mem(node)
         cluster.start(wait_for_binary_proto=True)
 
@@ -969,33 +1010,6 @@ class TestAuth(Tester):
 
             self.assertGreater(success, 0)
             self.assertGreater(failure, 0)
-
-    def prepare(self, nodes=1, permissions_validity=0):
-        """
-        Sets up and launches C* cluster.
-        @param nodes Number of nodes in the cluster. Default is 1
-        @param permissions_validity The timeout for the permissions cache in ms. Default is 0.
-        """
-        config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
-                  'permissions_validity_in_ms': permissions_validity}
-        self.cluster.set_configuration_options(values=config)
-        self.cluster.populate(nodes).start()
-
-        n = self.wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
-        debug("Default role created by " + n.name)
-
-    def get_session(self, node_idx=0, user=None, password=None):
-        """
-        Connect with a set of credentials to a given node. Connection is not exclusive to that node.
-        @param node_idx Initial node to connect to
-        @param user User to connect as
-        @param password Password to use
-        @return Session as user, to specified node
-        """
-        node = self.cluster.nodelist()[node_idx]
-        session = self.patient_cql_connection(node, user=user, password=password)
-        return session
 
     def assertPermissionsListed(self, expected, session, query):
         """
@@ -1042,7 +1056,7 @@ cassandra_role = Role('cassandra', True, True, {})
 
 
 @since('2.2')
-class TestAuthRoles(Tester):
+class TestAuthRoles(Tester, AuthMixin):
     """
     @jira_ticket CASSANDRA-7653
     """
@@ -2553,18 +2567,6 @@ class TestAuthRoles(Tester):
         assert isinstance(error, AuthenticationFailed), "Expected AuthenticationFailed, got {error}".format(error=error)
         self.assertIn(pattern, error.message)
 
-    def get_session(self, node_idx=0, user=None, password=None):
-        """
-        Connect with a set of credentials to a given node. Connection is not exclusive to that node.
-        @param node_idx Initial node to connect to
-        @param user User to connect as
-        @param password Password to use
-        @return Session as user, to specified node
-        """
-        node = self.cluster.nodelist()[node_idx]
-        session = self.patient_cql_connection(node, user=user, password=password)
-        return session
-
     def prepare(self, nodes=1, roles_expiry=0):
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
                   'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
@@ -2574,7 +2576,7 @@ class TestAuthRoles(Tester):
         self.cluster.set_configuration_options(values=config)
         self.cluster.populate(nodes).start(wait_for_binary_proto=True)
 
-        self.wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
+        wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
 
     def assert_permissions_listed(self, expected, session, query):
         rows = session.execute(query)
