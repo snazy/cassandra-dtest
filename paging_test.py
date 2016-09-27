@@ -8,7 +8,7 @@ from cassandra.policies import FallthroughRetryPolicy
 from cassandra.query import (SimpleStatement, dict_factory,
                              named_tuple_factory, tuple_factory)
 
-from dtest import Tester, debug, run_scenarios
+from dtest import Tester, debug, run_scenarios, wait_for_any_log
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_one)
 from tools.data import rows_to_list, create_ks
@@ -3390,7 +3390,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
         else:
             failure_msg = ("Scanned over.* tombstones during query.* query aborted")
 
-        self.wait_for_any_log(self.cluster.nodelist(), failure_msg, 25)
+        wait_for_any_log(self.cluster.nodelist(), failure_msg, 25)
 
     @since('2.2.6')
     def test_deletion_with_distinct_paging(self):

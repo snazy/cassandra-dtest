@@ -12,7 +12,7 @@ from cassandra.protocol import ConfigurationException
 from cassandra.query import BatchStatement, SimpleStatement
 
 from dtest import (DISABLE_VNODES, OFFHEAP_MEMTABLES, DtestTimeoutError,
-                   Tester, debug, CASSANDRA_VERSION_FROM_BUILD)
+                   Tester, debug, CASSANDRA_VERSION_FROM_BUILD, wait_for_any_log)
 from tools.assertions import assert_bootstrap_state, assert_invalid, assert_one, assert_row_count
 from tools.data import index_is_built, rows_to_list, create_cf, create_ks
 from tools.decorators import known_failure, since
@@ -137,8 +137,8 @@ class TestSecondaryIndexes(Tester):
         # to complete, to prevent schema concurrency issues with the drop
         # keyspace calls that come later. See CASSANDRA-11729.
         if self.cluster.version() > '3.0':
-            self.wait_for_any_log(self.cluster.nodelist(), 'Completed submission of build tasks for any materialized views',
-                                  timeout=35, filename='debug.log')
+            wait_for_any_log(self.cluster.nodelist(), 'Completed submission of build tasks for any materialized views',
+                             timeout=35, filename='debug.log')
 
         # This only occurs when dropping and recreating with
         # the same name, so loop through this test a few times:
