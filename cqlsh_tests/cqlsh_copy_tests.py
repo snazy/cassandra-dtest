@@ -25,8 +25,8 @@ from nose.plugins.attrib import attr
 from cqlsh_tools import (DummyColorMap, assert_csvs_items_equal, csv_rows,
                          monkeypatch_driver, random_list, unmonkeypatch_driver,
                          write_rows_to_csv)
-from dtest import DISABLE_VNODES, Tester, create_ks, debug, warning
-from tools.data import rows_to_list
+from dtest import DISABLE_VNODES, Tester, debug, warning
+from tools.data import rows_to_list, create_ks
 from tools.decorators import known_failure, since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingTableMetadataWrapper)

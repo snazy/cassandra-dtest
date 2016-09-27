@@ -12,9 +12,9 @@ from ccmlib.common import is_win
 from ccmlib.node import Node, TimeoutError
 from parse import parse
 
-from dtest import Tester, debug, create_ks
+from dtest import Tester, debug
 from tools.assertions import assert_almost_equal, assert_none, assert_one
-from tools.data import rows_to_list
+from tools.data import rows_to_list, create_ks
 from tools.decorators import known_failure, since
 from tools.misc import ImmutableMapping
 

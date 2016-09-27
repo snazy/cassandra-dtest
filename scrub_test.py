@@ -8,7 +8,8 @@ import uuid
 import parse
 from ccmlib import common
 
-from dtest import Tester, debug, create_ks, create_cf
+from dtest import Tester, debug
+from tools.data import create_cf, create_ks
 from tools.assertions import assert_length_equal, assert_stderr_clean
 from tools.decorators import known_failure, since
 

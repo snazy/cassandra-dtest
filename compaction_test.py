@@ -7,7 +7,8 @@ from distutils.version import LooseVersion
 
 import parse
 
-from dtest import Tester, debug, create_ks
+from dtest import Tester, debug
+from tools.data import create_ks
 from tools.assertions import assert_length_equal, assert_none, assert_one
 from tools.decorators import known_failure, since
 from tools.misc import ImmutableMapping

@@ -10,7 +10,8 @@ from cassandra.policies import FallthroughRetryPolicy
 from cassandra.protocol import ProtocolException
 from cassandra.query import SimpleStatement
 
-from dtest import ReusableClusterTester, debug, Tester, create_ks
+from dtest import ReusableClusterTester, debug, Tester
+from tools.data import create_ks
 from distutils.version import LooseVersion
 from thrift_bindings.v22.ttypes import \
     ConsistencyLevel as ThriftConsistencyLevel

@@ -4,11 +4,12 @@ from cassandra import ConsistencyLevel
 from thrift.protocol import TBinaryProtocol
 from thrift.transport import TSocket, TTransport
 
-from dtest import Tester, create_ks, create_cf
+from dtest import Tester
 from tools.data import (create_c1c2_table, insert_c1c2, insert_columns, putget,
-                        query_c1c2, query_columns, range_putget)
+                        query_c1c2, query_columns, range_putget, create_cf, create_ks)
 from tools.decorators import known_failure, no_vnodes
-from tools.misc import ImmutableMapping, retry_till_success
+from tools.misc import ImmutableMapping
+from tools.funcutils import retry_till_success
 
 
 class TestPutGet(Tester):

@@ -4,8 +4,8 @@ from threading import Thread
 from cassandra import ConsistencyLevel
 from ccmlib.node import ToolError
 
-from dtest import Tester, debug, create_ks, create_cf
-from tools.data import insert_c1c2, query_c1c2
+from dtest import Tester, debug
+from tools.data import insert_c1c2, query_c1c2, create_cf, create_ks
 from tools.decorators import since
 from tools.misc import ImmutableMapping
 

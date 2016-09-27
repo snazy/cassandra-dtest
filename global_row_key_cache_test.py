@@ -2,7 +2,8 @@ import time
 
 from cassandra.concurrent import execute_concurrent_with_args
 
-from dtest import Tester, debug, create_ks
+from dtest import Tester, debug
+from tools.data import create_ks
 
 
 class TestGlobalRowKeyCache(Tester):

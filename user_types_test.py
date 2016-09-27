@@ -4,7 +4,8 @@ import uuid
 from cassandra import ConsistencyLevel, Unauthorized
 from cassandra.query import SimpleStatement
 
-from dtest import Tester, create_ks
+from dtest import Tester
+from tools.data import create_ks
 from tools.assertions import assert_invalid
 from tools.decorators import since
 

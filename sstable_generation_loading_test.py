@@ -5,7 +5,8 @@ from distutils import dir_util
 
 from ccmlib import common as ccmcommon
 
-from dtest import Tester, debug, create_ks, create_cf
+from dtest import Tester, debug
+from tools.data import create_cf, create_ks
 from tools.assertions import assert_one
 from tools.decorators import known_failure
 from tools.misc import ImmutableMapping

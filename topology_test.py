@@ -6,9 +6,9 @@ from unittest import skip
 from cassandra import ConsistencyLevel
 from ccmlib.node import TimeoutError, ToolError
 
-from dtest import Tester, debug, create_ks, create_cf
+from dtest import Tester, debug
 from tools.assertions import assert_almost_equal
-from tools.data import insert_c1c2, query_c1c2
+from tools.data import insert_c1c2, query_c1c2, create_cf, create_ks
 from tools.decorators import known_failure, no_vnodes, since
 
 

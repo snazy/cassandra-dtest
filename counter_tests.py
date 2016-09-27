@@ -6,8 +6,8 @@ from cassandra import ConsistencyLevel
 from cassandra.query import SimpleStatement
 
 from tools.assertions import assert_invalid, assert_length_equal, assert_one
-from dtest import Tester, create_ks, create_cf
-from tools.data import rows_to_list
+from dtest import Tester
+from tools.data import rows_to_list, create_cf, create_ks
 from tools.decorators import since
 
 

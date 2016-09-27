@@ -1,6 +1,7 @@
 import os
 
-from dtest import Tester, create_ks, create_cf
+from dtest import Tester
+from tools.data import create_cf, create_ks
 
 
 class TestCFID(Tester):

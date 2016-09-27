@@ -1,7 +1,8 @@
 import time
 
 from tools.assertions import assert_invalid
-from dtest import Tester, create_ks
+from dtest import Tester
+from tools.data import create_ks
 
 
 class TestUDTEncoding(Tester):

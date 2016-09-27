@@ -8,9 +8,9 @@ from ccmlib.common import is_win
 from ccmlib.node import Node
 from nose.plugins.attrib import attr
 
-from dtest import Tester, debug, create_ks, create_cf
+from dtest import Tester, debug
 from tools.assertions import assert_almost_equal, assert_one
-from tools.data import insert_c1c2
+from tools.data import insert_c1c2, create_cf, create_ks
 from tools.decorators import known_failure, since
 from tools.misc import ImmutableMapping
 

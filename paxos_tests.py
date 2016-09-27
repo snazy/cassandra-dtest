@@ -7,7 +7,8 @@ from cassandra import ConsistencyLevel, WriteTimeout
 from cassandra.query import SimpleStatement
 
 from tools.assertions import assert_unavailable
-from dtest import Tester, create_ks
+from dtest import Tester
+from tools.data import create_ks
 from tools.decorators import no_vnodes, since
 
 

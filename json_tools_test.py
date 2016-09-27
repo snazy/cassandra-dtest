@@ -1,8 +1,8 @@
 import os
 import tempfile
 
-from dtest import Tester, debug, create_ks
-from tools.data import rows_to_list
+from dtest import Tester, debug
+from tools.data import rows_to_list, create_ks
 from tools.decorators import known_failure, since
 
 

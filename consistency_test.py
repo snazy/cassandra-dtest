@@ -11,9 +11,9 @@ from nose.plugins.attrib import attr
 from nose.tools import assert_greater_equal
 
 from tools.assertions import assert_length_equal, assert_none, assert_unavailable
-from dtest import DISABLE_VNODES, MultiError, Tester, debug, create_ks, create_cf
+from dtest import DISABLE_VNODES, MultiError, Tester, debug
 from tools.data import (create_c1c2_table, insert_c1c2, insert_columns,
-                        query_c1c2, rows_to_list)
+                        query_c1c2, rows_to_list, create_cf, create_ks)
 from tools.decorators import known_failure, since
 
 ExpectedConsistency = namedtuple('ExpectedConsistency', ('num_write_nodes', 'num_read_nodes', 'is_strong'))

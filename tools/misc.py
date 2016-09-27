@@ -1,11 +1,7 @@
-import os
-import subprocess
-import time
 from collections import Mapping
 
+from cassandra.auth import PlainTextAuthProvider
 from ccmlib.node import Node
-
-from dtest import debug
 
 
 # work for cluster started by populate
@@ -22,52 +18,6 @@ def new_node(cluster, bootstrap=True, token=None, remote_debug_port='0', data_ce
                 binary_interface=('127.0.0.%s' % i, 9042))
     cluster.add(node, not bootstrap, data_center=data_center)
     return node
-
-
-def retry_till_success(fun, *args, **kwargs):
-    timeout = kwargs.pop('timeout', 60)
-    bypassed_exception = kwargs.pop('bypassed_exception', Exception)
-
-    deadline = time.time() + timeout
-    while True:
-        try:
-            return fun(*args, **kwargs)
-        except bypassed_exception:
-            if time.time() > deadline:
-                raise
-            else:
-                # brief pause before next attempt
-                time.sleep(0.25)
-
-
-def generate_ssl_stores(base_dir, passphrase='cassandra'):
-    """
-    Util for generating ssl stores using java keytool -- nondestructive method if stores already exist this method is
-    a no-op.
-
-    @param base_dir (str) directory where keystore.jks, truststore.jks and ccm_node.cer will be placed
-    @param passphrase (Optional[str]) currently ccm expects a passphrase of 'cassandra' so it's the default but it can be
-            overridden for failure testing
-    @return None
-    @throws CalledProcessError If the keytool fails during any step
-    """
-
-    if os.path.exists(os.path.join(base_dir, 'keystore.jks')):
-        debug("keystores already exists - skipping generation of ssl keystores")
-        return
-
-    debug("generating keystore.jks in [{0}]".format(base_dir))
-    subprocess.check_call(['keytool', '-genkeypair', '-alias', 'ccm_node', '-keyalg', 'RSA', '-validity', '365',
-                           '-keystore', os.path.join(base_dir, 'keystore.jks'), '-storepass', passphrase,
-                           '-dname', 'cn=Cassandra Node,ou=CCMnode,o=DataStax,c=US', '-keypass', passphrase])
-    debug("exporting cert from keystore.jks in [{0}]".format(base_dir))
-    subprocess.check_call(['keytool', '-export', '-rfc', '-alias', 'ccm_node',
-                           '-keystore', os.path.join(base_dir, 'keystore.jks'),
-                           '-file', os.path.join(base_dir, 'ccm_node.cer'), '-storepass', passphrase])
-    debug("importing cert into truststore.jks in [{0}]".format(base_dir))
-    subprocess.check_call(['keytool', '-import', '-file', os.path.join(base_dir, 'ccm_node.cer'),
-                           '-alias', 'ccm_node', '-keystore', os.path.join(base_dir, 'truststore.jks'),
-                           '-storepass', passphrase, '-noprompt'])
 
 
 class ImmutableMapping(Mapping):
@@ -90,3 +40,49 @@ class ImmutableMapping(Mapping):
 
     def __repr__(self):
         return '{cls}({data})'.format(cls=self.__class__.__name__, data=self._data)
+
+
+def get_port_from_node(node):
+    """
+    Return the port that this node is listening on.
+    We only use this to connect the native driver,
+    so we only care about the binary port.
+    """
+    try:
+        return node.network_interfaces['binary'][1]
+    except Exception:
+        raise RuntimeError("No network interface defined on this node object. {}".format(node.network_interfaces))
+
+
+def get_ip_from_node(node):
+    if node.network_interfaces['binary']:
+        node_ip = node.network_interfaces['binary'][0]
+    else:
+        node_ip = node.network_interfaces['thrift'][0]
+    return node_ip
+
+
+def get_eager_protocol_version(cassandra_version):
+    """
+    Returns the highest protocol version accepted
+    by the given C* version
+    """
+    if cassandra_version >= '2.2':
+        protocol_version = 4
+    elif cassandra_version >= '2.1':
+        protocol_version = 3
+    elif cassandra_version >= '2.0':
+        protocol_version = 2
+    else:
+        protocol_version = 1
+    return protocol_version
+
+
+def get_auth_provider(user, password):
+    return PlainTextAuthProvider(username=user, password=password)
+
+
+def make_auth(user, password):
+    def private_auth(node_ip):
+        return {'username': user, 'password': password}
+    return private_auth

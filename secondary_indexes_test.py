@@ -12,9 +12,9 @@ from cassandra.protocol import ConfigurationException
 from cassandra.query import BatchStatement, SimpleStatement
 
 from dtest import (DISABLE_VNODES, OFFHEAP_MEMTABLES, DtestTimeoutError,
-                   Tester, debug, CASSANDRA_VERSION_FROM_BUILD, create_ks, create_cf)
+                   Tester, debug, CASSANDRA_VERSION_FROM_BUILD)
 from tools.assertions import assert_bootstrap_state, assert_invalid, assert_one, assert_row_count
-from tools.data import index_is_built, rows_to_list
+from tools.data import index_is_built, rows_to_list, create_cf, create_ks
 from tools.decorators import known_failure, since
 from tools.misc import new_node
 

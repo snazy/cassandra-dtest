@@ -1,7 +1,8 @@
 # coding: utf-8
 from distutils.version import LooseVersion
 
-from dtest import Tester, debug, create_ks
+from dtest import Tester, debug
+from tools.data import create_ks
 from tools.decorators import since
 
 

@@ -38,3 +38,19 @@ def merge_dicts(*dict_args):
     for dictionary in dict_args:
         result.update(dictionary)
     return result
+
+
+def retry_till_success(fun, *args, **kwargs):
+    timeout = kwargs.pop('timeout', 60)
+    bypassed_exception = kwargs.pop('bypassed_exception', Exception)
+
+    deadline = time.time() + timeout
+    while True:
+        try:
+            return fun(*args, **kwargs)
+        except bypassed_exception:
+            if time.time() > deadline:
+                raise
+            else:
+                # brief pause before next attempt
+                time.sleep(0.25)

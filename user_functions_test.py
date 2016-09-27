@@ -4,7 +4,8 @@ from distutils.version import LooseVersion
 
 from cassandra import FunctionFailure
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug, create_ks
+from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
+from tools.data import create_ks
 from tools.assertions import assert_invalid, assert_none, assert_one
 from tools.decorators import since
 from tools.misc import ImmutableMapping

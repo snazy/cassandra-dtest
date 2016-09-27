@@ -6,7 +6,8 @@ from cassandra import ConsistencyLevel
 from cassandra.query import SimpleStatement
 from nose.tools import assert_equal
 
-from dtest import Tester, create_ks
+from dtest import Tester
+from tools.data import create_ks
 
 
 class DeleteInsertTest(Tester):

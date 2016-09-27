@@ -1,7 +1,7 @@
 import time
 
-from dtest import Tester, create_ks, create_cf
-from tools.data import rows_to_list
+from dtest import Tester
+from tools.data import rows_to_list, create_cf, create_ks
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 

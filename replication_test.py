@@ -7,7 +7,8 @@ from cassandra import ConsistencyLevel
 from cassandra.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtest import PRINT_DEBUG, DtestTimeoutError, Tester, debug, create_ks
+from dtest import PRINT_DEBUG, DtestTimeoutError, Tester, debug
+from tools.data import create_ks
 from tools.decorators import known_failure, no_vnodes, since
 
 TRACE_DETERMINE_REPLICAS = re.compile('Determining replicas for mutation')

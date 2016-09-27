@@ -17,9 +17,9 @@ from cassandra.query import BatchStatement, BatchType
 from ccmlib import common
 
 from cqlsh_tools import monkeypatch_driver, unmonkeypatch_driver
-from dtest import Tester, debug, create_ks, create_cf
+from dtest import Tester, debug
 from tools.assertions import assert_all, assert_none
-from tools.data import create_c1c2_table, insert_c1c2, rows_to_list
+from tools.data import create_c1c2_table, insert_c1c2, rows_to_list, create_cf, create_ks
 from tools.decorators import known_failure, since
 
 

@@ -1,6 +1,7 @@
 import time
 
-from dtest import Tester, create_ks
+from dtest import Tester
+from tools.data import create_ks
 from tools.decorators import since
 
 

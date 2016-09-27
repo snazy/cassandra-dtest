@@ -7,7 +7,8 @@ import subprocess
 from ccmlib import common
 from ccmlib.node import ToolError
 
-from dtest import Tester, debug, create_ks
+from dtest import Tester, debug
+from tools.data import create_ks
 from tools.decorators import known_failure, since
 
 

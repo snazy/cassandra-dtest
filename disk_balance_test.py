@@ -1,9 +1,9 @@
 import os
 import os.path
 
-from dtest import DISABLE_VNODES, Tester, create_ks
+from dtest import DISABLE_VNODES, Tester
 from tools.assertions import assert_almost_equal
-from tools.data import create_c1c2_table, insert_c1c2, query_c1c2
+from tools.data import create_c1c2_table, insert_c1c2, query_c1c2, create_ks
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)

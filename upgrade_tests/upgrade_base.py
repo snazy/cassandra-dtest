@@ -6,7 +6,8 @@ from unittest import skipIf
 
 from ccmlib.common import get_version_from_build, is_win
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, DEBUG, Tester, debug, create_ks
+from dtest import CASSANDRA_VERSION_FROM_BUILD, DEBUG, Tester, debug
+from tools.data import create_ks
 
 
 def switch_jdks(major_version_int):

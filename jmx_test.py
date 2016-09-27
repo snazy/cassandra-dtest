@@ -9,7 +9,7 @@ from dtest import Tester, debug
 from tools.decorators import known_failure, since
 from tools.jmxutils import (JolokiaAgent, enable_jmx_ssl, make_mbean,
                             remove_perf_disable_shared_mem)
-from tools.misc import generate_ssl_stores
+from tools.sslkeygen import generate_ssl_stores
 
 
 class TestJMX(Tester):

@@ -5,7 +5,8 @@ from unittest import skipIf
 from cassandra import ConsistencyLevel, Timeout, Unavailable
 from cassandra.query import SimpleStatement
 
-from dtest import CASSANDRA_DIR, Tester, debug, create_ks
+from dtest import CASSANDRA_DIR, Tester, debug
+from tools.data import create_ks
 from tools.assertions import (assert_all, assert_invalid, assert_one,
                               assert_unavailable)
 from tools.decorators import since

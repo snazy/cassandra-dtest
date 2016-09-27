@@ -9,7 +9,9 @@ from cassandra.query import SimpleStatement
 from ccmlib.node import Node, TimeoutError
 from nose.tools import timed
 
-from dtest import Tester, debug, get_ip_from_node, create_ks
+from dtest import Tester, debug
+from tools.data import create_ks
+from tools.misc import get_ip_from_node
 from tools.decorators import known_failure, no_vnodes, since
 
 

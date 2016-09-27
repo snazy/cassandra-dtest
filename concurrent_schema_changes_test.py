@@ -10,7 +10,8 @@ from unittest import skip
 from cassandra.concurrent import execute_concurrent
 from ccmlib.node import Node
 
-from dtest import Tester, debug, create_ks
+from dtest import Tester, debug
+from tools.data import create_ks
 from tools.decorators import known_failure, since
 from tools.misc import ImmutableMapping
 

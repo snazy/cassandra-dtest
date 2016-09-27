@@ -3,7 +3,8 @@ import time
 from cassandra.concurrent import execute_concurrent_with_args
 
 from tools.assertions import assert_invalid, assert_all, assert_one
-from dtest import Tester, create_ks
+from dtest import Tester
+from tools.data import create_ks
 
 
 class TestSchema(Tester):

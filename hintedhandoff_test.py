@@ -3,8 +3,8 @@ import time
 
 from cassandra import ConsistencyLevel
 
-from dtest import DISABLE_VNODES, Tester, create_ks
-from tools.data import create_c1c2_table, insert_c1c2, query_c1c2
+from dtest import DISABLE_VNODES, Tester
+from tools.data import create_c1c2_table, insert_c1c2, query_c1c2, create_ks
 from tools.decorators import known_failure, no_vnodes, since
 
 

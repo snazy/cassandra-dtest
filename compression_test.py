@@ -1,6 +1,6 @@
 import os
 
-from dtest import create_ks
+from tools.data import create_ks
 from scrub_test import TestHelper
 from tools.assertions import assert_crc_check_chance_equal
 from tools.decorators import since

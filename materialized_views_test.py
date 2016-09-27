@@ -14,12 +14,13 @@ from cassandra.query import SimpleStatement
 from enum import Enum  # Remove when switching to py3
 from nose.plugins.attrib import attr
 
-from dtest import Tester, debug, get_ip_from_node, create_ks
+from dtest import Tester, debug, get_ip_from_node
+from tools.data import create_ks
 from tools.assertions import (assert_all, assert_crc_check_chance_equal,
                               assert_invalid, assert_none, assert_one,
                               assert_unavailable)
 from tools.decorators import known_failure, since
-from tools.misc import new_node
+from tools.misc import new_node, get_ip_from_node
 
 # CASSANDRA-10978. Migration wait (in seconds) to use in bootstrapping tests. Needed to handle
 # pathological case of flushing schema keyspace for multiple data directories. See CASSANDRA-6696

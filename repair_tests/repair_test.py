@@ -9,8 +9,8 @@ from cassandra.query import SimpleStatement
 from ccmlib.node import ToolError
 from nose.plugins.attrib import attr
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug, create_ks, create_cf
-from tools.data import insert_c1c2, query_c1c2
+from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
+from tools.data import insert_c1c2, query_c1c2, create_cf, create_ks
 from tools.decorators import known_failure, no_vnodes, since
 
 

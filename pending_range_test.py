@@ -1,7 +1,8 @@
 from cassandra.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtest import TRACE, Tester, debug, create_ks
+from dtest import TRACE, Tester, debug
+from tools.data import create_ks
 from tools.decorators import no_vnodes
 
 

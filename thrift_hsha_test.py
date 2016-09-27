@@ -7,7 +7,8 @@ import unittest
 
 import pycassa
 
-from dtest import DEFAULT_DIR, Tester, debug, create_ks
+from dtest import DEFAULT_DIR, Tester, debug
+from tools.data import create_ks
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 

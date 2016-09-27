@@ -1,12 +1,12 @@
 import time
+import types
 
 from cassandra import ConsistencyLevel
 from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.query import SimpleStatement
-from nose.tools import assert_equal, assert_true
+from nose.tools import assert_equal, assert_true, assert_greater_equal
 
 import assertions
-from dtest import create_cf
 
 
 def create_c1c2_table(tester, session, read_repair=None):
@@ -149,3 +149,50 @@ def index_is_built(node, session, keyspace, table_name, idx_name):
     full_idx_name = idx_name if node.get_cassandra_version() > '3.0' else '{}.{}'.format(table_name, idx_name)
     index_query = """SELECT * FROM system."IndexInfo" WHERE table_name = '{}' AND index_name = '{}'""".format(keyspace, full_idx_name)
     return len(list(session.execute(index_query))) == 1
+
+
+def create_cf(session, name, key_type="varchar", speculative_retry=None, read_repair=None, compression=None,
+              gc_grace=None, columns=None, validation="UTF8Type", compact_storage=False):
+    # We default to UTF8Type because it's simpler to use in tests
+
+    additional_columns = ""
+    if columns is not None:
+        for k, v in columns.items():
+            additional_columns = "{}, {} {}".format(additional_columns, k, v)
+
+    if additional_columns == "":
+        query = 'CREATE COLUMNFAMILY %s (key %s, c varchar, v varchar, PRIMARY KEY(key, c)) WITH comment=\'test cf\'' % (name, key_type)
+    else:
+        query = 'CREATE COLUMNFAMILY %s (key %s PRIMARY KEY%s) WITH comment=\'test cf\'' % (name, key_type, additional_columns)
+
+    if compression is not None:
+        query = '%s AND compression = { \'sstable_compression\': \'%sCompressor\' }' % (query, compression)
+    else:
+        # if a compression option is omitted, C* will default to lz4 compression
+        query += ' AND compression = {}'
+
+    if read_repair is not None:
+        query = '%s AND read_repair_chance=%f AND dclocal_read_repair_chance=%f' % (query, read_repair, read_repair)
+    if gc_grace is not None:
+        query = '%s AND gc_grace_seconds=%d' % (query, gc_grace)
+    if speculative_retry is not None:
+        query = '%s AND speculative_retry=\'%s\'' % (query, speculative_retry)
+
+    if compact_storage:
+        query += ' AND COMPACT STORAGE'
+
+    session.execute(query)
+    time.sleep(0.2)
+
+
+def create_ks(session, name, rf):
+    query = 'CREATE KEYSPACE %s WITH replication={%s}'
+    if isinstance(rf, types.IntType):
+        # we assume simpleStrategy
+        session.execute(query % (name, "'class':'SimpleStrategy', 'replication_factor':%d" % rf))
+    else:
+        assert_greater_equal(len(rf), 0, "At least one datacenter/rf pair is needed")
+        # we assume networkTopologyStrategy
+        options = (', ').join(['\'%s\':%d' % (d, r) for d, r in rf.iteritems()])
+        session.execute(query % (name, "'class':'NetworkTopologyStrategy', %s" % options))
+    session.execute('USE {}'.format(name))

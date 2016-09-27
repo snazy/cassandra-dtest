@@ -3,10 +3,10 @@ import os
 from cassandra import ConsistencyLevel
 from cassandra.cluster import NoHostAvailable
 
-from dtest import Tester, create_ks, create_cf
-from tools.data import putget
+from dtest import Tester
+from tools.data import putget, create_cf, create_ks
 from tools.decorators import since
-from tools.misc import generate_ssl_stores
+from tools.sslkeygen import generate_ssl_stores
 
 
 class NativeTransportSSL(Tester):
