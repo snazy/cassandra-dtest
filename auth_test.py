@@ -6,14 +6,16 @@ from cassandra import AuthenticationFailed, InvalidRequest, Unauthorized
 from cassandra.cluster import NoHostAvailable
 from cassandra.protocol import SyntaxException
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester, debug, wait_for_any_log
-from tools.assertions import (assert_all, assert_invalid, assert_one,
-                              assert_unauthorized, assert_length_equal)
+from dtest import (CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester,
+                   debug, wait_for_any_log)
+from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
+                              assert_one, assert_unauthorized)
 from tools.decorators import known_failure, since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import ImmutableMapping
 from tools.metadata_wrapper import UpdatingKeyspaceMetadataWrapper
+
 
 class AuthMixin():
 
@@ -29,7 +31,13 @@ class AuthMixin():
         session = Tester.patient_cql_connection(node, user=user, password=password)
         return session
 
+
 class TestAuthThreeNodes(Tester, AuthMixin):
+    """
+    All [user] auth tests that use only three C* nodes belong in this class.
+    We separate it from TestAuthOneNode so that we can re-use the cluster across
+    all of the tests in that class.
+    """
 
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12456',
@@ -47,8 +55,8 @@ class TestAuthThreeNodes(Tester, AuthMixin):
         """
         cluster = self.cluster
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                                    'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
-                                    'permissions_validity_in_ms': 0}
+                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                  'permissions_validity_in_ms': 0}
         self.cluster.set_configuration_options(values=config)
         cluster.set_configuration_options(values=config)
         cluster.populate(3).start(wait_for_binary_proto=True)
@@ -92,6 +100,11 @@ class TestAuthThreeNodes(Tester, AuthMixin):
 
 
 class TestAuthOneNode(ReusableClusterTester, AuthMixin):
+    """
+    All [user] auth tests that use only one C* node belong in this class.
+    We separate it from TestAuthThreeNodes so that we can re-use the cluster across
+    all of the tests in this class.
+    """
 
     ignore_log_patterns = (
         # This one occurs if we do a non-rolling upgrade, the node
@@ -100,9 +113,9 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         r'Can\'t send migration request: node.*is down',
     )
 
-    default_config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
-                  'permissions_validity_in_ms': 0}
+    default_config = ImmutableMapping({'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                                       'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                                       'permissions_validity_in_ms': 0})
 
     @classmethod
     def post_initialize_cluster(cls):
@@ -115,22 +128,31 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         remove_perf_disable_shared_mem(cluster.nodelist()[0])
         cluster.start(wait_for_binary_proto=True)
 
+        cls.cached_config = ImmutableMapping(cluster._config_options)
+
         n = wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
 
     def setUp(self):
-        ReusableClusterTester.setUp(self)
+        super(TestAuthOneNode, self).setUp()
         self._cleanup_schema()
+
+    def tearDown(self):
+        # Reset config to default if it was changed
+        if not set(self.cached_config.items()) == set(self.cluster._config_options.items()):
+            restart_cluster_and_update_config(self.cluster, self.default_config)
+        super(TestAuthOneNode, self).tearDown()
 
     def _cleanup_schema(self):
         session = self.get_session(user='cassandra', password='cassandra')
-        session.execute("DROP USER IF EXISTS cathy")
-        session.execute("DROP USER IF EXISTS bob")
-        session.execute("DROP USER IF EXISTS test")
-        session.execute("DROP USER IF EXISTS dave")
-        session.execute("DROP USER IF EXISTS jackob")
-        session.execute("DROP USER IF EXISTS alex")
-        session.execute("DROP USER IF EXISTS 'james@example.com'")
+
+        users = [row.name for row in session.execute("LIST USERS").current_rows]
+        users.remove('cassandra')  # Don't drop the default superuser
+
+        for user in users:
+            session.execute("DROP USER IF EXISTS '{}'".format(user))
+
         session.execute("DROP KEYSPACE IF EXISTS ks")
+        session.cluster.shutdown()
 
     def login_test(self):
         """
@@ -771,14 +793,9 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         @jira_ticket CASSANDRA-8194
         """
-        cluster = self.cluster
-        cluster.stop()
         config = self.default_config.copy()
         config['permissions_validity_in_ms'] = 2000
-        cluster.set_configuration_options(values=config)
-        cluster.start(wait_for_binary_proto=True)
-
-        time.sleep(12) # Wait for -Dcassandra.superuser_setup_delay_ms to expire
+        restart_cluster_and_update_config(self.cluster, config)
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -825,13 +842,6 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
             time.sleep(0.1)
 
         self.assertTrue(success)
-
-        # EITHER the test will run correctly, and we reset the config
-        # OR the test will error, in which case tearDown will handle re-creating the cluster
-        cluster.stop()
-        cluster.set_configuration_options(values=self.default_config)
-        cluster.start(wait_for_binary_proto=True)
-        time.sleep(12) # Wait for -Dcassandra.superuser_setup_delay_ms to expire
 
     def list_permissions_test(self):
         """
@@ -962,7 +972,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         self.cluster.set_configuration_options(values=config)
         self.cluster.start(wait_for_binary_proto=True)
 
-        time.sleep(12) # We need to wait for -Dcassandra.superuser_setup_delay_ms
+        time.sleep(12)  # We need to wait for -Dcassandra.superuser_setup_delay_ms
 
         philip = self.get_session(user='philip', password='strongpass')
         cathy = self.get_session(user='cathy', password='12345')
@@ -1065,34 +1075,45 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
     else:
         cluster_options = ImmutableMapping({'enable_user_defined_functions': 'true'})
 
-    default_config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
-                  'role_manager': 'org.apache.cassandra.auth.CassandraRoleManager',
-                  'permissions_validity_in_ms': 0,
-                  'roles_validity_in_ms': 0}
+    default_config = ImmutableMapping({'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                                       'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                                       'role_manager': 'org.apache.cassandra.auth.CassandraRoleManager',
+                                       'permissions_validity_in_ms': 0,
+                                       'roles_validity_in_ms': 0})
+
     @classmethod
     def post_initialize_cluster(cls):
         cluster = cls.cluster
         cluster.set_configuration_options(values=cls.default_config)
         cluster.populate(1).start(wait_for_binary_proto=True)
 
+        cls.cached_config = ImmutableMapping(cluster._config_options)
+
         wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
 
     def setUp(self):
-        ReusableClusterTester.setUp(self)
+        super(TestAuthRoles, self).setUp()
         self._cleanup_schema()
 
     def _cleanup_schema(self):
         session = self.get_session(user='cassandra', password='cassandra')
         roles = [row.role for row in session.execute("LIST ROLES").current_rows]
-        roles.remove('cassandra') # Don't drop the default superuser
+        roles.remove('cassandra')  # Don't drop the default superuser
         keyspaces = ['ks']
 
-        if roles: # We might have no roles to drop
-            for role in roles:
-                session.execute("DROP ROLE IF EXISTS '{}'".format(role))
+        for role in roles:
+            session.execute("DROP ROLE IF EXISTS '{}'".format(role))
+
         for ks in keyspaces:
             session.execute("DROP KEYSPACE IF EXISTS {}".format(ks))
+
+        session.cluster.shutdown()
+
+    def tearDown(self):
+        # Reset config to default if it was changed
+        if not set(self.cached_config.items()) == set(self.cluster._config_options.items()):
+            restart_cluster_and_update_config(self.cluster, self.default_config)
+        super(TestAuthRoles, self).tearDown()
 
     def create_drop_role_test(self):
         """
@@ -1763,13 +1784,9 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         """
 
         cluster = self.cluster
-        cluster.stop()
         config = self.default_config.copy()
         config['roles_validity_in_ms'] = 2000
-        cluster.set_configuration_options(values=config)
-        cluster.start(wait_for_binary_proto=True)
-
-        time.sleep(12) # Wait for -Dcassandra.superuser_setup_delay_ms to expire
+        restart_cluster_and_update_config(cluster, config)
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
@@ -1798,13 +1815,6 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
 
         self.assertIsNotNone(unauthorized)
 
-        # EITHER the test will run correctly, and we reset the config
-        # OR the test will error, in which case tearDown will handle re-creating the cluster
-        cluster.stop()
-        cluster.set_configuration_options(values=self.default_config)
-        cluster.start(wait_for_binary_proto=True)
-        time.sleep(12)  # Wait for -Dcassandra.superuser_setup_delay_ms to expire
-
     def drop_non_existent_role_should_not_update_cache(self):
         """
         This test checks that dropping a nonexistent role doesn't
@@ -1820,11 +1830,9 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         # should not cause a non-existent role to be cached (CASSANDRA-9189)
 
         cluster = self.cluster
-        cluster.stop()
         config = self.default_config.copy()
         config['roles_validity_in_ms'] = 10000
-        cluster.set_configuration_options(values=config)
-        cluster.start(wait_for_binary_proto=True)
+        restart_cluster_and_update_config(cluster, config)
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
@@ -1839,13 +1847,6 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
 
         mike = self.get_session(user='mike', password='12345')
         mike.execute("SELECT * FROM ks.cf")
-
-        # EITHER the test will run correctly, and we reset the config
-        # OR the test will error, in which case tearDown will handle re-creating the cluster
-        cluster.stop()
-        cluster.set_configuration_options(values=self.default_config)
-        cluster.start(wait_for_binary_proto=True)
-        time.sleep(12)  # Wait for -Dcassandra.superuser_setup_delay_ms to expire
 
     def prevent_circular_grants_test(self):
         """
@@ -2601,3 +2602,12 @@ def role_creator_permissions(creator, role):
 
 def function_resource_creator_permissions(creator, resource):
     return [(creator, resource, perm) for perm in ('ALTER', 'DROP', 'AUTHORIZE', 'EXECUTE')]
+
+
+def restart_cluster_and_update_config(cluster, config):
+    # EITHER the test will run correctly, and we reset the config
+    # OR the test will error, in which case tearDown will handle re-creating the cluster
+    cluster.stop()
+    cluster.set_configuration_options(values=config)
+    cluster.start(wait_for_binary_proto=True)
+    time.sleep(12)  # Wait for -Dcassandra.superuser_setup_delay_ms to expire
