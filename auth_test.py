@@ -116,7 +116,6 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         cluster.start(wait_for_binary_proto=True)
 
         n = wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
-        debug("Default role created by " + n.name)
 
     def setUp(self):
         ReusableClusterTester.setUp(self)
@@ -1056,7 +1055,7 @@ cassandra_role = Role('cassandra', True, True, {})
 
 
 @since('2.2')
-class TestAuthRoles(Tester, AuthMixin):
+class TestAuthRoles(ReusableClusterTester, AuthMixin):
     """
     @jira_ticket CASSANDRA-7653
     """
@@ -1066,6 +1065,35 @@ class TestAuthRoles(Tester, AuthMixin):
     else:
         cluster_options = ImmutableMapping({'enable_user_defined_functions': 'true'})
 
+    default_config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                  'role_manager': 'org.apache.cassandra.auth.CassandraRoleManager',
+                  'permissions_validity_in_ms': 0,
+                  'roles_validity_in_ms': 0}
+    @classmethod
+    def post_initialize_cluster(cls):
+        cluster = cls.cluster
+        cluster.set_configuration_options(values=cls.default_config)
+        cluster.populate(1).start(wait_for_binary_proto=True)
+
+        wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
+
+    def setUp(self):
+        ReusableClusterTester.setUp(self)
+        self._cleanup_schema()
+
+    def _cleanup_schema(self):
+        session = self.get_session(user='cassandra', password='cassandra')
+        roles = [row.role for row in session.execute("LIST ROLES").current_rows]
+        roles.remove('cassandra') # Don't drop the default superuser
+        keyspaces = ['ks']
+
+        if roles: # We might have no roles to drop
+            for role in roles:
+                session.execute("DROP ROLE IF EXISTS '{}'".format(role))
+        for ks in keyspaces:
+            session.execute("DROP KEYSPACE IF EXISTS {}".format(ks))
+
     def create_drop_role_test(self):
         """
         * Launch a one node cluster
@@ -1073,7 +1101,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create a new role, check it exists
         * Drop the role, check it is gone
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         assert_one(cassandra, 'LIST ROLES', list(cassandra_role))
 
@@ -1092,7 +1119,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Drop the new role twice, using IF EXISTS
         * Check neither query failed, but only superuser remains
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         assert_one(cassandra, "LIST ROLES", list(cassandra_role))
 
@@ -1117,7 +1143,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Drop the new role.
         * Try to drop the new role again, assert throws InvalidRequest
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         mike = self.get_session(user='mike', password='12345')
@@ -1151,7 +1176,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify mike can drop roles
         * Verify roles without admin cannot drop roles
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE administrator WITH SUPERUSER = false AND LOGIN = false")
         cassandra.execute("GRANT ALL ON ALL ROLES TO administrator")
@@ -1206,7 +1230,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Connect as mike
         * Verify that mike is automatically granted permissions on any resource he creates
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("GRANT CREATE ON ALL KEYSPACES TO mike")
@@ -1249,7 +1272,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Connect as mike
         * Verify mike can create new roles, but not grant them superuser
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE another_superuser WITH SUPERUSER = true AND LOGIN = false")
         cassandra.execute("CREATE ROLE non_superuser WITH SUPERUSER = false AND LOGIN = false")
@@ -1279,7 +1301,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Connect as mike
         * Verify mike can drop or revoke any roles, regardless of its superuser status
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE another_superuser WITH SUPERUSER = true AND LOGIN = false")
         cassandra.execute("CREATE ROLE non_superuser WITH SUPERUSER = false AND LOGIN = false")
@@ -1308,7 +1329,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Recreate role2. Grant to role1 again. Verify is in LIST ROLES of mike
         * DROP role1. Verify mike's roles only include mike, but LIST ROLES still includes role2
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE role1")
         cassandra.execute("CREATE ROLE role2")
@@ -1339,7 +1359,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Drop role1 and role2
         * Assert mike has no permissions remaining
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE role1")
         cassandra.execute("CREATE ROLE role2")
@@ -1365,7 +1384,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify the output of LIST ROLES
         * REVOKE various roles, verify the output of LIST ROLES
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("CREATE ROLE role1")
@@ -1393,7 +1411,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create ROLE john
         * Verify mike cannot grant/revoke roles to/from john without the AUTHORIZE permission
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         mike = self.get_session(user='mike', password='12345')
@@ -1432,7 +1449,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify LIST ROLES for each role is correct
         * Verify a role cannot LIST ROLES for another ROLE without being a superuser, or having the DESCRIBE permission
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("CREATE ROLE role1")
@@ -1475,7 +1491,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Restore role1 to mike, but revoke role1's permissions
         * Verify mike can no longer use ks.cf
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1510,7 +1525,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Grant ALL permissions to mike for each resource. Verify they show up in LIST ALL PERMISSIONS
         * Verify you can't selectively grant invalid permissions for a given resource. ex: CREATE on an existing table
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1626,7 +1640,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Grant various permissions to roles
         * Verify they propagate appropriately.
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1703,8 +1716,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify mike can see the permissions of his role, and the roles granted to him
         * Verify mike cannot see all permissions, or those of roles not granted to him
         """
-        self.prepare()
-
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1750,7 +1761,16 @@ class TestAuthRoles(Tester, AuthMixin):
         * Revoke role1, and thus read permissions, from mike.
         * Try reading as mike, and verify that eventually the cache expires and it fails.
         """
-        self.prepare(roles_expiry=2000)
+
+        cluster = self.cluster
+        cluster.stop()
+        config = self.default_config.copy()
+        config['roles_validity_in_ms'] = 2000
+        cluster.set_configuration_options(values=config)
+        cluster.start(wait_for_binary_proto=True)
+
+        time.sleep(12) # Wait for -Dcassandra.superuser_setup_delay_ms to expire
+
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1778,6 +1798,13 @@ class TestAuthRoles(Tester, AuthMixin):
 
         self.assertIsNotNone(unauthorized)
 
+        # EITHER the test will run correctly, and we reset the config
+        # OR the test will error, in which case tearDown will handle re-creating the cluster
+        cluster.stop()
+        cluster.set_configuration_options(values=self.default_config)
+        cluster.start(wait_for_binary_proto=True)
+        time.sleep(12)  # Wait for -Dcassandra.superuser_setup_delay_ms to expire
+
     def drop_non_existent_role_should_not_update_cache(self):
         """
         This test checks that dropping a nonexistent role doesn't
@@ -1791,7 +1818,14 @@ class TestAuthRoles(Tester, AuthMixin):
         """
         # The su status check during DROP ROLE IF EXISTS <role>
         # should not cause a non-existent role to be cached (CASSANDRA-9189)
-        self.prepare(roles_expiry=10000)
+
+        cluster = self.cluster
+        cluster.stop()
+        config = self.default_config.copy()
+        config['roles_validity_in_ms'] = 10000
+        cluster.set_configuration_options(values=config)
+        cluster.start(wait_for_binary_proto=True)
+
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1806,6 +1840,13 @@ class TestAuthRoles(Tester, AuthMixin):
         mike = self.get_session(user='mike', password='12345')
         mike.execute("SELECT * FROM ks.cf")
 
+        # EITHER the test will run correctly, and we reset the config
+        # OR the test will error, in which case tearDown will handle re-creating the cluster
+        cluster.stop()
+        cluster.set_configuration_options(values=self.default_config)
+        cluster.start(wait_for_binary_proto=True)
+        time.sleep(12)  # Wait for -Dcassandra.superuser_setup_delay_ms to expire
+
     def prevent_circular_grants_test(self):
         """
         * Launch a one node cluster
@@ -1813,7 +1854,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create several roles
         * Verify we cannot grant roles in circular chain
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike")
         cassandra.execute("CREATE ROLE role1")
@@ -1835,7 +1875,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Connect as the default superuser
         * Attempt to create roles using "CREATE USER". Verify still works
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER mike WITH PASSWORD '12345' NOSUPERUSER")
         assert_one(cassandra, "LIST ROLES OF mike", list(mike_role))
@@ -1853,7 +1892,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify that CREATE USER is always case sensitive
         @jira_ticket CASSANDRA-10394
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         # unquoted identifiers and unreserved keyword do not preserve case
         # count
@@ -1891,7 +1929,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Remove mike's login privilege. Verify mike cannot login
         * Restore mike's login privilege. Verify mike can connect again.
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         assert_one(cassandra, "LIST ROLES OF mike", list(mike_role))
@@ -1913,7 +1950,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Grant the other user to mike.
         * Verify mike still cannot log in.
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = false")
         cassandra.execute("CREATE ROLE with_login WITH PASSWORD = '54321' AND SUPERUSER = false AND LOGIN = true")
@@ -1934,7 +1970,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Alter mike and add a password
         * Verify mike can now connect
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH SUPERUSER = false AND LOGIN = true")
         if self.cluster.cassandra_version() >= '3.8':
@@ -1954,7 +1989,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Grant the superuser role to mike.
         * Verify that mike now has all permissions
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("CREATE ROLE db_admin WITH SUPERUSER = true")
@@ -1966,6 +2000,7 @@ class TestAuthRoles(Tester, AuthMixin):
 
         cassandra.execute("GRANT db_admin TO mike")
         mike.execute("CREATE ROLE another_role WITH SUPERUSER = false AND LOGIN = false")
+
         assert_all(mike, "LIST ROLES", [["another_role", False, False, {}],
                                         list(cassandra_role),
                                         ["db_admin", True, False, {}],
@@ -1979,7 +2014,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Grant the superuser role to mike
         * Verify that LIST USERS shows mike as a superuser, even though that privilege is granted indirectly
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE db_admin WITH SUPERUSER = true")
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
@@ -1996,7 +2030,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create two UDFs
         * Selectively grant and revoke each possible UDF permission to mike, and verify those operations worked
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND LOGIN = true")
@@ -2043,7 +2076,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Issue multiple grants and revokes of permissions for the UDF to mike
         * Verify the grants/revokes are idempotent, and were successful
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike")
@@ -2071,7 +2103,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify that revoking EXECUTE ON ALL FUNCTIONS for mike does not affect his function specific permissions
         * Check that if mike has keyspace level EXECUTE, that granting/revoking function specific permissions doesn't affect the keyspace level permissions
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("INSERT INTO ks.t1 (k,v) values (1,1)")
@@ -2131,7 +2162,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify mike can drop the UDF iff he has the DROP permission
         * Verify mike can create a new UDF iff he has the CREATE permission
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE FUNCTION ks.plus_one ( input int ) CALLED ON NULL INPUT RETURNS int LANGUAGE javascript AS 'input + 1'")
@@ -2194,7 +2224,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Grant mike permissions for that UDF
         * Verify that if mike is dropped and recreated, he has no permissions for the UDF
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND LOGIN = true")
@@ -2224,7 +2253,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify dropping the UDF removes mike's permissions for the UDF
         * Verify dropping the keyspace removes the rest of mike's permissions
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND LOGIN = true")
@@ -2254,7 +2282,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create two overloaded UDFs (same name, different parameters)
         * Verify that granting/revoking permissions on one function, doesn't affect the other
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND LOGIN = true")
@@ -2299,7 +2326,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Drop the keyspace containing the UDF
         * Verify mike has no permissions
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND LOGIN = true")
@@ -2352,7 +2378,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Verify the passed in cql works iff EXECUTE is granted to the role
         @param cql The statement to verify. Should contain the UDF ks.plus_one
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE FUNCTION ks.plus_one ( input int ) CALLED ON NULL INPUT RETURNS int LANGUAGE javascript AS 'input + 1'")
@@ -2373,7 +2398,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Connect as the default superuser
         * Verify that if EXECUTE permissions are granted to a parent role, that roles the parent is granted to inherit EXECUTE
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE function_user")
@@ -2397,7 +2421,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Connect as the default superuser
         * Verify a new role can use all built in functions, with no permissions granted.
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND LOGIN = true")
         self.setup_table(cassandra)
@@ -2413,7 +2436,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create a new role, 'mike'
         * Verify that granting or revoking permissions for the builtin functions to mike throw InvalidRequest
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike")
@@ -2437,7 +2459,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create a new role, 'mike'
         * Verify that granting EXECUTE on non function resources to mike throws InvalidRequest
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("CREATE ROLE mike")
@@ -2468,7 +2489,6 @@ class TestAuthRoles(Tester, AuthMixin):
         * Create two aggregate functions
         * Verify all UDF permissions also apply to aggregates
         """
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         self.setup_table(cassandra)
         cassandra.execute("INSERT INTO ks.t1 (k,v) VALUES (1,1)")
@@ -2529,7 +2549,6 @@ class TestAuthRoles(Tester, AuthMixin):
         @jira_ticket CASSANDRA-9551
         """
 
-        self.prepare()
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH LOGIN = true")
         # hack an invalid entry into the roles table for roleA
@@ -2566,17 +2585,6 @@ class TestAuthRoles(Tester, AuthMixin):
 
         assert isinstance(error, AuthenticationFailed), "Expected AuthenticationFailed, got {error}".format(error=error)
         self.assertIn(pattern, error.message)
-
-    def prepare(self, nodes=1, roles_expiry=0):
-        config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
-                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
-                  'role_manager': 'org.apache.cassandra.auth.CassandraRoleManager',
-                  'permissions_validity_in_ms': 0,
-                  'roles_validity_in_ms': roles_expiry}
-        self.cluster.set_configuration_options(values=config)
-        self.cluster.populate(nodes).start(wait_for_binary_proto=True)
-
-        wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
 
     def assert_permissions_listed(self, expected, session, query):
         rows = session.execute(query)
