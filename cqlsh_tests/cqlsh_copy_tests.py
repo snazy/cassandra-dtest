@@ -20,6 +20,7 @@ from cassandra.cqltypes import EMPTY
 from cassandra.murmur3 import murmur3
 from cassandra.util import SortedSet
 from ccmlib.common import is_win
+from nose.plugins.attrib import attr
 
 from cqlsh_tools import (DummyColorMap, assert_csvs_items_equal, csv_rows,
                          monkeypatch_driver, random_list, unmonkeypatch_driver,
@@ -2515,6 +2516,7 @@ class CqlshCopyTest(Tester):
         self._test_bulk_round_trip(nodes=3, partitioner="murmur3", num_operations=100000,
                                    copy_from_options={'PREPAREDSTATEMENTS': False})
 
+    @attr('resource-intensive')
     def test_bulk_round_trip_blogposts(self):
         """
         Test bulk import with a user profile that inserts 10 rows per operation and has a replication factor 3
@@ -2526,6 +2528,7 @@ class CqlshCopyTest(Tester):
                                    profile=os.path.join(os.path.dirname(os.path.realpath(__file__)), 'blogposts.yaml'),
                                    stress_table='stresscql.blogposts')
 
+    @attr('resource-intensive')
     def test_bulk_round_trip_blogposts_with_max_connections(self):
         """
         Same as test_bulk_round_trip_blogposts but limit the maximum number of concurrent connections a host will
