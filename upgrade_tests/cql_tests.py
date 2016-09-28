@@ -18,7 +18,7 @@ from cassandra.util import sortedset
 from nose.exc import SkipTest
 from nose.tools import assert_not_in
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, debug, freshCluster
+from dtest import RUN_STATIC_UPGRADE_MATRIX, debug
 from thrift_bindings.v22.ttypes import \
     ConsistencyLevel as ThriftConsistencyLevel
 from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnDef,
@@ -297,7 +297,6 @@ class TestCQL(UpgradeTester):
                 [24, 'Something something', 'Frodo Baggins'],
                 [30, 'Yet one more message', None]])
 
-    @freshCluster()
     def limit_ranges_test(self):
         """ Validate LIMIT option for 'range queries' in SELECT statements """
         cursor = self.prepare(ordered=True)
@@ -1111,7 +1110,6 @@ class TestCQL(UpgradeTester):
 
             assert_all(cursor, "SELECT * FROM users WHERE KEY='user1'", [])
 
-    @freshCluster()
     def undefined_column_handling_test(self):
         cursor = self.prepare(ordered=True)
 
@@ -1135,7 +1133,6 @@ class TestCQL(UpgradeTester):
 
             assert_all(cursor, "SELECT v2 FROM test WHERE k = 1", [[None]])
 
-    @freshCluster()
     def range_tombstones_test(self):
         """ Test deletion by 'composite prefix' (range tombstones) """
 
@@ -1626,7 +1623,6 @@ class TestCQL(UpgradeTester):
             cursor.execute("INSERT INTO test (k, c) VALUES (2, 2)")
             assert_one(cursor, "SELECT * FROM test", [2, 2, None, None])
 
-    @freshCluster()
     def only_pk_test(self):
         """ Check table with only a PK (#4361) """
         cursor = self.prepare(ordered=True)
@@ -1700,7 +1696,6 @@ class TestCQL(UpgradeTester):
             cursor.execute("INSERT INTO test (k, t) VALUES (0, '2011-02-03')")
             assert_invalid(cursor, "INSERT INTO test (k, t) VALUES (0, '2011-42-42')")
 
-    @freshCluster()
     def range_slice_test(self):
         """ Test a regression from #1337 """
 
@@ -1722,7 +1717,6 @@ class TestCQL(UpgradeTester):
 
             assert_row_count(cursor, 'test', 2)
 
-    @freshCluster()
     def composite_index_with_pk_test(self):
 
         cursor = self.prepare(ordered=True)
@@ -1786,7 +1780,6 @@ class TestCQL(UpgradeTester):
                 assert_invalid(cursor, "SELECT content FROM blogs WHERE time1 = 1 AND time2 = 1 AND author='foo'")
                 assert_invalid(cursor, "SELECT content FROM blogs WHERE time1 = 1 AND time2 > 0 AND author='foo'")
 
-    @freshCluster()
     def limit_bugs_test(self):
         """ Test for LIMIT bugs from 4579 """
 
@@ -1870,7 +1863,6 @@ class TestCQL(UpgradeTester):
             assert_invalid(cursor, "SELECT * FROM compositetest WHERE ctime>=12345679 AND key='key3' AND ctime<=12345680 LIMIT 3;")
             assert_invalid(cursor, "SELECT * FROM compositetest WHERE ctime=12345679  AND key='key3' AND ctime<=12345680 LIMIT 3")
 
-    @freshCluster()
     def order_by_multikey_test(self):
         """ Test for #4612 bug and more generaly order by when multiple C* rows are queried """
 
@@ -2283,7 +2275,6 @@ class TestCQL(UpgradeTester):
 
             assert_one(cursor, "SELECT l1, l2 FROM test WHERE k = 0", [[1, 24, 3], [4, 42, 6]])
 
-    @freshCluster()
     def composite_index_collections_test(self):
         cursor = self.prepare(ordered=True)
         cursor.execute("""
@@ -2312,7 +2303,6 @@ class TestCQL(UpgradeTester):
             query = "SELECT blog_id, content FROM blogs WHERE author='foo'"
             assert_all(cursor, query, [[1, set(['bar1', 'bar2'])], [1, set(['bar2', 'bar3'])], [2, set(['baz'])]])
 
-    @freshCluster()
     def truncate_clean_cache_test(self):
         cursor = self.prepare(ordered=True, use_cache=True)
 
@@ -3108,7 +3098,6 @@ class TestCQL(UpgradeTester):
                 assert_invalid(cursor, "DELETE FROM test2 WHERE k = 0 AND i > 0 IF EXISTS")
                 assert_invalid(cursor, "DELETE FROM test2 WHERE k = 0 AND i > 0 IF v = 'foo'")
 
-    @freshCluster()
     def range_key_ordered_test(self):
         cursor = self.prepare(ordered=True)
 
@@ -3346,7 +3335,6 @@ class TestCQL(UpgradeTester):
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12260',
                    flaky=False)
-    @freshCluster()
     def cas_simple_test(self):
         # cursor = self.prepare(nodes=3, rf=3)
         cursor = self.prepare()
