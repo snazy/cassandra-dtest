@@ -16,17 +16,7 @@ from tools.decorators import known_failure, since
 KEYSPACE = 'ks'
 
 
-class TestHelper(Tester):
-
-    def setUp(self):
-        """
-        disable JBOD configuration for scrub tests.
-        range-aware JBOD can skip generation in SSTable,
-        and some tests rely on generation numbers/
-        (see CASSANDRA-11693 and increase_sstable_generations)
-        """
-        super(TestHelper, self).setUp()
-        self.cluster.set_datadir_count(1)
+class ScrubTestMixin():
 
     def get_table_paths(self, table):
         """
@@ -178,10 +168,19 @@ class TestHelper(Tester):
 
 
 @since('2.2')
-class TestScrubIndexes(TestHelper):
+class TestScrubIndexes(Tester, ScrubTestMixin):
     """
     Test that we scrub indexes as well as their parent tables
     """
+    def setUp(self):
+        """
+        disable JBOD configuration for scrub tests.
+        range-aware JBOD can skip generation in SSTable,
+        and some tests rely on generation numbers/
+        (see CASSANDRA-11693 and increase_sstable_generations)
+        """
+        super(TestScrubIndexes, self).setUp()
+        self.cluster.set_datadir_count(1)
 
     def create_users(self, session):
         columns = {"password": "varchar", "gender": "varchar", "session_token": "varchar", "state": "varchar", "birth_year": "bigint"}
@@ -334,10 +333,19 @@ class TestScrubIndexes(TestHelper):
         self.assertListEqual(initial_users, users)
 
 
-class TestScrub(TestHelper):
+class TestScrub(Tester, ScrubTestMixin):
     """
     Generic tests for scrubbing
     """
+    def setUp(self):
+        """
+        disable JBOD configuration for scrub tests.
+        range-aware JBOD can skip generation in SSTable,
+        and some tests rely on generation numbers/
+        (see CASSANDRA-11693 and increase_sstable_generations)
+        """
+        super(TestScrub, self).setUp()
+        self.cluster.set_datadir_count(1)
 
     def create_users(self, session):
         columns = {"password": "varchar", "gender": "varchar", "session_token": "varchar", "state": "varchar", "birth_year": "bigint"}

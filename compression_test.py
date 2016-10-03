@@ -1,12 +1,34 @@
 import os
 
 from tools.data import create_ks
-from scrub_test import TestHelper
+from dtest import ReusableClusterTester
+from scrub_test import ScrubTestMixin
 from tools.assertions import assert_crc_check_chance_equal
 from tools.decorators import since
 
 
-class TestCompression(TestHelper):
+class TestCompression(ReusableClusterTester, ScrubTestMixin):
+
+    @classmethod
+    def post_initialize_cluster(cls):
+        cluster = cls.cluster
+        cluster.populate(1)
+        cluster.start(wait_for_binary_proto=True)
+
+    def _cleanup_schema(self):
+        session = self.patient_cql_connection(self.cluster.nodelist()[0])
+        session.execute("DROP KEYSPACE IF EXISTS ks")
+
+    def setUp(self):
+        """
+        disable JBOD configuration for scrub tests.
+        range-aware JBOD can skip generation in SSTable,
+        and some tests rely on generation numbers/
+        (see CASSANDRA-11693 and increase_sstable_generations)
+        """
+        super(TestCompression, self).setUp()
+        self.cluster.set_datadir_count(1)
+        self._cleanup_schema()
 
     def _get_compression_type(self, file):
         types = {
