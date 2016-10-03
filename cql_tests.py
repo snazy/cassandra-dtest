@@ -19,7 +19,7 @@ from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
 from thrift_tests import get_thrift_client
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_none, assert_one, assert_unavailable)
-from tools.decorators import since
+from tools.decorators import known_failure, since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingKeyspaceMetadataWrapper,
                                     UpdatingTableMetadataWrapper)
@@ -1169,6 +1169,12 @@ class LWTTester(ReusableClusterTester):
 
         assert_one(session, "SELECT a, s, d FROM {} WHERE a = 4".format(table_name), [4, 4, None])
 
+    def _is_new_lwt_format_version(self, version):
+        return version > LooseVersion('3.9') or (version > LooseVersion('3.0.9') and version < LooseVersion('3.1'))
+
+    @known_failure(failure_source='test',
+                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12724',
+                   flaky=True)
     def conditional_updates_on_static_columns_with_null_values_test(self):
         session = self.get_lwttester_session()
 
@@ -1183,13 +1189,13 @@ class LWTTester(ReusableClusterTester):
         self._validate_non_existing_or_null_values(table_name, session)
 
         assert_one(session, "UPDATE {} SET s = 30 WHERE a = 3 IF s IN (10,20,30)".format(table_name),
-                   [False, None] if (self.cluster.version() > LooseVersion('3.0')) else [False])
+                   [False, None] if self._is_new_lwt_format_version(self.cluster.version()) else [False])
 
         assert_one(session, "SELECT * FROM {} WHERE a = 3".format(table_name), [3, 3, None, None])
 
         for operator in [">", "<", ">=", "<=", "="]:
             assert_one(session, "UPDATE {} SET s = 50 WHERE a = 5 IF s {} 3".format(table_name, operator),
-                       [False, None] if (self.cluster.version() > LooseVersion('3.0')) else [False])
+                       [False, None] if self._is_new_lwt_format_version(self.cluster.version()) else [False])
 
             assert_one(session, "SELECT * FROM {} WHERE a = 5".format(table_name), [5, 5, None, None])
 
@@ -1264,7 +1270,7 @@ class LWTTester(ReusableClusterTester):
                     INSERT INTO {table_name} (a, b, s, d) values (3, 3, 40, 'a')
                     UPDATE {table_name} SET s = 30 WHERE a = 3 IF s {operator} 5;
                 APPLY BATCH""".format(table_name=table_name, operator=operator),
-                       [False, 3, 3, None] if (self.cluster.version() > LooseVersion('3.0')) else [False])
+                       [False, 3, 3, None] if self._is_new_lwt_format_version(self.cluster.version()) else [False])
 
             assert_one(session, "SELECT * FROM {table_name} WHERE a = 3".format(table_name=table_name), [3, 3, None, None])
 
@@ -1273,7 +1279,7 @@ class LWTTester(ReusableClusterTester):
                     INSERT INTO {table_name} (a, b, s, d) values (6, 6, 70, 'a')
                     UPDATE {table_name} SET s = 60 WHERE a = 6 IF s IN (1,2,3)
                 APPLY BATCH""".format(table_name=table_name),
-                   [False, 6, 6, None] if (self.cluster.version() > LooseVersion('3.0')) else [False])
+                   [False, 6, 6, None] if self._is_new_lwt_format_version(self.cluster.version()) else [False])
 
         assert_one(session, "SELECT * FROM {table_name} WHERE a = 6".format(table_name=table_name), [6, 6, None, None])
 
