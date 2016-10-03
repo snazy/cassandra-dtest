@@ -1,9 +1,9 @@
 import os
 
-from tools.data import create_ks
 from dtest import ReusableClusterTester
 from scrub_test import ScrubTestMixin
 from tools.assertions import assert_crc_check_chance_equal
+from tools.data import create_ks
 from tools.decorators import since
 
 
@@ -12,6 +12,7 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
     @classmethod
     def post_initialize_cluster(cls):
         cluster = cls.cluster
+        cluster.set_datadir_count(1)
         cluster.populate(1)
         cluster.start(wait_for_binary_proto=True)
 
@@ -27,7 +28,6 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
         (see CASSANDRA-11693 and increase_sstable_generations)
         """
         super(TestCompression, self).setUp()
-        self.cluster.set_datadir_count(1)
         self._cleanup_schema()
 
     def _get_compression_type(self, file):
@@ -47,7 +47,6 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
         using new cql create table syntax to disable compression
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
         [node] = cluster.nodelist()
 
         session = self.patient_cql_connection(node)
@@ -77,7 +76,6 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
         using new cql create table syntax to configure compression
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
         [node] = cluster.nodelist()
 
         session = self.patient_cql_connection(node)
@@ -138,7 +136,6 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
         starting with compression enabled then disabling it
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
         [node] = cluster.nodelist()
 
         session = self.patient_cql_connection(node)
@@ -169,7 +166,6 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
         starting with compression disabled and enabling it
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
         [node] = cluster.nodelist()
 
         session = self.patient_cql_connection(node)

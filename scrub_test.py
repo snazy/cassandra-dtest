@@ -9,8 +9,8 @@ import parse
 from ccmlib import common
 
 from dtest import Tester, debug
-from tools.data import create_cf, create_ks
 from tools.assertions import assert_length_equal, assert_stderr_clean
+from tools.data import create_cf, create_ks
 from tools.decorators import known_failure, since
 
 KEYSPACE = 'ks'
