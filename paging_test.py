@@ -3265,6 +3265,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
         self.check_all_paging_results(expected_data, 7,
                                       [25, 25, 25, 25, 25, 25, 25])
 
+    @since('3.0')
     def test_multiple_row_deletions(self):
         """Test multiple row deletions.
            @jira_ticket CASSANDRA-6237
