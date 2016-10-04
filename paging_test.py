@@ -14,7 +14,7 @@ from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
 from tools.data import rows_to_list, create_ks
 from tools.datahelp import create_rows, flatten_into_set, parse_data_into_dicts
 from tools.decorators import known_failure, since
-from tools.misc import ImmutableMapping
+from tools.misc import ImmutableMapping, restart_cluster_and_update_config
 from tools.paging import PageAssertionMixin, PageFetcher
 
 
@@ -3461,9 +3461,3 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
             # finish paging
             fetcher.request_all()
             self.assertEqual([2, 2], fetcher.num_results_all())
-
-
-def restart_cluster_and_update_config(cluster, config):
-    cluster.stop()
-    cluster.set_configuration_options(values=config)
-    cluster.start(wait_for_binary_proto=True)

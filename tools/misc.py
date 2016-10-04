@@ -89,3 +89,9 @@ def make_auth(user, password):
     def private_auth(node_ip):
         return {'username': user, 'password': password}
     return private_auth
+
+
+def restart_cluster_and_update_config(cluster, config):
+    cluster.stop()
+    cluster.set_configuration_options(values=config)
+    cluster.start(wait_for_binary_proto=True)

@@ -13,7 +13,7 @@ from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
 from tools.decorators import known_failure, since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
-from tools.misc import ImmutableMapping
+from tools.misc import ImmutableMapping, restart_cluster_and_update_config
 from tools.metadata_wrapper import UpdatingKeyspaceMetadataWrapper
 
 
@@ -795,7 +795,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         """
         config = self.default_config.copy()
         config['permissions_validity_in_ms'] = 2000
-        restart_cluster_and_update_config(self.cluster, config)
+        restart_cluster_and_update_config_with_sleep(self.cluster, config)
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
@@ -1786,7 +1786,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         cluster = self.cluster
         config = self.default_config.copy()
         config['roles_validity_in_ms'] = 2000
-        restart_cluster_and_update_config(cluster, config)
+        restart_cluster_and_update_config_with_sleep(cluster, config)
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
@@ -1832,7 +1832,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         cluster = self.cluster
         config = self.default_config.copy()
         config['roles_validity_in_ms'] = 10000
-        restart_cluster_and_update_config(cluster, config)
+        restart_cluster_and_update_config_with_sleep(cluster, config)
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
@@ -2604,10 +2604,6 @@ def function_resource_creator_permissions(creator, resource):
     return [(creator, resource, perm) for perm in ('ALTER', 'DROP', 'AUTHORIZE', 'EXECUTE')]
 
 
-def restart_cluster_and_update_config(cluster, config):
-    # EITHER the test will run correctly, and we reset the config
-    # OR the test will error, in which case tearDown will handle re-creating the cluster
-    cluster.stop()
-    cluster.set_configuration_options(values=config)
-    cluster.start(wait_for_binary_proto=True)
+def restart_cluster_and_update_config_with_sleep(cluster, config):
+    restart_cluster_and_update_config(cluster, config)
     time.sleep(12)  # Wait for -Dcassandra.superuser_setup_delay_ms to expire
