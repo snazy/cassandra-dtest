@@ -919,9 +919,12 @@ class ReusableClusterTester(Tester):
             finally:
                 reset_environment_vars()
                 if failed:
-                    cleanup_cluster(self.cluster, self.test_path)
-                    kill_windows_cassandra_procs()
-                    self.initialize_cluster()
+                    self.wipe_and_initialize_cluster()
+
+    def wipe_and_initialize_cluster(self):
+        cleanup_cluster(self.cluster, self.test_path)
+        kill_windows_cassandra_procs()
+        self.initialize_cluster()
 
     @classmethod
     def initialize_cluster(cls):

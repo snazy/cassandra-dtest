@@ -137,10 +137,10 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         self._cleanup_schema()
 
     def tearDown(self):
+        super(TestAuthOneNode, self).tearDown()
         # Reset config to default if it was changed
         if not set(self.cached_config.items()) == set(self.cluster._config_options.items()):
-            restart_cluster_and_update_config(self.cluster, self.default_config)
-        super(TestAuthOneNode, self).tearDown()
+            self.wipe_and_initialize_cluster()
 
     def _cleanup_schema(self):
         session = self.get_session(user='cassandra', password='cassandra')
@@ -1110,10 +1110,10 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         session.cluster.shutdown()
 
     def tearDown(self):
+        super(TestAuthRoles, self).tearDown()
         # Reset config to default if it was changed
         if not set(self.cached_config.items()) == set(self.cluster._config_options.items()):
-            restart_cluster_and_update_config(self.cluster, self.default_config)
-        super(TestAuthRoles, self).tearDown()
+            self.wipe_and_initialize_cluster()
 
     def create_drop_role_test(self):
         """
