@@ -24,20 +24,6 @@ class since(object):
         if self.max_version and version > self.max_version:
             return "%s > %s" % (version, self.max_version)
 
-    def _wrap_setUp(self, cls):
-        orig_setUp = cls.setUp
-
-        @functools.wraps(cls.setUp)
-        def wrapped_setUp(obj, *args, **kwargs):
-            orig_setUp(obj, *args, **kwargs)
-            version = obj.cluster.version()
-            msg = self._skip_msg(version)
-            if msg:
-                obj.skip(msg)
-
-        cls.setUp = wrapped_setUp
-        return cls
-
     def _wrap_setUpClass(self, cls):
         orig_setUpClass = cls.setUpClass
 
@@ -66,8 +52,6 @@ class since(object):
     def __call__(self, skippable):
         if inspect.isclass(skippable):
             return self._wrap_setUpClass(skippable)
-        if isinstance(skippable, type):
-            return self._wrap_setUp(skippable)
         return self._wrap_function(skippable)
 
 
