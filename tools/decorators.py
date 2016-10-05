@@ -45,7 +45,7 @@ class since(object):
             version = obj.cluster.version()
             msg = self._skip_msg(version)
             if msg:
-                obj.skip(msg)
+                raise SkipTest(msg)
             f(obj)
         return wrapped
 
