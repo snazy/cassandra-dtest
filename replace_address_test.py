@@ -9,7 +9,7 @@ from cassandra.query import SimpleStatement
 from ccmlib.node import Node
 from nose.plugins.attrib import attr
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, Tester, debug
+from dtest import CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, TRACE, Tester, debug
 from tools.assertions import assert_bootstrap_state, assert_all, assert_not_running
 from tools.data import rows_to_list
 from tools.decorators import known_failure, since
@@ -36,6 +36,10 @@ class BaseReplaceAddressTest(Tester):
     )
 
     def _setup(self, n=3, opts=None, enable_byteman=False, mixed_versions=False):
+        # If we are on 2.1, we need to set the log level to debug or higher, as debug.log does not exist.
+        if self.cluster.version() < '2.2' and not TRACE:
+            self.cluster.set_log_level('DEBUG')
+
         debug("Starting cluster with {} nodes.".format(n))
         self.cluster.populate(n)
         if opts is not None:
@@ -59,8 +63,8 @@ class BaseReplaceAddressTest(Tester):
             self.query_node.import_config_files()
 
         if mixed_versions:
-            debug("Starting nodes on version 2.2.4")
-            self.cluster.set_install_dir(version="2.2.4")
+            debug("Starting nodes on version 2.1.14")
+            self.cluster.set_install_dir(version="2.1.14")
 
         self.cluster.start()
 
@@ -103,7 +107,7 @@ class BaseReplaceAddressTest(Tester):
         self.replacement_node.start(jvm_args=extra_jvm_args,
                                     wait_for_binary_proto=wait_for_binary_proto, wait_other_notice=wait_other_notice)
 
-        if self.cluster.cassandra_version() >= '2.2.8' and same_address:
+        if self.cluster.cassandra_version() >= '2.1' and same_address:
             self.replacement_node.watch_log_for("Writes will not be forwarded to this node during replacement",
                                                 timeout=60)
 
@@ -152,16 +156,17 @@ class BaseReplaceAddressTest(Tester):
 
     def _verify_replacement(self, node, same_address):
         if not same_address:
-            if self.cluster.cassandra_version() >= '2.2.7':
+            if self.cluster.cassandra_version() >= '2.1':
+                debuglog = 'debug.log' if self.cluster.cassandra_version() >= '2.2' else 'system.log'
                 node.watch_log_for("Node /{} is replacing /{}"
                                    .format(self.replacement_node.address(),
                                            self.replaced_node.address()),
-                                   timeout=60, filename='debug.log')
+                                   timeout=60, filename=debuglog)
                 node.watch_log_for("Node /{} will complete replacement of /{} for tokens"
                                    .format(self.replacement_node.address(),
                                            self.replaced_node.address()), timeout=10)
                 node.watch_log_for("removing endpoint /{}".format(self.replaced_node.address()),
-                                   timeout=60, filename='debug.log')
+                                   timeout=60, filename=debuglog)
             else:
                 node.watch_log_for("between /{} and /{}; /{} is the new owner"
                                    .format(self.replaced_node.address(),
@@ -410,7 +415,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
                                                     from_mark=mark, timeout=20)
 
     @skipIf(CASSANDRA_VERSION_FROM_BUILD == '3.9', "Test doesn't run on 3.9")
-    @since('2.2')
+    @since('2.1')
     def insert_data_during_replace_same_address_test(self):
         """
         Test that replacement node with same address DOES NOT receive writes during replacement
@@ -419,7 +424,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         self._test_insert_data_during_replace(same_address=True)
 
     @skipIf(CASSANDRA_VERSION_FROM_BUILD == '3.9', "Test doesn't run on 3.9")
-    @since('2.2')
+    @since('2.1')
     def insert_data_during_replace_different_address_test(self):
         """
         Test that replacement node with different address DOES receive writes during replacement
