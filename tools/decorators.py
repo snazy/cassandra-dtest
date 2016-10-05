@@ -1,11 +1,13 @@
 import functools
+import inspect
 import unittest
 from distutils.version import LooseVersion
+from unittest.case import SkipTest
 
 from nose.plugins.attrib import attr
 from nose.tools import assert_in, assert_is_instance
 
-from dtest import DISABLE_VNODES
+from dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD
 
 
 class since(object):
@@ -36,6 +38,21 @@ class since(object):
         cls.setUp = wrapped_setUp
         return cls
 
+    def _wrap_setUpClass(self, cls):
+        orig_setUpClass = cls.setUpClass
+
+        @classmethod
+        @functools.wraps(cls.setUpClass)
+        def wrapped_setUpClass(obj, *args, **kwargs):
+            version = CASSANDRA_VERSION_FROM_BUILD
+            msg = self._skip_msg(version)
+            if msg:
+                raise SkipTest(msg)
+            orig_setUpClass(*args, **kwargs)
+
+        cls.setUpClass = wrapped_setUpClass
+        return cls
+
     def _wrap_function(self, f):
         @functools.wraps(f)
         def wrapped(obj):
@@ -47,6 +64,8 @@ class since(object):
         return wrapped
 
     def __call__(self, skippable):
+        if inspect.isclass(skippable):
+            return self._wrap_setUpClass(skippable)
         if isinstance(skippable, type):
             return self._wrap_setUp(skippable)
         return self._wrap_function(skippable)
