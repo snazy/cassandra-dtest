@@ -793,7 +793,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         @jira_ticket CASSANDRA-8194
         """
-        config = self.default_config.copy()
+        config = self.default_config.asdict()
         config['permissions_validity_in_ms'] = 2000
         restart_cluster_and_update_config_with_sleep(self.cluster, config)
 
@@ -1784,7 +1784,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         """
 
         cluster = self.cluster
-        config = self.default_config.copy()
+        config = self.default_config.asdict()
         config['roles_validity_in_ms'] = 2000
         restart_cluster_and_update_config_with_sleep(cluster, config)
 
@@ -1830,7 +1830,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         # should not cause a non-existent role to be cached (CASSANDRA-9189)
 
         cluster = self.cluster
-        config = self.default_config.copy()
+        config = self.default_config.asdict()
         config['roles_validity_in_ms'] = 10000
         restart_cluster_and_update_config_with_sleep(cluster, config)
 
