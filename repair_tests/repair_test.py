@@ -153,6 +153,7 @@ class TestRepair(BaseRepairTest):
     __test__ = True
 
     @since('2.2.1')
+    @attr('resource-intensive')
     def no_anticompaction_after_dclocal_repair_test(self):
         """
         * Launch a four node, two DC cluster
@@ -222,6 +223,7 @@ class TestRepair(BaseRepairTest):
                             'Repair thread on inexistent table did not detect inexistent table.')
 
     @since('2.2.1')
+    @attr('resource-intensive')
     def no_anticompaction_after_hostspecific_repair_test(self):
         """
         * Launch a four node, two DC cluster
@@ -264,6 +266,7 @@ class TestRepair(BaseRepairTest):
             self.assertFalse(node.grep_log("Starting anticompaction"))
 
     @since('2.2.1')
+    @attr('resource-intensive')
     def anticompaction_after_normal_repair_test(self):
         """
         * Launch a four node, two DC cluster
@@ -546,6 +549,7 @@ class TestRepair(BaseRepairTest):
         out_of_sync_logs = node2.grep_log("/([0-9.]+) and /([0-9.]+) have ([0-9]+) range\(s\) out of sync for table1")
         self.assertEqual(len(out_of_sync_logs), 0, "Digest mismatch for range tombstone: {}".format(str([elt[0] for elt in out_of_sync_logs])))
 
+    @attr('resource-intensive')
     def local_dc_repair_test(self):
         """
         * Set up a multi DC cluster
@@ -574,6 +578,7 @@ class TestRepair(BaseRepairTest):
         # Check node2 now has the key
         self.check_rows_on_node(node2, 2001, found=[1000], restart=False)
 
+    @attr('resource-intensive')
     def dc_repair_test(self):
         """
         * Set up a multi DC cluster
@@ -608,6 +613,7 @@ class TestRepair(BaseRepairTest):
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11605',
                    flaky=True,
                    notes='flaky on Windows')
+    @attr('resource-intensive')
     def dc_parallel_repair_test(self):
         """
         * Set up a multi DC cluster
