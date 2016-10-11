@@ -59,7 +59,7 @@ class TestAuthThreeNodes(Tester, AuthMixin):
                   'permissions_validity_in_ms': 0}
         self.cluster.set_configuration_options(values=config)
         cluster.set_configuration_options(values=config)
-        cluster.populate(3).start(wait_for_binary_proto=True)
+        cluster.populate(3).start()
 
         wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
 
@@ -86,7 +86,7 @@ class TestAuthThreeNodes(Tester, AuthMixin):
         debug("Stopping cluster..")
         self.cluster.stop()
         debug("Restarting cluster..")
-        self.cluster.start(wait_other_notice=True)
+        self.cluster.start()
 
         # check each node directly
         for i in range(3):
@@ -126,7 +126,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         cluster.set_configuration_options(values=cls.default_config)
 
         remove_perf_disable_shared_mem(cluster.nodelist()[0])
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         cls.cached_config = ImmutableMapping(cluster._config_options)
 
@@ -967,13 +967,13 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         config = {'authenticator': 'org.apache.cassandra.auth.AllowAllAuthenticator',
                   'authorizer': 'org.apache.cassandra.auth.AllowAllAuthorizer'}
         self.cluster.set_configuration_options(values=config)
-        self.cluster.start(wait_for_binary_proto=True)
+        self.cluster.start()
 
         self.cluster.stop()
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
                   'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer'}
         self.cluster.set_configuration_options(values=config)
-        self.cluster.start(wait_for_binary_proto=True)
+        self.cluster.start()
 
         time.sleep(12)  # We need to wait for -Dcassandra.superuser_setup_delay_ms
 
@@ -997,7 +997,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         cluster.stop(gently=False)
         cluster.clear()
         remove_perf_disable_shared_mem(node)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         with JolokiaAgent(node) as jmx:
             success = jmx.read_attribute(
@@ -1088,7 +1088,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
     def post_initialize_cluster(cls):
         cluster = cls.cluster
         cluster.set_configuration_options(values=cls.default_config)
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
 
         cls.cached_config = ImmutableMapping(cluster._config_options)
 

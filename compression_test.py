@@ -14,7 +14,7 @@ class TestCompression(ReusableClusterTester, ScrubTestMixin):
         cluster = cls.cluster
         cluster.set_datadir_count(1)
         cluster.populate(1)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
     def _cleanup_schema(self):
         session = self.patient_cql_connection(self.cluster.nodelist()[0])

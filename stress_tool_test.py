@@ -40,7 +40,7 @@ class TestStressSparsenessRatio(Tester):
         A parameterized test for the `row-population-ratio` parameter to
         `cassandra-stress`.
         """
-        self.cluster.populate(1).start(wait_for_binary_proto=True)
+        self.cluster.populate(1).start()
         node = self.cluster.nodelist()[0]
         node.stress(['write', 'n=1000', 'no-warmup', '-rate', 'threads=50', '-col', 'n=FIXED(50)',
                      '-insert', 'row-population-ratio={ratio_spec}'.format(ratio_spec=ratio_spec)])

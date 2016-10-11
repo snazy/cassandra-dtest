@@ -100,7 +100,7 @@ class UpgradeTester(Tester):
         cluster.populate(nodes)
         node1 = cluster.nodelist()[0]
         cluster.set_install_dir(version=self.UPGRADE_PATH.starting_version)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         node1 = cluster.nodelist()[0]
         time.sleep(0.2)

@@ -375,7 +375,7 @@ class TestBatch(Tester):
                     node.set_install_dir(version=version)
                     debug("Set cassandra dir for {} to {}".format(node.name, node.get_install_dir()))
 
-            self.cluster.start(wait_other_notice=True)
+            self.cluster.start()
 
         node1 = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node1, protocol_version=protocol_version)

@@ -59,7 +59,7 @@ class BaseBootstrapTest(Tester):
             debug("starting source node on version {}".format(bootstrap_from_version))
             node1.set_install_dir(version=bootstrap_from_version)
         node1.set_configuration_options(values={'initial_token': tokens[0]})
-        cluster.start(wait_other_notice=True)
+        cluster.start()
 
         session = self.patient_cql_connection(node1)
         create_ks(session, 'ks', 1)
@@ -143,7 +143,7 @@ class TestBootstrap(BaseBootstrapTest):
         # Create a single node cluster
         cluster.populate(1)
         node1 = cluster.nodelist()[0]
-        cluster.start(wait_other_notice=True)
+        cluster.start()
 
         # Create more than one sstable larger than 1MB
         node1.stress(['write', 'n=50K', '-rate', 'threads=8', '-schema',
@@ -175,7 +175,7 @@ class TestBootstrap(BaseBootstrapTest):
         cluster = self.cluster
         # Create a two-node cluster
         cluster.populate(2)
-        cluster.start(wait_other_notice=True)
+        cluster.start()
 
         # Bootstrapping a new node
         node3 = new_node(cluster)
@@ -287,7 +287,7 @@ class TestBootstrap(BaseBootstrapTest):
         node1.byteman_port = '8100'
         node1.import_config_files()
 
-        cluster.start(wait_other_notice=True)
+        cluster.start()
         # kill stream to node3 in the middle of streaming to let it fail
         node1.byteman_submit(['./byteman/stream_failure.btm'])
         node1.stress(['write', 'n=1K', 'no-warmup', 'cl=TWO', '-schema', 'replication(factor=2)', '-rate', 'threads=50'])
@@ -325,7 +325,7 @@ class TestBootstrap(BaseBootstrapTest):
 
         cluster = self.cluster
         cluster.set_configuration_options(values={'stream_throughput_outbound_megabits_per_sec': 1})
-        cluster.populate(2).start(wait_other_notice=True)
+        cluster.populate(2).start()
 
         node1 = cluster.nodes['node1']
         node1.stress(['write', 'n=100K', '-schema', 'replication(factor=2)'])
@@ -363,7 +363,7 @@ class TestBootstrap(BaseBootstrapTest):
             @jira_ticket CASSANDRA-9022
         """
         cluster = self.cluster
-        cluster.populate(2).start(wait_other_notice=True)
+        cluster.populate(2).start()
         (node1, node2) = cluster.nodelist()
 
         node1.stress(['write', 'n=1K', 'no-warmup', '-schema', 'replication(factor=2)',
@@ -464,7 +464,7 @@ class TestBootstrap(BaseBootstrapTest):
         """
         cluster = self.cluster
         cluster.populate(3)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         stress_table = 'keyspace1.standard1'
 
@@ -501,7 +501,7 @@ class TestBootstrap(BaseBootstrapTest):
         """
         cluster = self.cluster
         cluster.populate(3)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         stress_table = 'keyspace1.standard1'
 
@@ -541,7 +541,7 @@ class TestBootstrap(BaseBootstrapTest):
         """
         cluster = self.cluster
         cluster.populate(1)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         # Add a new node, bootstrap=True ensures that it is not a seed
         node2 = new_node(cluster, bootstrap=True)
@@ -579,7 +579,7 @@ class TestBootstrap(BaseBootstrapTest):
         cluster = self.cluster
         cluster.populate(1)
         cluster.set_configuration_options(values={'stream_throughput_outbound_megabits_per_sec': 1})
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         stress_table = 'keyspace1.standard1'
 
@@ -629,7 +629,7 @@ class TestBootstrap(BaseBootstrapTest):
 
         cluster = self.cluster
         cluster.populate(1)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         node1, = cluster.nodelist()
 
@@ -664,7 +664,7 @@ class TestBootstrap(BaseBootstrapTest):
         cluster = self.cluster
         cluster.set_configuration_options(values={'concurrent_compactors': 4})
         cluster.populate(1)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         node1, = cluster.nodelist()
         for x in xrange(0, 5):
             node1.stress(['write', 'n=100k', 'no-warmup', '-schema', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)', 'replication(factor=1)', '-rate', 'threads=10'])

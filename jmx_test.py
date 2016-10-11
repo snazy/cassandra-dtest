@@ -25,7 +25,7 @@ class TestJMX(Tester):
         """
 
         cluster = self.cluster
-        cluster.populate(3).start(wait_for_binary_proto=True)
+        cluster.populate(3).start()
         node1, node2, node3 = cluster.nodelist()
 
         node1.stress(['write', 'n=500K', 'no-warmup', '-schema', 'replication(factor=3)'])
@@ -64,7 +64,7 @@ class TestJMX(Tester):
         cluster.populate(3)
         node1, node2, node3 = cluster.nodelist()
         remove_perf_disable_shared_mem(node1)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         version = cluster.version()
         node1.stress(['write', 'n=10K', 'no-warmup', '-schema', 'replication(factor=3)'])
@@ -105,7 +105,7 @@ class TestJMX(Tester):
         cluster.populate(1)
         node = cluster.nodelist()[0]
         remove_perf_disable_shared_mem(node)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         # Run a quick stress command to create the keyspace and table
         node.stress(['write', 'n=1', 'no-warmup'])
@@ -167,7 +167,7 @@ class TestJMX(Tester):
         """
 
         cluster = self.cluster
-        cluster.populate(3).start(wait_for_binary_proto=True)
+        cluster.populate(3).start()
         node1, node2, node3 = cluster.nodelist()
 
         phivalues = node1.nodetool("failuredetector").stdout.splitlines()

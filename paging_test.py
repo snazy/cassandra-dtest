@@ -24,7 +24,7 @@ class BasePagingTester(ReusableClusterTester):
     def post_initialize_cluster(cls):
         cluster = cls.cluster
         cluster.populate(3)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         cls.cached_config = ImmutableMapping(cluster._config_options)
 
     def setUp(self):

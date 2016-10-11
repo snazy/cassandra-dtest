@@ -49,7 +49,7 @@ class CQLTester(Tester):
             cluster.set_configuration_options(values=config)
 
         if not cluster.nodelist():
-            cluster.populate(nodes).start(wait_for_binary_proto=True)
+            cluster.populate(nodes).start()
         node1 = cluster.nodelist()[0]
 
         session = self.patient_cql_connection(node1, protocol_version=protocol_version, user=user, password=password)
@@ -1113,7 +1113,7 @@ class LWTTester(ReusableClusterTester):
     def post_initialize_cluster(cls):
         cluster = cls.cluster
         cluster.populate(3)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
     def get_lwttester_session(self):
         node1 = self.cluster.nodelist()[0]

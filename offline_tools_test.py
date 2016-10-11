@@ -27,7 +27,7 @@ class TestOfflineTools(Tester):
         @jira_ticket CASSANDRA-7614
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
         node1 = cluster.nodelist()[0]
 
         # test by trying to run on nonexistent keyspace
@@ -40,7 +40,7 @@ class TestOfflineTools(Tester):
             self.assertEqual(e.exit_status, 1, "Expected sstablelevelreset to have a return code of 1, but instead return code was {}".format(e.exit_status))
 
         # now test by generating keyspace but not flushing sstables
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         node1.stress(['write', 'n=100', 'no-warmup', '-schema', 'replication(factor=1)',
                       '-rate', 'threads=8'])
         cluster.stop(gently=False)
@@ -51,7 +51,7 @@ class TestOfflineTools(Tester):
         self.assertEqual(rc, 0, msg=str(rc))
 
         # test by writing small amount of data and flushing (all sstables should be level 0)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         session = self.patient_cql_connection(node1)
         session.execute("ALTER TABLE keyspace1.standard1 with compaction={'class': 'LeveledCompactionStrategy', 'sstable_size_in_mb':1};")
         node1.stress(['write', 'n=1K', 'no-warmup', '-schema', 'replication(factor=1)',
@@ -65,7 +65,7 @@ class TestOfflineTools(Tester):
         self.assertEqual(rc, 0, msg=str(rc))
 
         # test by loading large amount data so we have multiple levels and checking all levels are 0 at end
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         node1.stress(['write', 'n=50K', 'no-warmup', '-schema', 'replication(factor=1)',
                       '-rate', 'threads=8'])
         cluster.flush()
@@ -119,7 +119,7 @@ class TestOfflineTools(Tester):
         """
         cluster = self.cluster
         cluster.set_configuration_options(values={'compaction_throughput_mb_per_sec': 0})
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
         node1 = cluster.nodelist()[0]
 
         # NOTE - As of now this does not return when it encounters Exception and causes test to hang, temporarily commented out
@@ -146,7 +146,7 @@ class TestOfflineTools(Tester):
             self.assertEqual(e.exit_status, 1, msg=str(e.exit_status))
 
         # test by flushing (sstable should be level 0)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         session = self.patient_cql_connection(node1)
         debug("Altering compaction strategy to LCS")
         session.execute("ALTER TABLE keyspace1.standard1 with compaction={'class': 'LeveledCompactionStrategy', 'sstable_size_in_mb':1};")
@@ -163,7 +163,7 @@ class TestOfflineTools(Tester):
         self.assertIn("L0=1", output)
         self.assertEqual(rc, 0, msg=str(rc))
 
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         # test by loading large amount data so we have multiple sstables
         # must write enough to create more than just L1 sstables
         keys = 8 * cluster.data_dir_count
@@ -224,7 +224,7 @@ class TestOfflineTools(Tester):
         """
 
         cluster = self.cluster
-        cluster.populate(3).start(wait_for_binary_proto=True)
+        cluster.populate(3).start()
         node1, node2, node3 = cluster.nodelist()
 
         # test on nonexistent keyspace
@@ -302,7 +302,7 @@ class TestOfflineTools(Tester):
 
     def sstableexpiredblockers_test(self):
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
         [node1] = cluster.nodelist()
         session = self.patient_cql_connection(node1)
         create_ks(session, 'ks', 1)
@@ -346,7 +346,7 @@ class TestOfflineTools(Tester):
             cluster.set_install_dir(version='git:cassandra-2.2')
 
         # Start up last major version, write out an sstable to upgrade, and stop node
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
         [node1] = cluster.nodelist()
         # Check that node1 is actually what we expect
         debug('Downgraded install dir: {}'.format(node1.get_install_dir()))
@@ -363,7 +363,7 @@ class TestOfflineTools(Tester):
         # Check that node1 is actually upgraded
         debug('Upgraded to original install dir: {}'.format(node1.get_install_dir()))
         # Perform a node start/stop so system tables get internally updated, otherwise we may get "Unknown keyspace/table ks.cf"
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         node1.flush()
         cluster.stop()
         (out, error, rc) = node1.run_sstableupgrade(keyspace='ks', column_family='cf')
@@ -384,7 +384,7 @@ class TestOfflineTools(Tester):
         Test that sstabledump functions properly offline to output the contents of a table.
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
         [node1] = cluster.nodelist()
         session = self.patient_cql_connection(node1)
         create_ks(session, 'ks', 1)

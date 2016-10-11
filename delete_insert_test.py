@@ -39,7 +39,7 @@ class DeleteInsertTest(Tester):
 
     def delete_insert_search_test(self):
         cluster = self.cluster
-        cluster.populate([2, 2]).start(wait_for_binary_proto=True)
+        cluster.populate([2, 2]).start()
         node1 = cluster.nodelist()[0]
 
         session = self.patient_cql_connection(node1)

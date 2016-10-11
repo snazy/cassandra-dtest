@@ -276,7 +276,7 @@ class TestSSTableGenerationAndLoading(BaseSStableLoaderTest):
         @jira_ticket CASSANDRA-343
         """
         cluster = self.cluster
-        cluster.populate(1).start(wait_for_binary_proto=True)
+        cluster.populate(1).start()
         node1 = cluster.nodelist()[0]
 
         # Makinge sure the cluster is ready to accept the subsequent

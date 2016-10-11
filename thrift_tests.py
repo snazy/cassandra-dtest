@@ -78,7 +78,7 @@ class ThriftTester(ReusableClusterTester):
         if DISABLE_VNODES:
             node1.set_configuration_options(values={'initial_token': "a".encode('hex')})
 
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
         cluster.nodelist()[0].watch_log_for("Listening for thrift clients")  # Wait for the thrift port to open
         time.sleep(0.1)
         cls.client = get_thrift_client()

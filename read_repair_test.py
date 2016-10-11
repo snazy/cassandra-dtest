@@ -14,7 +14,7 @@ class TestReadRepair(Tester):
     def setUp(self):
         Tester.setUp(self)
         self.cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
-        self.cluster.populate(3).start(wait_for_binary_proto=True)
+        self.cluster.populate(3).start()
 
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11266',
@@ -136,7 +136,7 @@ class TestReadRepair(Tester):
 
         self.cluster.flush()
         self.cluster.stop()
-        self.cluster.start(wait_for_binary_proto=True)
+        self.cluster.start()
         session1 = self.patient_exclusive_cql_connection(node1)
 
         for n in range(1, 1000):

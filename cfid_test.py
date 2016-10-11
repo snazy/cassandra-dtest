@@ -10,7 +10,7 @@ class TestCFID(Tester):
         """ Test through adding/dropping cf's that the path to sstables for each cf are unique and formatted correctly """
         cluster = self.cluster
 
-        cluster.populate(1).start(wait_other_notice=True)
+        cluster.populate(1).start()
         [node1] = cluster.nodelist()
 
         session = self.patient_cql_connection(node1)

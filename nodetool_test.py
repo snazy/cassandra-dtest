@@ -45,7 +45,7 @@ class TestNodetool(Tester):
                 for line in ["dc={}".format(node.data_center), "rack=rack{}".format(i % 2)]:
                     snitch_file.write(line + os.linesep)
 
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         for i, node in enumerate(cluster.nodelist()):
             out, err, _ = node.nodetool('info')

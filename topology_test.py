@@ -40,7 +40,7 @@ class TestTopology(Tester):
         """
         cluster = self.cluster
         cluster.populate(3)
-        cluster.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.size_recorder_interval=1"])
+        cluster.start(jvm_args=["-Dcassandra.size_recorder_interval=1"])
         node1, node2, node3 = cluster.nodelist()
 
         # write some data
@@ -61,7 +61,7 @@ class TestTopology(Tester):
         """
         cluster = self.cluster
         cluster.set_configuration_options(values={'stream_throughput_outbound_megabits_per_sec': 1})
-        cluster.populate(2).start(wait_other_notice=True)
+        cluster.populate(2).start()
         node1, node2 = cluster.nodelist()
 
         session = self.patient_cql_connection(node2)
@@ -103,7 +103,7 @@ class TestTopology(Tester):
         self.ignore_log_patterns = [r'Streaming error occurred', r'Error while decommissioning node', r'Remote peer 127.0.0.2 failed stream session']
         cluster = self.cluster
         cluster.set_configuration_options(values={'stream_throughput_outbound_megabits_per_sec': 1})
-        cluster.populate(3, install_byteman=True).start(wait_other_notice=True)
+        cluster.populate(3, install_byteman=True).start()
         node1, node2, node3 = cluster.nodelist()
 
         session = self.patient_cql_connection(node2)
@@ -275,7 +275,7 @@ class TestTopology(Tester):
             self.ignore_log_patterns = []
         self.ignore_log_patterns.append(rejoin_err)
 
-        self.cluster.populate(3).start(wait_for_binary_proto=True)
+        self.cluster.populate(3).start()
         node1, node2, node3 = self.cluster.nodelist()
 
         debug('decommissioning...')
@@ -315,7 +315,7 @@ class TestTopology(Tester):
         """
         cluster = self.cluster
         self.ignore_log_patterns = [r'Streaming error occurred', 'Stream failed']
-        cluster.populate(3).start(wait_other_notice=True)
+        cluster.populate(3).start()
 
         node1, node2 = cluster.nodelist()[0:2]
 

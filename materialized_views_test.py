@@ -860,7 +860,7 @@ class TestMaterializedViews(Tester):
         self.cluster.stop()
 
         debug("Restart the cluster")
-        self.cluster.start(wait_for_binary_proto=True)
+        self.cluster.start()
         session = self.patient_cql_connection(node1)
         session.execute("USE ks")
 

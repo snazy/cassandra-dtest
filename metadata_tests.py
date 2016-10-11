@@ -43,7 +43,7 @@ class TestMetadata(Tester):
         self.ignore_log_patterns = '.*Unknown keyspace/cf pair.*'
 
         cluster = self.cluster
-        cluster.populate(2).start(wait_other_notice=True)
+        cluster.populate(2).start()
         (node1, node2) = cluster.nodelist()
 
         node1.nodetool("disableautocompaction")

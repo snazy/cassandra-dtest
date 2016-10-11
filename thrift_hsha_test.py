@@ -45,7 +45,7 @@ class ThriftHSHATest(Tester):
         cluster.populate(1)
         (node1,) = cluster.nodelist()
         remove_perf_disable_shared_mem(node1)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start()
 
         session = self.patient_cql_connection(node1)
         create_ks(session, 'test', 1)

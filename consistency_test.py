@@ -136,7 +136,7 @@ class TestHelper(Tester):
             cluster.set_configuration_options(values={
                 'endpoint_snitch': 'org.apache.cassandra.locator.PropertyFileSnitch'})
 
-        cluster.start(wait_for_binary_proto=True, wait_other_notice=True)
+        cluster.start()
 
         self.ksname = 'mytestks'
         session = self.patient_exclusive_cql_connection(cluster.nodelist()[0])
@@ -795,7 +795,7 @@ class TestConsistency(Tester):
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
         cluster.set_batch_commitlog(enabled=True)
 
-        cluster.populate(3).start(wait_other_notice=True)
+        cluster.populate(3).start()
         node1, node2, node3 = cluster.nodelist()
 
         session = self.patient_cql_connection(node1)
@@ -855,7 +855,7 @@ class TestConsistency(Tester):
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
         cluster.set_batch_commitlog(enabled=True)
 
-        cluster.populate(2).start(wait_other_notice=True)
+        cluster.populate(2).start()
         node1, node2 = cluster.nodelist()
 
         session = self.patient_cql_connection(node1)
@@ -891,7 +891,7 @@ class TestConsistency(Tester):
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
         cluster.set_batch_commitlog(enabled=True)
 
-        cluster.populate(3).start(wait_other_notice=True)
+        cluster.populate(3).start()
         node1, node2, node3 = cluster.nodelist()
 
         session = self.patient_cql_connection(node1)

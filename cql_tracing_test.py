@@ -23,7 +23,7 @@ class TestCqlTracing(Tester):
         jvm_args.append('-Dcassandra.wait_for_tracing_events_timeout_secs=15')
 
         cluster = self.cluster
-        cluster.populate(nodes).start(wait_for_binary_proto=True, jvm_args=jvm_args)
+        cluster.populate(nodes).start(jvm_args=jvm_args)
 
         node1 = cluster.nodelist()[0]
 

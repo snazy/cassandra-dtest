@@ -99,4 +99,4 @@ def restart_cluster_and_update_config(cluster, config):
     """
     cluster.stop()
     cluster.set_configuration_options(values=config)
-    cluster.start(wait_for_binary_proto=True)
+    cluster.start()
