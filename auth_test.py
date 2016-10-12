@@ -843,6 +843,9 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         self.assertTrue(success)
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-763',
+                   flaky=True)
     def list_permissions_test(self):
         """
         * Launch a one node cluster

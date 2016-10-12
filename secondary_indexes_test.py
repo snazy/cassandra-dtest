@@ -115,6 +115,9 @@ class TestSecondaryIndexes(Tester):
             result = list(session.execute("SELECT * FROM ks.cf WHERE b='1' LIMIT %d;" % (limit,)))
             self.assertEqual(limit, len(result))
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-762',
+                   flaky=True)
     def test_6924_dropping_ks(self):
         """
         @jira_ticket CASSANDRA-6924
