@@ -75,7 +75,7 @@ class UpgradeTester(Tester):
         os.environ['CASSANDRA_VERSION'] = self.UPGRADE_PATH.starting_version
         super(UpgradeTester, self).setUp()
 
-    def prepare(self, ordered=False, create_keyspace=True, use_cache=False,
+    def prepare(self, ordered=False, create_keyspace=True, use_cache=False, use_thrift=False,
                 nodes=None, rf=None, protocol_version=None, cl=None, **kwargs):
         nodes = self.NODES if nodes is None else nodes
         rf = self.RF if rf is None else rf
@@ -89,11 +89,14 @@ class UpgradeTester(Tester):
 
         cluster = self.cluster
 
-        if (ordered):
+        if ordered:
             cluster.set_partitioner("org.apache.cassandra.dht.ByteOrderedPartitioner")
 
-        if (use_cache):
+        if use_cache:
             cluster.set_configuration_options(values={'row_cache_size_in_mb': 100})
+
+        if use_thrift:
+            cluster.set_configuration_options(values={'start_rpc': 'true'})
 
         start_rpc = kwargs.pop('start_rpc', False)
         if start_rpc:
@@ -123,7 +126,7 @@ class UpgradeTester(Tester):
 
         return session
 
-    def do_upgrade(self, session, return_nodes=False, **kwargs):
+    def do_upgrade(self, session, use_thrift=False, return_nodes=False, **kwargs):
         """
         Upgrades the first node in the cluster and returns a list of
         (is_upgraded, Session) tuples.  If `is_upgraded` is true, the
@@ -180,6 +183,9 @@ class UpgradeTester(Tester):
 
         node1.set_log_level("DEBUG" if DEBUG else "TRACE" if TRACE else "INFO")
         node1.set_configuration_options(values={'internode_compression': 'none'})
+
+        if use_thrift:
+            node1.set_configuration_options(values={'start_rpc': 'true'})
 
         if self.enable_for_jolokia:
             remove_perf_disable_shared_mem(node1)
