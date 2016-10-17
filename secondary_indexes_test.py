@@ -11,10 +11,12 @@ from cassandra.concurrent import (execute_concurrent,
 from cassandra.protocol import ConfigurationException
 from cassandra.query import BatchStatement, SimpleStatement
 
-from dtest import (DISABLE_VNODES, OFFHEAP_MEMTABLES, DtestTimeoutError,
-                   Tester, debug, CASSANDRA_VERSION_FROM_BUILD, wait_for_any_log)
-from tools.assertions import assert_bootstrap_state, assert_invalid, assert_one, assert_row_count
-from tools.data import index_is_built, rows_to_list, create_cf, create_ks
+from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES,
+                   OFFHEAP_MEMTABLES, Tester, debug, wait_for_any_log)
+from tools.assertions import (assert_bootstrap_state, assert_invalid,
+                              assert_one, assert_row_count)
+from tools.data import (block_until_index_is_built, create_cf, create_ks,
+                        rows_to_list)
 from tools.decorators import known_failure, since
 from tools.misc import new_node
 
@@ -115,9 +117,6 @@ class TestSecondaryIndexes(Tester):
             result = list(session.execute("SELECT * FROM ks.cf WHERE b='1' LIMIT %d;" % (limit,)))
             self.assertEqual(limit, len(result))
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-762',
-                   flaky=True)
     def test_6924_dropping_ks(self):
         """
         @jira_ticket CASSANDRA-6924
@@ -156,6 +155,8 @@ class TestSecondaryIndexes(Tester):
             session.execute("CREATE TABLE ks.cf (key text PRIMARY KEY, col1 text);")
             session.execute("CREATE INDEX on ks.cf (col1);")
 
+            block_until_index_is_built(node1, session, 'ks', 'cf', 'cf_col1_idx')
+
             for r in range(10):
                 stmt = "INSERT INTO ks.cf (key, col1) VALUES ('%s','asdf');" % r
                 session.execute(stmt)
@@ -192,6 +193,8 @@ class TestSecondaryIndexes(Tester):
 
             session.execute("CREATE TABLE ks.cf (key text PRIMARY KEY, col1 text);")
             session.execute("CREATE INDEX on ks.cf (col1);")
+
+            block_until_index_is_built(node1, session, 'ks', 'cf', 'cf_col1_idx')
 
             for r in range(10):
                 stmt = "INSERT INTO ks.cf (key, col1) VALUES ('%s','asdf');" % r
@@ -299,14 +302,7 @@ class TestSecondaryIndexes(Tester):
         lookup_value = session.execute('select "C0" from standard1 limit 1')[0].C0
         session.execute('CREATE INDEX ix_c0 ON standard1("C0");')
 
-        start = time.time()
-        while time.time() < start + 30:
-            debug("waiting for index to build")
-            time.sleep(1)
-            if index_is_built(node1, session, 'keyspace1', 'standard1', 'ix_c0'):
-                break
-        else:
-            raise DtestTimeoutError()
+        block_until_index_is_built(node1, session, 'keyspace1', 'standard1', 'ix_c0')
 
         stmt = session.prepare('select * from standard1 where "C0" = ?')
         self.assertEqual(1, len(list(session.execute(stmt, [lookup_value]))))
@@ -320,14 +316,7 @@ class TestSecondaryIndexes(Tester):
             index_sstables_dirs.append(index_sstables_dir)
 
         node1.nodetool("rebuild_index keyspace1 standard1 ix_c0")
-        start = time.time()
-        while time.time() < start + 30:
-            debug("waiting for index to rebuild")
-            time.sleep(1)
-            if index_is_built(node1, session, 'keyspace1', 'standard1', 'ix_c0'):
-                break
-        else:
-            raise DtestTimeoutError()
+        block_until_index_is_built(node1, session, 'keyspace1', 'standard1', 'ix_c0')
 
         after_files = []
         for index_sstables_dir in index_sstables_dirs:
@@ -465,14 +454,7 @@ class TestSecondaryIndexes(Tester):
         session.execute("CREATE INDEX composites_index on ks.regular_table (b)")
 
         for node in cluster.nodelist():
-            start = time.time()
-            while time.time() < start + 10:
-                debug("waiting for index to build")
-                time.sleep(1)
-                if index_is_built(node, session, 'ks', 'regular_table', 'composites_index'):
-                    break
-            else:
-                raise DtestTimeoutError()
+            block_until_index_is_built(node, session, 'ks', 'regular_table', 'composites_index')
 
         insert_args = [(i, i % 2) for i in xrange(100)]
         execute_concurrent_with_args(session,
@@ -489,6 +471,7 @@ class TestSecondaryIndexes(Tester):
 
 
 class TestSecondaryIndexesOnCollections(Tester):
+
     def test_tuple_indexes(self):
         """
         Checks that secondary indexes on tuples work for querying
@@ -925,14 +908,7 @@ class TestSecondaryIndexesOnCollections(Tester):
             stmt = "CREATE INDEX user_uuids_values on map_index_search.users (uuids);"
             session.execute(stmt)
 
-        start = time.time()
-        while time.time() < start + 30:
-            debug("waiting for index to build")
-            time.sleep(1)
-            if index_is_built(node1, session, 'map_index_search', 'users', 'user_uuids_values'):
-                break
-        else:
-            raise DtestTimeoutError()
+        block_until_index_is_built(node1, session, 'map_index_search', 'users', 'user_uuids_values')
 
         # shuffle the log in-place, and double-check a slice of records by querying the secondary index
         random.shuffle(log)
