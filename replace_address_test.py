@@ -416,6 +416,9 @@ class TestReplaceAddress(BaseReplaceAddressTest):
 
     @skipIf(CASSANDRA_VERSION_FROM_BUILD == '3.9', "Test doesn't run on 3.9")
     @since('2.1')
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-766',
+                   flaky=True)
     def insert_data_during_replace_same_address_test(self):
         """
         Test that replacement node with same address DOES NOT receive writes during replacement

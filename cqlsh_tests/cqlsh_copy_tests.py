@@ -548,6 +548,9 @@ class CqlshCopyTest(Tester):
 
         self.assertCsvResultEqual(tempfile.name, results, 'testdelimiter')
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-768',
+                   flaky=True)
     def test_colon_delimiter(self):
         """
         Use non_default_delimiter_template to test COPY with the delimiter ':'.
@@ -2135,6 +2138,9 @@ class CqlshCopyTest(Tester):
         self.assertEqual([[num_records]], rows_to_list(self.session.execute("SELECT COUNT(*) FROM {}"
                                                                             .format(stress_table))))
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-772',
+                   flaky=True)
     def test_round_trip_with_rate_file(self):
         """
         Test a round trip with a large number of rows and a rate file. Make sure the rate file contains
