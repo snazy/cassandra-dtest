@@ -154,7 +154,7 @@ class CqlshCopyTest(Tester):
         return cqlshrc
 
     def run_cqlsh(self, cmds=None, cqlsh_options=None, use_debug=True, skip_cqlshrc=False,
-                  auth_enabled=False, show_output=False):
+                  auth_enabled=False, show_output=True):
         """
         Run cqlsh on node1 adding the debug and cqlshrc to the clqsh options, unless the caller
         has specified its own options.
@@ -2167,8 +2167,7 @@ class CqlshCopyTest(Tester):
 
         debug('Exporting to csv file: {}'.format(tempfile.name))
         self.run_cqlsh(cmds="COPY {} TO '{}' WITH RATEFILE='{}' AND REPORTFREQUENCY='{}'"
-                       .format(stress_table, tempfile.name, ratefile.name, report_frequency),
-                       show_output=True)
+                       .format(stress_table, tempfile.name, ratefile.name, report_frequency))
 
         # check all records were exported
         self.assertEqual(num_rows, len(open(tempfile.name).readlines()))
@@ -2181,8 +2180,7 @@ class CqlshCopyTest(Tester):
 
         debug('Importing from csv file: {}'.format(tempfile.name))
         self.run_cqlsh(cmds="COPY {} FROM '{}' WITH RATEFILE='{}' AND REPORTFREQUENCY='{}'"
-                       .format(stress_table, tempfile.name, ratefile.name, report_frequency),
-                       show_output=True)
+                       .format(stress_table, tempfile.name, ratefile.name, report_frequency))
 
         # check all records were imported
         self.assertEqual([[num_rows]], rows_to_list(self.session.execute("SELECT COUNT(*) FROM {}"
@@ -2469,7 +2467,7 @@ class CqlshCopyTest(Tester):
             if copy_to_options:
                 copy_to_cmd += ' WITH ' + ' AND '.join('{} = {}'.format(k, v) for k, v in copy_to_options.iteritems())
             debug('Running {}'.format(copy_to_cmd))
-            result = self.run_cqlsh(cmds=copy_to_cmd, show_output=True)
+            result = self.run_cqlsh(cmds=copy_to_cmd)
             ret.append(result)
             debug("COPY TO took {} to export {} records".format(datetime.datetime.now() - start, num_records))
 
@@ -2480,7 +2478,7 @@ class CqlshCopyTest(Tester):
             if copy_from_options:
                 copy_from_cmd += ' WITH ' + ' AND '.join('{} = {}'.format(k, v) for k, v in copy_from_options.iteritems())
             debug('Running {}'.format(copy_from_cmd))
-            result = self.run_cqlsh(cmds=copy_from_cmd, show_output=True)
+            result = self.run_cqlsh(cmds=copy_from_cmd)
             ret.append(result)
             debug("COPY FROM took {} to import {} records".format(datetime.datetime.now() - start, num_records))
 
