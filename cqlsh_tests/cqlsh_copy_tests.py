@@ -548,9 +548,6 @@ class CqlshCopyTest(Tester):
 
         self.assertCsvResultEqual(tempfile.name, results, 'testdelimiter')
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-768',
-                   flaky=True)
     def test_colon_delimiter(self):
         """
         Use non_default_delimiter_template to test COPY with the delimiter ':'.
