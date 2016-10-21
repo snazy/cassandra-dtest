@@ -56,7 +56,7 @@ config = ConfigParser.RawConfigParser()
 if len(config.read(os.path.expanduser('~/.cassandra-dtest'))) > 0:
     if config.has_option('main', 'default_dir'):
         DEFAULT_DIR = os.path.expanduser(config.get('main', 'default_dir'))
-CASSANDRA_DIR = os.environ.get('CASSANDRA_DIR', DEFAULT_DIR)
+APOLLO_DIR = os.environ.get('APOLLO_DIR', DEFAULT_DIR)
 
 NO_SKIP = os.environ.get('SKIP', '').lower() in ('no', 'false')
 DEBUG = os.environ.get('DEBUG', '').lower() in ('yes', 'true')
@@ -122,19 +122,19 @@ def get_sha(repo_dir):
 # before we call Tester.setUp. In the general case, we can't know that -- the
 # test method could use any version it wants for self.cluster. However, we can
 # get the version from build.xml in the C* repository specified by
-# CASSANDRA_VERSION or CASSANDRA_DIR. This should use the same resolution
+# CASSANDRA_VERSION or APOLLO_DIR. This should use the same resolution
 # strategy as the actual checkout code in Tester.setUp; if it does not, that is
 # a bug.
 _cassandra_version_slug = os.environ.get('CASSANDRA_VERSION')
-# Prefer CASSANDRA_VERSION if it's set in the environment. If not, use CASSANDRA_DIR
+# Prefer CASSANDRA_VERSION if it's set in the environment. If not, use APOLLO_DIR
 if _cassandra_version_slug:
     # fetch but don't build the specified C* version
     ccm_repo_cache_dir, _ = ccmlib.repository.setup(_cassandra_version_slug)
     CASSANDRA_VERSION_FROM_BUILD = get_version_from_build(ccm_repo_cache_dir)
     CASSANDRA_GITREF = get_sha(ccm_repo_cache_dir)  # will be set None when not a git repo
 else:
-    CASSANDRA_VERSION_FROM_BUILD = get_version_from_build(CASSANDRA_DIR)
-    CASSANDRA_GITREF = get_sha(CASSANDRA_DIR)
+    CASSANDRA_VERSION_FROM_BUILD = get_version_from_build(APOLLO_DIR)
+    CASSANDRA_GITREF = get_sha(APOLLO_DIR)
 
 
 # Determine the location of the libjemalloc jar so that we can specify it
@@ -257,12 +257,12 @@ class Tester(TestCase):
 
     def set_node_to_current_version(self, node):
         version = os.environ.get('CASSANDRA_VERSION')
-        cdir = CASSANDRA_DIR
+        adir = APOLLO_DIR
 
         if version:
             node.set_install_dir(version=version)
         else:
-            node.set_install_dir(install_dir=cdir)
+            node.set_install_dir(install_dir=adir)
 
     def init_config(self):
         init_default_config(self.cluster, self.cluster_options)
@@ -697,12 +697,12 @@ get_test_path.__test__ = False
 def create_ccm_cluster(test_path, name):
     debug("cluster ccm directory: " + test_path)
     version = os.environ.get('CASSANDRA_VERSION')
-    cdir = CASSANDRA_DIR
+    adir = APOLLO_DIR
 
     if version:
         cluster = Cluster(test_path, name, cassandra_version=version)
     else:
-        cluster = Cluster(test_path, name, cassandra_dir=cdir)
+        cluster = Cluster(test_path, name, cassandra_dir=adir)
 
     if DISABLE_VNODES:
         cluster.set_configuration_options(values={'num_tokens': None})
@@ -832,10 +832,10 @@ def maybe_setup_jacoco(test_path, cluster_name='test'):
 
     # use explicit agent and execfile locations
     # or look for a cassandra build if they are not specified
-    cdir = CASSANDRA_DIR
+    adir = APOLLO_DIR
 
-    agent_location = os.environ.get('JACOCO_AGENT_JAR', os.path.join(cdir, 'build/lib/jars/jacocoagent.jar'))
-    jacoco_execfile = os.environ.get('JACOCO_EXECFILE', os.path.join(cdir, 'build/jacoco/jacoco.exec'))
+    agent_location = os.environ.get('JACOCO_AGENT_JAR', os.path.join(adir, 'build/lib/jars/jacocoagent.jar'))
+    jacoco_execfile = os.environ.get('JACOCO_EXECFILE', os.path.join(adir, 'build/jacoco/jacoco.exec'))
 
     if os.path.isfile(agent_location):
         debug("Jacoco agent found at {}".format(agent_location))

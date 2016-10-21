@@ -8,9 +8,8 @@ from dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD,
 UpgradePath = namedtuple('UpgradePath', ('name', 'starting_version', 'upgrade_version', 'starting_meta', 'upgrade_meta'))
 
 
-def _get_version_family():
+def _get_cassandra_version_family():
     """
-    Detects the version family (line) using dtest.py:CASSANDRA_VERSION_FROM_BUILD
     """
     current_version = CASSANDRA_VERSION_FROM_BUILD
 
@@ -31,6 +30,34 @@ def _get_version_family():
 
     return version_family
 
+
+def _get_version_family():
+    """
+    Detects the version family (line) using dtest.py:CASSANDRA_VERSION_FROM_BUILD
+
+    Rough Apollo to C* version mapping
+    cassandra-2.1_dse -> 2.1.x
+    dse5.0 -> 3.0.x
+    dse5.1 -> 3.x
+    master -> 4.0
+    """
+
+    current_version = CASSANDRA_VERSION_FROM_BUILD
+
+    version_family = 'unknown'
+    if current_version.vstring.startswith('2.1'):
+        version_family = 'cassandra-2.1_dse'
+    elif current_version.vstring.startswith('3.0'):
+        version_family = 'dse5.0'
+    elif current_version > '3.0' and current_version < '4.0':
+        version_family = 'dse5.1'
+    elif current_version == '4.0':
+        version_family = 'master'
+    elif current_version > '4.0':
+        # when this occurs, it's time to update this manifest a bit!
+        raise RuntimeError("4.0+ not yet supported on upgrade tests!")
+
+    return version_family
 
 VERSION_FAMILY = _get_version_family()
 
@@ -57,8 +84,14 @@ class VersionMeta(namedtuple('_VersionMeta', ('name', 'family', 'variant', 'vers
     def clone_with_local_env_version(self):
         """
         Returns a new object cloned from this one, with the version replaced with the local env version.
+        If the version is specified as an alias, maintain the alias description.
         """
-        return self._replace(version=CASSANDRA_GITREF or CASSANDRA_VERSION_FROM_BUILD)
+        if self.version.startswith('alias'):
+            gitref_suffix = CASSANDRA_GITREF.replace("git:", "")
+            gitref = "alias:apollo/{}".format(gitref_suffix)
+        else:
+            gitref = CASSANDRA_GITREF
+        return self._replace(version=gitref or CASSANDRA_VERSION_FROM_BUILD)
 
 
 indev_2_0_x = None  # None if release not likely
@@ -77,6 +110,15 @@ indev_3_x = VersionMeta(name='indev_3_x', family='3.x', variant='indev', version
 current_3_x = VersionMeta(name='current_3_x', family='3.x', variant='current', version='3.9', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 
 
+indev_cassandra_2_1_dse = VersionMeta(name='indev_cassandra_2_1_dse', family='cassandra-2.1_dse', variant='indev',
+                                      version='alias:apollo/cassandra-2.1_dse', min_proto_v=None, max_proto_v=None, java_versions=(7, 8))
+
+indev_dse_5_0 = VersionMeta(name='indev_dse_5_0', family='dse5.0', variant='indev', version='alias:apollo/dse5.0', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+
+indev_dse_5_1 = VersionMeta(name='indev_dse_5_1', family='dse5.1', variant='indev', version='alias:apollo/dse5.1', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+
+indev_master = VersionMeta(name='indev_master', family='master', variant='indev', version='alias:apollo/master', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+
 # MANIFEST maps a VersionMeta representing a line/variant to a list of other VersionMeta's representing supported upgrades
 # Note on versions: 2.0 must upgrade to 2.1. Once at 2.1 or newer, upgrade is supported to any later version, including trunk (for now).
 # "supported upgrade" means a few basic things, for an upgrade of version 'A' to higher version 'B':
@@ -85,19 +127,17 @@ current_3_x = VersionMeta(name='current_3_x', family='3.x', variant='current', v
 #   3) Nodes upgraded to version B can read data stored by the predecessor version A, and from a data standpoint will function the same as if they always ran version B.
 #   4) If a new sstable format is present in version B, writes will occur in that format after upgrade. Running sstableupgrade on version B will proactively convert version A sstables to version B.
 MANIFEST = {
-    indev_2_0_x: [indev_2_1_x, current_2_1_x],
-    current_2_0_x: [indev_2_0_x, indev_2_1_x, current_2_1_x],
+    indev_2_0_x: [indev_cassandra_2_1_dse],
+    current_2_0_x: [indev_cassandra_2_1_dse],
 
-    indev_2_1_x: [indev_2_2_x, current_2_2_x, indev_3_0_x, current_3_0_x, indev_3_x, current_3_x],
-    current_2_1_x: [indev_2_1_x, indev_2_2_x, current_2_2_x, indev_3_0_x, current_3_0_x, indev_3_x, current_3_x],
+    indev_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0, indev_dse_5_1],
+    current_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0, indev_dse_5_1],
 
-    indev_2_2_x: [indev_3_0_x, current_3_0_x, indev_3_x, current_3_x],
-    current_2_2_x: [indev_2_2_x, indev_3_0_x, current_3_0_x, indev_3_x, current_3_x],
+    indev_cassandra_2_1_dse: [indev_dse_5_0, indev_dse_5_1],
 
-    indev_3_0_x: [indev_3_x, current_3_x],
-    current_3_0_x: [indev_3_0_x, indev_3_x, current_3_x],
+    indev_dse_5_0: [indev_dse_5_1, indev_master],
 
-    current_3_x: [indev_3_x],
+    indev_dse_5_1: [indev_master]
 }
 
 # Local env and custom path testing instructions. Use these steps to REPLACE the normal upgrade test cases with your own.
@@ -126,22 +166,6 @@ def _have_common_proto(origin_meta, destination_meta):
     return origin_meta.max_proto_v >= destination_meta.min_proto_v
 
 
-def _is_targeted_variant_combo(origin_meta, destination_meta):
-    """
-    Takes two VersionMeta objects, in order of test from start version to next version.
-    Returns a boolean indicating if this is a test pair we care about.
-
-    for now we only test upgrades of these types:
-      current -> in-dev (aka: released -> branch)
-    """
-    # if we're overriding the test manifest, we don't want to filter anything out
-    if OVERRIDE_MANIFEST:
-        return True
-
-    # is this an upgrade variant combination we care about?
-    return (origin_meta.variant == 'current' and destination_meta.variant == 'indev')
-
-
 def build_upgrade_pairs():
     """
     Using the manifest (above), builds a set of valid upgrades, according to current testing practices.
@@ -155,10 +179,6 @@ def build_upgrade_pairs():
         for destination_meta in destination_metas:
             if not (origin_meta and destination_meta):  # None means we don't care about that version, which means we don't care about iterations involving it either
                 debug("skipping class creation as a version is undefined (this is normal), versions: {} and {}".format(origin_meta, destination_meta))
-                continue
-
-            if not _is_targeted_variant_combo(origin_meta, destination_meta):
-                debug("skipping class creation, no testing of '{}' to '{}' (for {} upgrade to {})".format(origin_meta.variant, destination_meta.variant, origin_meta.name, destination_meta.name))
                 continue
 
             if not _have_common_proto(origin_meta, destination_meta):
