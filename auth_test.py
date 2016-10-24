@@ -2396,6 +2396,9 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         """
         self.verify_udf_permissions("INSERT INTO ks.t1 (k, v) VALUES (1, ks.plus_one(1))")
 
+    @known_failure(failure_source='test',
+                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12833',
+                   flaky=True)
     def udf_permissions_in_update_test(self):
         """
         Verify EXECUTE permission works in an UPDATE when UDF is in the SET and WHERE clauses
