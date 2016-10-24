@@ -2594,9 +2594,6 @@ class CqlshCopyTest(Tester):
                 self.assertIn("Detected 1 core", out[0])
 
     @since('3.0.5')
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12559',
-                   flaky=True)
     def test_bulk_round_trip_with_backoff(self):
         """
         Test bulk import with default stress import (one row per operation) and COPY options
