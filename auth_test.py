@@ -2618,6 +2618,44 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         cassandra = self.get_session(user='cassandra', password='cassandra')
         assert_one(cassandra, "SELECT writetime(salted_hash) FROM system_auth.roles WHERE role = 'cassandra'", [0])
 
+    def unqualified_resource_names_test(self):
+        """
+        Validate that grant/revoke/list statements don't require resource names to be fully
+        qualified by keyspace, when the session keyspace has previously been set by a
+        USE KEYSPACE statement.
+        E.g.:
+          USE KEYSPACE foo;
+          GRANT ALL ON table_1 TO user_1;
+        Should be equivalent to:
+          GRANT ALL ON foo.table_1 TO user_1;
+
+        @jira_ticket: APOLLO-76
+        """
+        cassandra = self.get_session(user='cassandra', password='cassandra')
+        cassandra.execute("CREATE ROLE role1 WITH LOGIN=true AND PASSWORD='12345'")
+        cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
+        cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
+        cassandra.execute("USE ks")
+        cassandra.execute("GRANT SELECT ON cf TO role1")
+        self.assert_permissions_listed([('role1', '<table ks.cf>', 'SELECT')], cassandra,
+                                       "LIST ALL PERMISSIONS ON ks.cf OF role1")
+        # check the non qualified version is valid in LIST statements too
+        self.assert_permissions_listed([('role1', '<table ks.cf>', 'SELECT')], cassandra,
+                                       "LIST ALL PERMISSIONS ON cf OF role1")
+        cassandra.execute("REVOKE SELECT ON cf FROM role1")
+        self.assert_no_permissions(cassandra, "LIST ALL PERMISSIONS ON ks.cf OF role1")
+
+        # Keyspace & non-DataResources shouldn't be affected
+        cassandra.execute("CREATE ROLE role2 WITH LOGIN=true AND PASSWORD='12345'")
+        cassandra.execute("CREATE FUNCTION ks.f1 ( input int ) CALLED ON NULL INPUT RETURNS int LANGUAGE javascript AS 'input + 1'")
+        cassandra.execute("GRANT SELECT ON KEYSPACE ks TO role1")
+        cassandra.execute("GRANT AUTHORIZE ON ROLE role2 TO role1")
+        cassandra.execute("GRANT EXECUTE ON FUNCTION ks.f1 (int) TO role1")
+        self.assert_permissions_listed([('role1', '<function ks.f1(int)>', 'EXECUTE'),
+                                        ('role1', '<keyspace ks>', 'SELECT'),
+                                        ('role1', '<role role2>', 'AUTHORIZE')],
+                                       cassandra, "LIST ALL PERMISSIONS OF role1")
+
     def setup_table(self, session):
         session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':1}")
         session.execute("CREATE TABLE ks.t1 (k int PRIMARY KEY, v int)")
