@@ -30,6 +30,7 @@ except KeyError:
 
 
 class ThriftHSHATest(Tester):
+
     def test_closing_connections(self):
         """
         @jira_ticket CASSANDRA-6546
@@ -78,6 +79,9 @@ class ThriftHSHATest(Tester):
     @unittest.skipIf(not os.path.exists(JNA_PATH), "No JNA jar found")
     @known_failure(failure_source='test',
                    jira_url='https://datastax.jira.com/browse/CSTAR-781',
+                   flaky=True)
+    @known_failure(failure_source='test',
+                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12843',
                    flaky=True)
     def test_6285(self):
         """
