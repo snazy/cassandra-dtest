@@ -43,6 +43,9 @@ class TestAuthThreeNodes(Tester, AuthMixin):
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12456',
                    flaky=True)
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-787',
+                   flaky=True)
     def system_auth_ks_is_alterable_test(self):
         """
         * Launch a three node cluster
