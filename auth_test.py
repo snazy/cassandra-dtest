@@ -2638,6 +2638,22 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         cassandra.execute("CREATE ROLE role1 WITH LOGIN=true AND PASSWORD='12345'")
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
+
+        # without setting a keyspace, GRANT statement with a non qualified table name should error
+        assert_invalid(cassandra, "GRANT SELECT ON cf TO role1",
+                       "No keyspace has been specified. USE a keyspace, or explicitly specify keyspace.tablename")
+        # but the qualified version should be fine
+        cassandra.execute("GRANT SELECT on ks.cf TO role1")
+        self.assert_permissions_listed([('role1', '<table ks.cf>', 'SELECT')], cassandra,
+                                       "LIST ALL PERMISSIONS ON ks.cf OF role1")
+        # same applies to revoke
+        assert_invalid(cassandra, "REVOKE SELECT ON cf FROM role1",
+                       "No keyspace has been specified. USE a keyspace, or explicitly specify keyspace.tablename")
+        # but the qualified version should be fine
+        cassandra.execute("REVOKE SELECT on ks.cf FROM role1")
+        self.assert_no_permissions(cassandra, "LIST ALL PERMISSIONS ON ks.cf OF role1")
+
+        # when the keyspace is set, the non qualified table names can be used
         cassandra.execute("USE ks")
         cassandra.execute("GRANT SELECT ON cf TO role1")
         self.assert_permissions_listed([('role1', '<table ks.cf>', 'SELECT')], cassandra,
