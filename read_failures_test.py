@@ -78,6 +78,9 @@ class TestReadFailures(Tester):
         self.assertTrue(expected_code_found, "The error code map did not contain " + str(expected_code))
 
     @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-763',
+                   flaky=False)
+    @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12531',
                    flaky=False)
     @since('2.1')
