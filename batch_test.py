@@ -5,7 +5,7 @@ from unittest import skipIf
 from cassandra import ConsistencyLevel, Timeout, Unavailable
 from cassandra.query import SimpleStatement
 
-from dtest import CASSANDRA_DIR, Tester, debug
+from dtest import APOLLO_DIR, Tester, debug
 from tools.data import create_ks
 from tools.assertions import (assert_all, assert_invalid, assert_one,
                               assert_unavailable)
@@ -434,7 +434,7 @@ class TestBatch(Tester):
         node.watch_log_for("DRAINED")
         node.stop(wait_other_notice=False)
 
-        node.set_install_dir(install_dir=CASSANDRA_DIR)
+        node.set_install_dir(install_dir=APOLLO_DIR)
         debug("Set new cassandra dir for {}: {}".format(node.name, node.get_install_dir()))
 
         # Restart nodes on new version
