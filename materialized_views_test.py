@@ -1786,6 +1786,9 @@ class TestMaterializedViewsLockcontention(Tester):
 
         return session
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-801',
+                   flaky=True)
     @since('3.0')
     def test_mutations_dontblock(self):
         session = self._prepare_cluster()

@@ -1341,6 +1341,9 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
             self.check_all_paging_results(cursor, expected_data, 2, [25, 15],
                                           timeout=10)
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-802',
+                   flaky=True)
     def test_single_row_deletions(self):
         """Test single row deletions """
         cursor = self.prepare()
