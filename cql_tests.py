@@ -985,6 +985,9 @@ class SlowQueryTester(CQLTester):
         node.watch_log_for("operations were slow", from_mark=mark, filename='system.log', timeout=60)
         node.watch_log_for("SELECT \* FROM ks.test1", from_mark=debug_mark, filename='debug.log', timeout=60)
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-803',
+                   flaky=True)
     def remote_query_test(self):
         """
         Check that a query running on a node other than the coordinator is reported as slow:
