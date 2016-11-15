@@ -59,6 +59,7 @@ def _get_version_family():
 
     return version_family
 
+
 VERSION_FAMILY = _get_version_family()
 
 
