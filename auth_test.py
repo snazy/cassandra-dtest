@@ -2676,6 +2676,46 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
                                         ('role1', '<role role2>', 'AUTHORIZE')],
                                        cassandra, "LIST ALL PERMISSIONS OF role1")
 
+    def grant_and_revoke_using_internal_resource_names_test(self):
+        """
+        Validate that grant & revoke statements can accept the internal string representation
+        of a resource.
+        E.g.
+          GRANT ALL ON resource('data/ks/table_1') TO user_1;
+        Should be equivalent to:
+          GRANT ALL ON ks.table_1 TO user_1;
+
+        @jira_ticket: APOLLO-113
+        """
+        cassandra = self.get_session(user='cassandra', password='cassandra')
+        cassandra.execute("CREATE ROLE role1 WITH LOGIN=true AND PASSWORD='12345'")
+        cassandra.execute("CREATE ROLE role2 WITH LOGIN=true AND PASSWORD='12345'")
+        cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
+        cassandra.execute("CREATE TABLE ks.t1 (id int primary key, val int)")
+        cassandra.execute("CREATE FUNCTION ks.f1 ( input int ) CALLED ON NULL INPUT RETURNS int LANGUAGE javascript AS 'input'")
+
+        # the name of the 'resource()' pseudo function is case-insensitive, but it's arguments are not
+        assert_invalid(cassandra, "GRANT SELECT ON resource('data/KS') TO role1", "Resource <keyspace KS> doesn't exist")
+        cassandra.execute("GRANT SELECT ON RESOURCE('data/ks') TO role1")
+        cassandra.execute("GRANT MODIFY ON resource('data/ks/t1') TO role1")
+        cassandra.execute("GRANT EXECUTE ON resource('functions/ks/f1[org.apache.cassandra.db.marshal.Int32Type]') TO role1")
+        cassandra.execute("GRANT AUTHORIZE ON resource('roles/role2') TO role1")
+
+        self.assert_permissions_listed([('role1', '<keyspace ks>', 'SELECT'),
+                                        ('role1', '<table ks.t1>', 'MODIFY'),
+                                        ('role1', '<function ks.f1(int)>', 'EXECUTE'),
+                                        ('role1', '<role role2>', 'AUTHORIZE')],
+                                       cassandra,
+                                       "LIST ALL PERMISSIONS OF role1")
+
+        assert_invalid(cassandra, "REVOKE SELECT ON resource('data/KS') FROM role1", "Resource <keyspace KS> doesn't exist")
+        cassandra.execute("REVOKE ALL ON RESOURCE('data/ks') FROM role1")
+        cassandra.execute("REVOKE MODIFY ON resource('data/ks/t1') FROM role1")
+        cassandra.execute("REVOKE EXECUTE ON resource('functions/ks/f1[org.apache.cassandra.db.marshal.Int32Type]') FROM role1")
+        cassandra.execute("REVOKE AUTHORIZE ON resource('roles/role2') FROM role1")
+
+        self.assert_no_permissions(cassandra, "LIST ALL PERMISSIONS OF role1")
+
     def setup_table(self, session):
         session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':1}")
         session.execute("CREATE TABLE ks.t1 (k int PRIMARY KEY, v int)")
