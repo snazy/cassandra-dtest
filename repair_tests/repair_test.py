@@ -1067,6 +1067,9 @@ class TestRepair(BaseRepairTest):
         """
         self._test_failure_during_repair(phase='sync', initiator=True)
 
+    @known_failure(failure_source='test',
+                   jira_url='https://datastax.jira.com/browse/CSTAR-824',
+                   flaky=True)
     @since('2.2')
     def test_dead_sync_participant(self):
         """

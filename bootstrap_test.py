@@ -274,6 +274,9 @@ class TestBootstrap(BaseBootstrapTest):
                 node3.watch_log_for("Unable to find sufficient sources for streaming range")
             assert_not_running(node3)
 
+    @known_failure(failure_source='test',
+                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12929',
+                   flaky=True)
     @since('2.2')
     def resumable_bootstrap_test(self):
         """
