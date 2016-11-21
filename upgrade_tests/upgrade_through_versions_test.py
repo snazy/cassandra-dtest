@@ -268,9 +268,6 @@ class UpgradeTester(Tester):
                 values=dict(self.extra_config)
             )
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-767',
-                   flaky=True)
     def parallel_upgrade_test(self):
         """
         Test upgrading cluster all at once (requires cluster downtime).
@@ -283,18 +280,12 @@ class UpgradeTester(Tester):
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12444',
                    flaky=True)
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-767',
-                   flaky=True)
     def rolling_upgrade_test(self):
         """
         Test rolling upgrade of the cluster, so we have mixed versions part way through.
         """
         self.upgrade_scenario(rolling=True)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-767',
-                   flaky=True)
     def parallel_upgrade_with_internode_ssl_test(self):
         """
         Test upgrading cluster all at once (requires cluster downtime), with internode ssl.
@@ -303,9 +294,6 @@ class UpgradeTester(Tester):
 
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12798',
-                   flaky=True)
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-767',
                    flaky=True)
     def rolling_upgrade_with_internode_ssl_test(self):
         """
@@ -718,18 +706,12 @@ class BootstrapMixin(object):
         self._check_values()
         self._check_counters()
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-767',
-                   flaky=True)
     def bootstrap_test(self):
         # try and add a new node
         self.upgrade_scenario(after_upgrade_call=(self._bootstrap_new_node,))
 
     @known_failure(failure_source='test',
                    jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12711',
-                   flaky=True)
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-767',
                    flaky=True)
     def bootstrap_multidc_test(self):
         # try and add a new node
