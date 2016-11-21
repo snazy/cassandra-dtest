@@ -27,7 +27,7 @@ from cqlsh_tools import (DummyColorMap, assert_csvs_items_equal, csv_rows,
                          write_rows_to_csv)
 from dtest import DISABLE_VNODES, Tester, debug, warning
 from tools.data import rows_to_list, create_ks
-from tools.decorators import known_failure, since
+from tools.decorators import since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingTableMetadataWrapper)
 
@@ -2135,9 +2135,6 @@ class CqlshCopyTest(Tester):
         self.assertEqual([[num_records]], rows_to_list(self.session.execute("SELECT COUNT(*) FROM {}"
                                                                             .format(stress_table))))
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-772',
-                   flaky=True)
     def test_round_trip_with_rate_file(self):
         """
         Test a round trip with a large number of rows and a rate file. Make sure the rate file contains
