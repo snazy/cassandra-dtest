@@ -951,7 +951,13 @@ class ReusableClusterTester(Tester):
         write_last_test_file(cls.test_path, cls.cluster)
         set_log_levels(cls.cluster)
 
-        cls.post_initialize_cluster()
+        try:
+            cls.post_initialize_cluster()
+        except Exception as e:
+            try:
+                cls.cluster.remove()
+            finally:
+                raise e
 
     @classmethod
     def post_initialize_cluster(cls):
