@@ -7,7 +7,7 @@ from thrift.transport import TSocket, TTransport
 from dtest import Tester
 from tools.data import (create_c1c2_table, insert_c1c2, insert_columns, putget,
                         query_c1c2, query_columns, range_putget, create_cf, create_ks)
-from tools.decorators import known_failure, no_vnodes
+from tools.decorators import no_vnodes
 from tools.misc import ImmutableMapping
 from tools.funcutils import retry_till_success
 
@@ -41,10 +41,6 @@ class TestPutGet(Tester):
 
         putget(cluster, session)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11251',
-                   flaky=True,
-                   notes='windows')
     def non_local_read_test(self):
         """ This test reads from a coordinator we know has no copy of the data """
         cluster = self.cluster

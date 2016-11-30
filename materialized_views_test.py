@@ -20,10 +20,11 @@ from tools.assertions import (assert_all, assert_crc_check_chance_equal,
                               assert_invalid, assert_none, assert_one,
                               assert_unavailable)
 from tools.data import create_ks
-from tools.decorators import known_failure, since
+from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import get_ip_from_node, new_node
+
 
 # CASSANDRA-10978. Migration wait (in seconds) to use in bootstrapping tests. Needed to handle
 # pathological case of flushing schema keyspace for multiple data directories. See CASSANDRA-6696
@@ -426,9 +427,6 @@ class TestMaterializedViews(Tester):
         for i in xrange(1000, 1100):
             assert_one(session, "SELECT * FROM t_by_v WHERE v = {}".format(-i), [-i, i])
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12140',
-                   flaky=True)
     @attr('resource-intensive')
     def add_dc_after_mv_simple_replication_test(self):
         """
@@ -439,9 +437,6 @@ class TestMaterializedViews(Tester):
 
         self._add_dc_after_mv_test(1)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12140',
-                   flaky=True)
     @attr('resource-intensive')
     def add_dc_after_mv_network_replication_test(self):
         """
@@ -452,12 +447,6 @@ class TestMaterializedViews(Tester):
 
         self._add_dc_after_mv_test({'dc1': 1, 'dc2': 1})
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12140',
-                   flaky=True)
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12446',
-                   flaky=True)
     @attr('resource-intensive')
     def add_node_after_mv_test(self):
         """
@@ -605,9 +594,6 @@ class TestMaterializedViews(Tester):
             for j in xrange(5100):
                 assert_one(session, "SELECT * FROM t_by_v WHERE id = {} and v = {}".format(i, j), [j, i])
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12140',
-                   flaky=True)
     @attr('resource-intensive')
     def add_write_survey_node_after_mv_test(self):
         """
@@ -840,10 +826,6 @@ class TestMaterializedViews(Tester):
                 [i, i, 'a', 3.0]
             )
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11612',
-                   flaky=True,
-                   notes='flaps on Windows')
     def interrupt_build_process_test(self):
         """Test that an interupted MV build process is resumed as it should"""
 
@@ -900,9 +882,6 @@ class TestMaterializedViews(Tester):
                 cl=ConsistencyLevel.ALL
             )
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12865',
-                   flaky=True)
     def view_tombstone_test(self):
         """
         Test that a materialized views properly tombstone
@@ -1226,9 +1205,6 @@ class TestMaterializedViews(Tester):
                 cl=ConsistencyLevel.QUORUM
             )
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12475',
-                   flaky=True)
     @attr('resource-intensive')
     def really_complex_repair_test(self):
         """
@@ -1644,9 +1620,6 @@ class TestMaterializedViewsConsistency(Tester):
         for row in data:
             self.rows[(row.a, row.b)] = row.c
 
-    @known_failure(failure_source='cassandra',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11290',
-                   flaky=True)
     @skip('awaiting CASSANDRA-11290')
     def single_partition_consistent_reads_after_write_test(self):
         """
@@ -1788,9 +1761,6 @@ class TestMaterializedViewsLockcontention(Tester):
 
         return session
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-801',
-                   flaky=True)
     @since('3.0')
     def test_mutations_dontblock(self):
         session = self._prepare_cluster()

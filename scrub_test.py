@@ -11,7 +11,7 @@ from ccmlib import common
 from dtest import Tester, debug
 from tools.assertions import assert_length_equal, assert_stderr_clean
 from tools.data import create_cf, create_ks
-from tools.decorators import known_failure, since
+from tools.decorators import since
 
 KEYSPACE = 'ks'
 
@@ -172,6 +172,7 @@ class TestScrubIndexes(Tester, ScrubTestMixin):
     """
     Test that we scrub indexes as well as their parent tables
     """
+
     def setUp(self):
         """
         disable JBOD configuration for scrub tests.
@@ -212,10 +213,6 @@ class TestScrubIndexes(Tester, ScrubTestMixin):
         assert_length_equal(ret, 8)
         return ret
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11284',
-                   flaky=True,
-                   notes='windows')
     def test_scrub_static_table(self):
         cluster = self.cluster
         cluster.populate(1).start()
@@ -255,13 +252,6 @@ class TestScrubIndexes(Tester, ScrubTestMixin):
         users = self.query_users(session)
         self.assertEqual(initial_users, users)
 
-    @known_failure(failure_source='cassandra',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12337',
-                   flaky=True)
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11236',
-                   flaky=False,
-                   notes='windows')
     def test_standalone_scrub(self):
         cluster = self.cluster
         cluster.populate(1).start()
@@ -289,10 +279,6 @@ class TestScrubIndexes(Tester, ScrubTestMixin):
         users = self.query_users(session)
         self.assertEqual(initial_users, users)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11284',
-                   flaky=True,
-                   notes='windows')
     def test_scrub_collections_table(self):
         cluster = self.cluster
         cluster.populate(1).start()
@@ -337,6 +323,7 @@ class TestScrub(Tester, ScrubTestMixin):
     """
     Generic tests for scrubbing
     """
+
     def setUp(self):
         """
         disable JBOD configuration for scrub tests.
@@ -370,10 +357,6 @@ class TestScrub(Tester, ScrubTestMixin):
         assert_length_equal(ret, 5)
         return ret
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11284',
-                   flaky=True,
-                   notes='windows')
     def test_nodetool_scrub(self):
         cluster = self.cluster
         cluster.populate(1).start()
@@ -416,10 +399,6 @@ class TestScrub(Tester, ScrubTestMixin):
         users = self.query_users(session)
         self.assertEqual(initial_users, users)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11236',
-                   flaky=False,
-                   notes='windows')
     def test_standalone_scrub(self):
         cluster = self.cluster
         cluster.populate(1).start()
@@ -447,10 +426,6 @@ class TestScrub(Tester, ScrubTestMixin):
         users = self.query_users(session)
         self.assertEqual(initial_users, users)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11240',
-                   flaky=False,
-                   notes='windows')
     def test_standalone_scrub_essential_files_only(self):
         cluster = self.cluster
         cluster.populate(1).start()

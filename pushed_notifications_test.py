@@ -12,7 +12,7 @@ from nose.tools import timed
 from dtest import Tester, debug
 from tools.data import create_ks
 from tools.misc import get_ip_from_node
-from tools.decorators import known_failure, no_vnodes, since
+from tools.decorators import no_vnodes, since
 
 
 class NotificationWaiter(object):
@@ -84,9 +84,7 @@ class TestPushedNotifications(Tester):
     """
     Tests for pushed native protocol notification from Cassandra.
     """
-    @known_failure(failure_source='cassandra',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12406',
-                   flaky=True)
+
     @no_vnodes()
     def move_single_node_test(self):
         """
@@ -153,9 +151,6 @@ class TestPushedNotifications(Tester):
             notifications = waiter.wait_for_notifications(30.0)
             self.assertEquals(1 if waiter.node is node1 else 0, len(notifications), notifications)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12781',
-                   flaky=True)
     def restart_node_test(self):
         """
         @jira_ticket CASSANDRA-7816

@@ -11,7 +11,7 @@ import parse
 from dtest import Tester, debug
 from tools.data import create_ks
 from tools.assertions import assert_length_equal, assert_none, assert_one
-from tools.decorators import known_failure, since
+from tools.decorators import since
 from tools.misc import ImmutableMapping
 
 
@@ -63,9 +63,6 @@ class TestCompaction(Tester):
 
         self.assertEqual(numfound, 10)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://datastax.jira.com/browse/CSTAR-770',
-                   flaky=True)
     def data_size_test(self):
         """
         Ensure that data size does not have unwarranted increases after compaction.
@@ -103,9 +100,6 @@ class TestCompaction(Tester):
         # allow 5% size increase - if we have few sstables it is not impossible that live size increases *slightly* after compaction
         self.assertLess(finalValue, initialValue * 1.05)
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-12711',
-                   flaky=True)
     def bloomfilter_size_test(self):
         """
         @jira_ticket CASSANDRA-11344
@@ -288,10 +282,6 @@ class TestCompaction(Tester):
         # principle, a bit of wiggle room is expected
         self.assertGreaterEqual(float(threshold) + 0.5, float(avgthroughput))
 
-    @known_failure(failure_source='test',
-                   jira_url='https://issues.apache.org/jira/browse/CASSANDRA-11281',
-                   flaky=True,
-                   notes='windows')
     def compaction_strategy_switching_test(self):
         """Ensure that switching strategies does not result in problems.
         Insert data, switch strategies, then check against data loss.
