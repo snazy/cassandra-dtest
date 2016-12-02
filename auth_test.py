@@ -2693,6 +2693,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
                                         ('role1', '<role role2>', 'AUTHORIZE')],
                                        cassandra, "LIST ALL PERMISSIONS OF role1")
 
+    @since('3.10')
     def grant_and_revoke_using_internal_resource_names_test(self):
         """
         Validate that grant & revoke statements can accept the internal string representation
