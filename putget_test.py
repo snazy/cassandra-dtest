@@ -8,12 +8,10 @@ from dtest import Tester
 from tools.data import (create_c1c2_table, insert_c1c2, insert_columns, putget,
                         query_c1c2, query_columns, range_putget, create_cf, create_ks)
 from tools.decorators import no_vnodes
-from tools.misc import ImmutableMapping
 from tools.funcutils import retry_till_success
 
 
 class TestPutGet(Tester):
-    cluster_options = ImmutableMapping({'start_rpc': 'true'})
 
     def putget_test(self):
         """ Simple put/get on a single row, hitting multiple sstables """
@@ -92,6 +90,7 @@ class TestPutGet(Tester):
                 query_columns(self, session, key, size, offset=x * size - 1)
 
     @no_vnodes()
+    @since('2.0', max_version='4')
     def wide_slice_test(self):
         """
         Check slicing a wide row.

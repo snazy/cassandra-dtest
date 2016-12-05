@@ -18,7 +18,6 @@ from tools.misc import ImmutableMapping
 class TestCompaction(Tester):
 
     __test__ = False
-    cluster_options = ImmutableMapping({'start_rpc': 'true'})
 
     def setUp(self):
         Tester.setUp(self)
