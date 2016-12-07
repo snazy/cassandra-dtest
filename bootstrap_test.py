@@ -11,13 +11,14 @@ from cassandra.concurrent import execute_concurrent_with_args
 from ccmlib.node import NodeError
 
 from dtest import DISABLE_VNODES, Tester, debug
-from tools.assertions import (assert_almost_equal, assert_bootstrap_state, assert_not_running,
-                              assert_one, assert_stderr_clean)
-from tools.data import query_c1c2, create_cf, create_ks
+from tools.assertions import (assert_almost_equal, assert_bootstrap_state,
+                              assert_not_running, assert_one,
+                              assert_stderr_clean)
+from tools.data import create_cf, create_ks, query_c1c2
 from tools.decorators import no_vnodes, since
 from tools.intervention import InterruptBootstrap, KillOnBootstrap
 from tools.misc import ImmutableMapping, new_node
-from tools.misc import generate_ssl_stores
+from tools.sslkeygen import generate_ssl_stores
 
 
 class BaseBootstrapTest(Tester):
