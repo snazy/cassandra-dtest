@@ -22,11 +22,13 @@ def _get_cassandra_version_family():
         version_family = '2.2.x'
     elif current_version.vstring.startswith('3.0'):
         version_family = '3.0.x'
-    elif current_version > '3.0':
+    elif '3.1' <= current_version < '4.0':
         version_family = '3.x'
-    elif current_version >= '4.0':
+    elif '4.0' <= current_version < '4.1':
+        version_family = 'trunk'
+    else:
         # when this occurs, it's time to update this manifest a bit!
-        raise RuntimeError("4.0 not yet supported on upgrade tests!")
+        raise RuntimeError("4.1+ not yet supported on upgrade tests!")
 
     return version_family
 
@@ -109,6 +111,8 @@ current_3_0_x = VersionMeta(name='current_3_0_x', family='3.0.x', variant='curre
 
 indev_3_x = VersionMeta(name='indev_3_x', family='3.x', variant='indev', version='git:cassandra-3.X', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 current_3_x = VersionMeta(name='current_3_x', family='3.x', variant='current', version='3.9', min_proto_v=3, max_proto_v=4, java_versions=(8,))
+
+indev_trunk = VersionMeta(name='indev_trunk', family='trunk', variant='indev', version='git:trunk', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 
 
 indev_cassandra_2_1_dse = VersionMeta(name='indev_cassandra_2_1_dse', family='cassandra-2.1_dse', variant='indev',
