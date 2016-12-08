@@ -321,7 +321,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         self.replacement_node.watch_log_for("java.lang.RuntimeException: Cannot replace_address /127.0.0.5 because it doesn't exist in gossip")
         assert_not_running(self.replacement_node)
 
-    @since('3.6')
+    @since('3.0.11')
     def fail_without_replace_test(self):
         """
         When starting a node from a clean slate with the same address as
@@ -353,7 +353,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
             node3.watch_log_for('Use cassandra.replace_address if you want to replace this node', from_mark=mark, timeout=20)
             mark = node3.mark_log()
 
-    @since('3.6')
+    @since('3.0.11')
     def unsafe_replace_test(self):
         """
         To handle situations such as failed disk in a JBOD, it may be desirable to
