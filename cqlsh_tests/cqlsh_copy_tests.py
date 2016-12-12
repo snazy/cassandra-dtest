@@ -3192,3 +3192,75 @@ class CqlshCopyTest(Tester):
 
         res = list(self.session.execute("SELECT * FROM ks.test_reading_text_pk_no_prepared_statements"))
         self.assertCsvResultEqual(tempfile.name, res, 'test_reading_text_pk_no_prepared_statements')
+
+    @since('3.10')
+    def test_missing_values_without_inserting_nulls(self):
+        """
+        Test missing CSV values with INSERTNULLFORMISSINGVALUES set to TRUE (the default) or FALSE. In the
+        first case missing values will be inserted as nulls (creating tombstones), in the second case they
+        should be ignored.
+
+        - import some records and check
+        - import missing records with INSERTNULLFORMISSINGVALUES=False
+          and check that the missing records are unchanged
+        - import missing records with INSERTNULLFORMISSINGVALUES=true
+          and check that the missing records are replaced with nulls
+
+        @jira_ticket APOLLO-4
+        """
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE test_missing_values_without_inserting_nulls (
+                a int primary key,
+                b text,
+                c int,
+                d float,
+                e timestamp,
+                f list<int>
+            )""")
+
+        records = ["1,abc,1,1,2016-10-01 00:00:00.000+0000,\"[1, 2, 3]\"\n",
+                   "2,abc,2,2,2016-10-02 00:00:00.000+0000,\"[4, 5, 6]\"\n",
+                   "3,abc,3,3,2016-10-03 00:00:00.000+0000,\"[7, 8, 9]\"\n"]
+
+        missing_records = ["1,,,,,\n", "2,,,,,\n", "3,,,,,\n"]
+
+        records_file = self.get_temp_file()
+        with open(records_file.name, 'w') as f:
+            f.writelines(records)
+
+        missing_records_file = self.get_temp_file()
+        with open(missing_records_file.name, 'w') as f:
+            f.writelines(missing_records)
+
+        # First import the records and check that they get imported
+        debug('Importing from csv file: {name}'.format(name=records_file.name))
+        cmds = "COPY ks.test_missing_values_without_inserting_nulls FROM '{name}'".format(name=records_file.name)
+        self.run_cqlsh(cmds=cmds)
+
+        results = list(self.session.execute("SELECT * FROM ks.test_missing_values_without_inserting_nulls"))
+        debug(results)
+        self.assertCsvResultEqual(records_file.name, results, 'test_missing_values_without_inserting_nulls')
+
+        # Then import the file with all missing records with INSERTNULLFORMISSINGVALUES=False and verify
+        # that the missing records are unchanged
+        debug('Importing from csv file: {name}'.format(name=missing_records_file.name))
+        cmds = "COPY ks.test_missing_values_without_inserting_nulls FROM '{name}' " \
+               "WITH INSERTNULLFORMISSINGVALUES=False".format(name=missing_records_file.name)
+        self.run_cqlsh(cmds=cmds)
+
+        results = list(self.session.execute("SELECT * FROM ks.test_missing_values_without_inserting_nulls"))
+        debug(results)
+        self.assertCsvResultEqual(records_file.name, results, 'test_missing_values_without_inserting_nulls')
+
+        # Then import the file with all missing records with NSERTNULLFORMISSINGVALUES=True and verify
+        # that the missing records are replaced with nulls
+
+        debug('Importing from csv file: {name}'.format(name=missing_records_file.name))
+        cmds = "COPY ks.test_missing_values_without_inserting_nulls FROM '{name}' " \
+               "WITH INSERTNULLFORMISSINGVALUES=True".format(name=missing_records_file.name)
+        self.run_cqlsh(cmds=cmds)
+
+        results = list(self.session.execute("SELECT * FROM ks.test_missing_values_without_inserting_nulls"))
+        debug(results)
+        self.assertCsvResultEqual(missing_records_file.name, results, 'test_missing_values_without_inserting_nulls')
