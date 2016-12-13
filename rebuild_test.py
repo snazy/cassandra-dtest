@@ -7,7 +7,6 @@ from ccmlib.node import ToolError
 from dtest import Tester, debug
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
-from tools.misc import ImmutableMapping
 
 
 class TestRebuild(Tester):

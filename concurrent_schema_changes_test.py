@@ -13,7 +13,6 @@ from ccmlib.node import Node
 from dtest import Tester, debug
 from tools.data import create_ks
 from tools.decorators import since
-from tools.misc import ImmutableMapping
 
 
 def wait(delay=2):

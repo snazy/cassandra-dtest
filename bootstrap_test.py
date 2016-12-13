@@ -17,7 +17,7 @@ from tools.assertions import (assert_almost_equal, assert_bootstrap_state,
 from tools.data import create_cf, create_ks, query_c1c2
 from tools.decorators import no_vnodes, since
 from tools.intervention import InterruptBootstrap, KillOnBootstrap
-from tools.misc import ImmutableMapping, new_node
+from tools.misc import new_node
 from tools.sslkeygen import generate_ssl_stores
 
 
