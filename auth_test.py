@@ -62,7 +62,7 @@ class TestAuthThreeNodes(Tester, AuthMixin):
         cluster.set_configuration_options(values=config)
         cluster.populate(3).start()
 
-        wait_for_any_log(self.cluster.nodelist(), 'Created default superuser', 25)
+        self.cluster.wait_for_any_log('Created default superuser', 25)
 
         session = self.get_session(user='cassandra', password='cassandra')
         auth_metadata = UpdatingKeyspaceMetadataWrapper(
@@ -134,7 +134,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         cls.cached_config = ImmutableMapping(cluster._config_options)
 
-        n = wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
+        n = cluster.wait_for_any_log('Created default superuser', 25)
 
     def setUp(self):
         super(TestAuthOneNode, self).setUp()
