@@ -637,30 +637,6 @@ class Tester(TestCase):
             debug(stderr)
 
 
-def wait_for_any_log(nodes, pattern, timeout, filename='system.log'):
-    """
-    Look for a pattern in the system.log of any in a given list
-    of nodes.
-    @param nodes The list of nodes whose logs to scan
-    @param pattern The target pattern
-    @param timeout How long to wait for the pattern. Note that
-                    strictly speaking, timeout is not really a timeout,
-                    but a maximum number of attempts. This implies that
-                    the all the grepping takes no time at all, so it is
-                    somewhat inaccurate, but probably close enough.
-    @return The first node in whose log the pattern was found
-    """
-    for _ in range(timeout):
-        for node in nodes:
-            found = node.grep_log(pattern, filename=filename)
-            if found:
-                return node
-        time.sleep(1)
-
-    raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) +
-                       " Unable to find: " + repr(pattern) + " in any node log within " + str(timeout) + "s")
-
-
 def kill_windows_cassandra_procs():
     # On Windows, forcefully terminate any leftover previously running cassandra processes. This is a temporary
     # workaround until we can determine the cause of intermittent hung-open tests and file-handles.

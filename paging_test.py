@@ -8,14 +8,13 @@ from cassandra.policies import FallthroughRetryPolicy
 from cassandra.query import (SimpleStatement, dict_factory,
                              named_tuple_factory, tuple_factory)
 
-from dtest import ReusableClusterTester, debug, run_scenarios, wait_for_any_log
+from dtest import ReusableClusterTester, debug, run_scenarios
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_one)
-from tools.data import rows_to_list, create_ks
+from tools.data import create_ks, rows_to_list
 from tools.datahelp import create_rows, flatten_into_set, parse_data_into_dicts
 from tools.decorators import since
 from tools.misc import ImmutableMapping, restart_cluster_and_update_config
-
 from tools.paging import PageAssertionMixin, PageFetcher
 
 
