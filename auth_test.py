@@ -3,14 +3,13 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from distutils.version import LooseVersion
 
-from nose.tools import assert_regexp_matches
-
 from cassandra import AuthenticationFailed, InvalidRequest, Unauthorized
 from cassandra.cluster import NoHostAvailable
 from cassandra.protocol import ServerError, SyntaxException
+from nose.tools import assert_regexp_matches
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester,
-                   debug, wait_for_any_log)
+                   debug)
 from tools.assertions import (assert_all, assert_exception, assert_invalid,
                               assert_length_equal, assert_one,
                               assert_unauthorized)
