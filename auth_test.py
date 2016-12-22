@@ -1147,7 +1147,7 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
 
         cls.cached_config = ImmutableMapping(cluster._config_options)
 
-        wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
+        cluster.wait_for_any_log(cluster.nodelist(), 'Created default superuser', 25)
 
     def setUp(self):
         super(TestAuthRoles, self).setUp()
