@@ -8,7 +8,8 @@ from cassandra import ConsistencyLevel, InvalidRequest
 from cassandra.metadata import NetworkTopologyStrategy, SimpleStrategy
 from cassandra.policies import FallthroughRetryPolicy
 from cassandra.protocol import ProtocolException
-from cassandra.query import SimpleStatement
+from cassandra.query import SimpleStatement, BatchStatement, BatchType
+
 
 from dtest import ReusableClusterTester, debug, Tester
 from tools.data import create_ks
@@ -1434,3 +1435,112 @@ class LWTTester(ReusableClusterTester):
         node1 = self.cluster.nodelist()[0]
         self.cluster.flush()
         assert_one(session, "UPDATE test SET v1 = 100 WHERE pk = 'test1' IF v2 = null;", [True])
+
+
+class WarningsTester(CQLTester):
+
+    @since('2.2')
+    def test_client_warnings(self):
+        """
+        Tests for CASSANDRA-9399, check client warnings:
+        - an unlogged batch across multiple partitions should generate a WARNING if there are more than
+        unlogged_batch_across_partitions_warn_threshold partitions.
+
+        Execute two unlogged batches: one only with fewer partitions and the other one with more than
+        unlogged_batch_across_partitions_warn_threshold partitions.
+
+        Check that only the second one generates a client warning.
+
+        @jira_ticket CASSNADRA-9399
+        @jira_ticket CASSANDRA-9303
+        @jira_ticket CASSANDRA-11529
+        """
+        max_partitions_per_batch = 5
+        self.cluster.populate(3)
+        self.cluster.set_configuration_options({
+            'unlogged_batch_across_partitions_warn_threshold': str(max_partitions_per_batch)})
+
+        self.cluster.start()
+
+        node1 = self.cluster.nodelist()[0]
+
+        stdout, stderr, _ = node1.run_cqlsh("""
+            CREATE KEYSPACE client_warnings WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+            USE client_warnings;
+            CREATE TABLE test (id int, val text, PRIMARY KEY (id))""")
+
+        self.assertEqual(len(stderr), 0, "Failed to execute cqlsh: {}".format(stderr))
+
+        session = self.patient_cql_connection(node1)
+        prepared = session.prepare("INSERT INTO client_warnings.test (id, val) VALUES (?, 'abc')")
+
+        batch_without_warning = BatchStatement(batch_type=BatchType.UNLOGGED)
+        batch_with_warning = BatchStatement(batch_type=BatchType.UNLOGGED)
+
+        for i in xrange(max_partitions_per_batch + 1):
+            batch_with_warning.add(prepared, (i,))
+            if i < max_partitions_per_batch:
+                batch_without_warning.add(prepared, (i,))
+
+        fut = session.execute_async(batch_without_warning)
+        fut.result()  # wait for batch to complete before checking warnings
+        self.assertIsNone(fut.warnings)
+
+        fut = session.execute_async(batch_with_warning)
+        fut.result()  # wait for batch to complete before checking warnings
+        debug(fut.warnings)
+        self.assertIsNotNone(fut.warnings)
+        self.assertEquals(["Unlogged batch covering {} partitions detected against table [client_warnings.test]. "
+                           .format(max_partitions_per_batch + 1) +
+                           "You should use a logged batch for atomicity, or asynchronous writes for performance."],
+                          fut.warnings)
+
+    @since("3.10")
+    def test_sasi_client_warnings(self):
+        """
+        Tests for APOLLO-93, checks for warnings issued on index creation
+        and once per connection on SELECT query using SASI index.
+
+        @jira_ticket APOLLO-93
+        """
+        self.cluster.populate(1)
+        self.cluster.start()
+        node1 = self.cluster.nodelist()[0]
+        session = self.patient_cql_connection(node1)
+
+        stdout, stderr, _ = node1.run_cqlsh("""
+            CREATE KEYSPACE sasi_client_warnings WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+            USE sasi_client_warnings;
+            CREATE TABLE sasi_client_warnings (
+                a text PRIMARY KEY,
+                b text,
+                c text,
+                data text)""")
+        self.assertEqual(len(stderr), 0, "Failed to execute cqlsh: {}".format(stderr))
+
+        session.execute("USE sasi_client_warnings;")
+        warning = "SASI index was enabled for 'sasi_client_warnings.sasi_client_warnings'. SASI is still in beta, take extra caution when using it in production."
+
+        result = session.execute_async("CREATE CUSTOM INDEX ON sasi_client_warnings (c) USING 'org.apache.cassandra.index.sasi.SASIIndex';")
+        result.result()
+        self.assertEquals([warning], result.warnings)
+        log = node1.grep_log(warning)
+        self.assertEquals(1, len(log))
+
+        warnings = 1
+        for session in [self.patient_cql_connection(node1), self.patient_cql_connection(node1)]:
+            session.execute("USE sasi_client_warnings;")
+
+            result = session.execute_async("SELECT * FROM sasi_client_warnings WHERE c = 'a';")
+            result.result()
+            self.assertEquals([warning], result.warnings)
+            warnings += 1
+            log = node1.grep_log(warning)
+            self.assertEquals(warnings, len(log))
+
+            # make sure we do not warn for the second time per connection
+            result = session.execute_async("SELECT * FROM sasi_client_warnings WHERE c = 'a';")
+            result.result()
+            self.assertEquals(None, result.warnings)
+            log = node1.grep_log(warning)
+            self.assertEquals(warnings, len(log))

@@ -13,7 +13,6 @@ from uuid import UUID, uuid4
 
 from cassandra import InvalidRequest
 from cassandra.concurrent import execute_concurrent_with_args
-from cassandra.query import BatchStatement, BatchType
 from ccmlib import common
 
 from cqlsh_tools import monkeypatch_driver, unmonkeypatch_driver
@@ -1375,63 +1374,6 @@ CREATE TABLE datetime_checks.values (
 (3 rows)
 
 Tracing session:""")
-
-    @since('2.2')
-    def test_client_warnings(self):
-        """
-        Tests for CASSANDRA-9399, check client warnings:
-        - an unlogged batch across multiple partitions should generate a WARNING if there are more than
-        unlogged_batch_across_partitions_warn_threshold partitions.
-
-        Execute two unlogged batches: one only with fewer partitions and the other one with more than
-        unlogged_batch_across_partitions_warn_threshold partitions.
-
-        Check that only the second one generates a client warning.
-
-        @jira_ticket CASSNADRA-9399
-        @jira_ticket CASSANDRA-9303
-        @jira_ticket CASSANDRA-11529
-        """
-        max_partitions_per_batch = 5
-        self.cluster.populate(3)
-        self.cluster.set_configuration_options({
-            'unlogged_batch_across_partitions_warn_threshold': str(max_partitions_per_batch)})
-
-        self.cluster.start()
-
-        node1 = self.cluster.nodelist()[0]
-
-        stdout, stderr = self.run_cqlsh(node1, cmds="""
-            CREATE KEYSPACE client_warnings WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
-            USE client_warnings;
-            CREATE TABLE test (id int, val text, PRIMARY KEY (id))""")
-
-        self.assertEqual(len(stderr), 0, "Failed to execute cqlsh: {}".format(stderr))
-
-        session = self.patient_cql_connection(node1)
-        prepared = session.prepare("INSERT INTO client_warnings.test (id, val) VALUES (?, 'abc')")
-
-        batch_without_warning = BatchStatement(batch_type=BatchType.UNLOGGED)
-        batch_with_warning = BatchStatement(batch_type=BatchType.UNLOGGED)
-
-        for i in xrange(max_partitions_per_batch + 1):
-            batch_with_warning.add(prepared, (i,))
-            if i < max_partitions_per_batch:
-                batch_without_warning.add(prepared, (i,))
-
-        fut = session.execute_async(batch_without_warning)
-        fut.result()  # wait for batch to complete before checking warnings
-        self.assertIsNone(fut.warnings)
-
-        fut = session.execute_async(batch_with_warning)
-        fut.result()  # wait for batch to complete before checking warnings
-        debug(fut.warnings)
-        self.assertIsNotNone(fut.warnings)
-        self.assertEquals(1, len(fut.warnings))
-        self.assertEquals("Unlogged batch covering {} partitions detected against table [client_warnings.test]. "
-                          .format(max_partitions_per_batch + 1) +
-                          "You should use a logged batch for atomicity, or asynchronous writes for performance.",
-                          fut.warnings[0])
 
     def test_connect_timeout(self):
         """
