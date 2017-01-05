@@ -30,6 +30,7 @@ class since(object):
         @classmethod
         @functools.wraps(cls.setUpClass)
         def wrapped_setUpClass(obj, *args, **kwargs):
+            obj.max_version = self.max_version
             version = CASSANDRA_VERSION_FROM_BUILD
             msg = self._skip_msg(version)
             if msg:
@@ -42,6 +43,7 @@ class since(object):
     def _wrap_function(self, f):
         @functools.wraps(f)
         def wrapped(obj):
+            obj.max_version = self.max_version
             version = obj.cluster.version()
             msg = self._skip_msg(version)
             if msg:
