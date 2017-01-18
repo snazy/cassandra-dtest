@@ -16,4 +16,4 @@ parse
 pep8
 psutil
 pycassa
-thrift
+thrift==0.9.3
