@@ -10,3 +10,8 @@ last_test_dir
 upgrade
 html/
 doxygen/doxypy-0.4.2/
+
+# pipenv
+.venv/
+Pipfile
+Pipfile.lock
