@@ -15,19 +15,19 @@ from functools import partial
 from tempfile import NamedTemporaryFile, gettempdir, template
 from uuid import uuid1, uuid4
 
-from cassandra.cluster import ConsistencyLevel, SimpleStatement
-from cassandra.concurrent import execute_concurrent_with_args
-from cassandra.cqltypes import EMPTY
-from cassandra.murmur3 import murmur3
-from cassandra.util import SortedSet
 from ccmlib.common import is_win
+from dse.cluster import ConsistencyLevel, SimpleStatement
+from dse.concurrent import execute_concurrent_with_args
+from dse.cqltypes import EMPTY
+from dse.murmur3 import murmur3
+from dse.util import SortedSet
 from nose.plugins.attrib import attr
 
 from cqlsh_tools import (DummyColorMap, assert_csvs_items_equal, csv_rows,
                          monkeypatch_driver, random_list, unmonkeypatch_driver,
                          write_rows_to_csv)
 from dtest import DISABLE_VNODES, Tester, debug, warning
-from tools.data import rows_to_list, create_ks
+from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingTableMetadataWrapper)

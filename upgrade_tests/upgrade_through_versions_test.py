@@ -11,8 +11,8 @@ from Queue import Empty, Full
 from unittest import skipUnless
 
 import psutil
-from cassandra import ConsistencyLevel, WriteTimeout
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, WriteTimeout
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from six import print_
 

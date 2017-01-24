@@ -1,14 +1,14 @@
 import time
 from collections import OrderedDict
 
-from cassandra import ConsistencyLevel
-from cassandra.query import SimpleStatement
-from cassandra.util import sortedset
+from dse import ConsistencyLevel
+from dse.query import SimpleStatement
+from dse.util import sortedset
 
 from dtest import Tester, debug
-from tools.data import create_ks
 from tools.assertions import (assert_all, assert_almost_equal, assert_none,
                               assert_row_count, assert_unavailable)
+from tools.data import create_ks
 from tools.decorators import since
 
 

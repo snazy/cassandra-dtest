@@ -1,12 +1,12 @@
 import time
 import uuid
 
-from cassandra import ConsistencyLevel, Unauthorized
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, Unauthorized
+from dse.query import SimpleStatement
 
 from dtest import Tester
-from tools.data import create_ks
 from tools.assertions import assert_invalid
+from tools.data import create_ks
 from tools.decorators import since
 
 

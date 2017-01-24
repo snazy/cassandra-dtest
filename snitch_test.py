@@ -2,11 +2,11 @@ import os
 import socket
 import time
 
+from dse import ConsistencyLevel
 from nose.plugins.attrib import attr
+from nose.tools import assert_equal, assert_greater_equal, assert_true
 
-from cassandra import ConsistencyLevel
 from dtest import Tester, debug
-from nose.tools import assert_true, assert_equal, assert_greater_equal
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)

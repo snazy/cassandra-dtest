@@ -6,9 +6,9 @@ import tempfile
 import threading
 import time
 
-from cassandra import ConsistencyLevel
-from cassandra.concurrent import execute_concurrent_with_args
 from ccmlib.node import NodeError
+from dse import ConsistencyLevel
+from dse.concurrent import execute_concurrent_with_args
 
 from dtest import DISABLE_VNODES, Tester, debug
 from tools.assertions import (assert_almost_equal, assert_bootstrap_state,

@@ -1,6 +1,6 @@
-from cassandra import ConsistencyLevel, ReadFailure, ReadTimeout, OperationTimedOut
-from cassandra.policies import FallthroughRetryPolicy
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, ReadFailure, ReadTimeout, OperationTimedOut
+from dse.policies import FallthroughRetryPolicy
+from dse.query import SimpleStatement
 
 from dtest import Tester
 from tools.decorators import since

@@ -1,10 +1,10 @@
 import os
 
-from cassandra import ConsistencyLevel
-from cassandra.cluster import NoHostAvailable
+from dse import ConsistencyLevel
+from dse.cluster import NoHostAvailable
 
 from dtest import Tester
-from tools.data import putget, create_cf, create_ks
+from tools.data import create_cf, create_ks, putget
 from tools.decorators import since
 from tools.sslkeygen import generate_ssl_stores
 

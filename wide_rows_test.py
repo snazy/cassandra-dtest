@@ -2,8 +2,8 @@ import datetime
 import random
 
 from dtest import Tester, debug
-from tools.data import create_ks
 from tools.assertions import assert_length_equal
+from tools.data import create_ks
 
 status_messages = (
     "I''m going to the Cassandra Summit in June!",

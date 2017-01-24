@@ -2,7 +2,7 @@ import os
 import tempfile
 
 from dtest import Tester, debug
-from tools.data import rows_to_list, create_ks
+from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 
 

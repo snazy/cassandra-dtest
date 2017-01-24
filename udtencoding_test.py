@@ -1,7 +1,7 @@
 import time
 
-from tools.assertions import assert_invalid
 from dtest import Tester
+from tools.assertions import assert_invalid
 from tools.data import create_ks
 
 

@@ -7,8 +7,8 @@ from random import randrange
 from threading import Thread
 from unittest import skip
 
-from cassandra.concurrent import execute_concurrent
 from ccmlib.node import Node
+from dse.concurrent import execute_concurrent
 
 from dtest import Tester, debug
 from tools.data import create_ks

@@ -5,11 +5,10 @@ import time
 import uuid
 from unittest import skipIf
 
-from cassandra import InvalidRequest
-from cassandra.concurrent import (execute_concurrent,
-                                  execute_concurrent_with_args)
-from cassandra.protocol import ConfigurationException
-from cassandra.query import BatchStatement, SimpleStatement
+from dse import InvalidRequest
+from dse.concurrent import execute_concurrent, execute_concurrent_with_args
+from dse.protocol import ConfigurationException
+from dse.query import BatchStatement, SimpleStatement
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES,
                    OFFHEAP_MEMTABLES, Tester, debug)

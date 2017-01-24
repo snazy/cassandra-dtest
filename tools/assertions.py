@@ -2,9 +2,9 @@
 import re
 from time import sleep
 
-from cassandra import (InvalidRequest, ReadFailure, ReadTimeout, Unauthorized,
-                       Unavailable, WriteFailure, WriteTimeout)
-from cassandra.query import SimpleStatement
+from dse import (InvalidRequest, ReadFailure, ReadTimeout, Unauthorized,
+                 Unavailable, WriteFailure, WriteTimeout)
+from dse.query import SimpleStatement
 from nose.tools import (assert_equal, assert_false, assert_regexp_matches,
                         assert_true)
 

@@ -3,13 +3,13 @@ import time
 from threading import Thread
 from unittest import skip
 
-from cassandra import ConsistencyLevel
 from ccmlib.node import TimeoutError, ToolError
+from dse import ConsistencyLevel
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
 from tools.assertions import assert_almost_equal
-from tools.data import insert_c1c2, query_c1c2, create_cf, create_ks
+from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
 
 

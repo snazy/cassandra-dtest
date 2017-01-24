@@ -1,7 +1,7 @@
 import csv
 import random
 
-import cassandra
+import dse
 from nose.tools import assert_items_equal
 
 
@@ -52,23 +52,23 @@ def write_rows_to_csv(filename, data):
 
 def monkeypatch_driver():
     """
-    Monkeypatches the `cassandra` driver module in the same way
-    that clqsh does. Returns a dictionary containing the original values of
+    Monkeypatches the `dse` driver module in the same way
+    that cqlsh does. Returns a dictionary containing the original values of
     the monkeypatched names.
     """
-    cache = {'deserialize': cassandra.cqltypes.BytesType.deserialize,
-             'support_empty_values': cassandra.cqltypes.CassandraType.support_empty_values}
+    cache = {'deserialize': dse.cqltypes.BytesType.deserialize,
+             'support_empty_values': dse.cqltypes.CassandraType.support_empty_values}
 
-    cassandra.cqltypes.BytesType.deserialize = staticmethod(lambda byts, protocol_version: bytearray(byts))
-    cassandra.cqltypes.CassandraType.support_empty_values = True
+    dse.cqltypes.BytesType.deserialize = staticmethod(lambda byts, protocol_version: bytearray(byts))
+    dse.cqltypes.CassandraType.support_empty_values = True
 
     return cache
 
 
 def unmonkeypatch_driver(cache):
     """
-    Given a dictionary that was used to cache parts of `cassandra` for
-    monkeypatching, restore those values to the `cassandra` module.
+    Given a dictionary that was used to cache parts of `dse` for
+    monkeypatching, restore those values to the `dse` module.
     """
-    cassandra.cqltypes.BytesType.deserialize = staticmethod(cache['deserialize'])
-    cassandra.cqltypes.CassandraType.support_empty_values = cache['support_empty_values']
+    dse.cqltypes.BytesType.deserialize = staticmethod(cache['deserialize'])
+    dse.cqltypes.CassandraType.support_empty_values = cache['support_empty_values']

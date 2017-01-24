@@ -9,14 +9,13 @@ from collections import namedtuple
 from itertools import izip as zip
 from itertools import repeat
 
-from cassandra import WriteFailure
-from cassandra.concurrent import (execute_concurrent,
-                                  execute_concurrent_with_args)
 from ccmlib.node import Node
+from dse import WriteFailure
+from dse.concurrent import execute_concurrent, execute_concurrent_with_args
 from nose.tools import assert_equal, assert_less_equal
 
 from dtest import Tester, debug
-from tools.data import rows_to_list, create_ks
+from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 from tools.files import size_of_files_in_dir
 from tools.funcutils import get_rate_limited_function

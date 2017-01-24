@@ -1,7 +1,7 @@
-from cassandra import ConsistencyLevel
+from dse import ConsistencyLevel
 
 from dtest import Tester, debug
-from tools.data import create_c1c2_table, insert_c1c2, query_c1c2, create_ks
+from tools.data import create_c1c2_table, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes
 from tools.misc import new_node
 

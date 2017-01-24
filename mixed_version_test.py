@@ -1,5 +1,5 @@
-from cassandra import ConsistencyLevel, OperationTimedOut, ReadTimeout
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, OperationTimedOut, ReadTimeout
+from dse.query import SimpleStatement
 
 from dtest import Tester, debug
 from tools.decorators import since

@@ -3,10 +3,10 @@ import time
 import uuid
 from unittest import SkipTest, skipUnless
 
-from cassandra import ConsistencyLevel as CL
-from cassandra import InvalidRequest
-from cassandra.query import SimpleStatement, dict_factory, named_tuple_factory
 from ccmlib.common import LogPatternToVersion
+from dse import ConsistencyLevel as CL
+from dse import InvalidRequest
+from dse.query import SimpleStatement, dict_factory, named_tuple_factory
 from nose.tools import assert_not_in
 
 from dtest import RUN_STATIC_UPGRADE_MATRIX, debug, run_scenarios

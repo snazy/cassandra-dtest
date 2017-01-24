@@ -3,9 +3,9 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from distutils.version import LooseVersion
 
-from cassandra import AuthenticationFailed, InvalidRequest, Unauthorized
-from cassandra.cluster import NoHostAvailable
-from cassandra.protocol import ServerError, SyntaxException
+from dse import AuthenticationFailed, InvalidRequest, Unauthorized
+from dse.cluster import NoHostAvailable
+from dse.protocol import ServerError, SyntaxException
 from nose.tools import assert_regexp_matches
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester,

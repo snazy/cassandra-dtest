@@ -3,11 +3,11 @@
 import time
 from threading import Thread
 
-from cassandra import ConsistencyLevel, WriteTimeout
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, WriteTimeout
+from dse.query import SimpleStatement
 
-from tools.assertions import assert_unavailable
 from dtest import Tester
+from tools.assertions import assert_unavailable
 from tools.data import create_ks
 from tools.decorators import no_vnodes, since
 

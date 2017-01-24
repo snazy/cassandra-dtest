@@ -3,14 +3,14 @@ from collections import Counter
 from re import findall
 from unittest import skip
 
-from cassandra import ConsistencyLevel
 from ccmlib.common import is_win
 from ccmlib.node import Node
+from dse import ConsistencyLevel
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
 from tools.assertions import assert_almost_equal, assert_one
-from tools.data import insert_c1c2, create_cf, create_ks
+from tools.data import create_cf, create_ks, insert_c1c2
 from tools.decorators import since
 
 

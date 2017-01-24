@@ -2,11 +2,11 @@ import time
 import uuid
 from distutils.version import LooseVersion
 
-from cassandra import ConsistencyLevel as CL
-from cassandra import InvalidRequest, ReadFailure, ReadTimeout
-from cassandra.policies import FallthroughRetryPolicy
-from cassandra.query import (SimpleStatement, dict_factory,
-                             named_tuple_factory, tuple_factory)
+from dse import ConsistencyLevel as CL
+from dse import InvalidRequest, ReadFailure, ReadTimeout
+from dse.policies import FallthroughRetryPolicy
+from dse.query import (SimpleStatement, dict_factory, named_tuple_factory,
+                       tuple_factory)
 
 from dtest import ReusableClusterTester, debug, run_scenarios
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,

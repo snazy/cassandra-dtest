@@ -5,7 +5,7 @@ weirdnesses in Cassandra.
 import os
 import time
 
-from cassandra.concurrent import execute_concurrent
+from dse.concurrent import execute_concurrent
 from nose.tools import assert_less_equal
 
 import dtest

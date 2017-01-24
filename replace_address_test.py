@@ -4,13 +4,15 @@ from itertools import chain
 from shutil import rmtree
 from unittest import skipIf
 
-from cassandra import ConsistencyLevel, ReadTimeout, Unavailable
-from cassandra.query import SimpleStatement
 from ccmlib.node import Node
+from dse import ConsistencyLevel, ReadTimeout, Unavailable
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, TRACE, Tester, debug
-from tools.assertions import assert_bootstrap_state, assert_all, assert_not_running
+from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, TRACE, Tester,
+                   debug)
+from tools.assertions import (assert_all, assert_bootstrap_state,
+                              assert_not_running)
 from tools.data import rows_to_list
 from tools.decorators import since
 

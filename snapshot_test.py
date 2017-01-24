@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import time
 
-from cassandra.concurrent import execute_concurrent_with_args
+from dse.concurrent import execute_concurrent_with_args
 
 from dtest import (Tester, cleanup_cluster, create_ccm_cluster, debug,
                    get_test_path)

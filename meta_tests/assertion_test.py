@@ -1,7 +1,7 @@
 
 from unittest import TestCase
 
-from cassandra import AlreadyExists, InvalidRequest, Unauthorized, Unavailable
+from dse import AlreadyExists, InvalidRequest, Unauthorized, Unavailable
 from mock import Mock
 
 from tools.assertions import (assert_all, assert_almost_equal, assert_exception,

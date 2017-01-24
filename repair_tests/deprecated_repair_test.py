@@ -1,11 +1,11 @@
 from distutils.version import LooseVersion
 
-from cassandra import ConsistencyLevel
 from ccmlib.common import is_win
+from dse import ConsistencyLevel
 
 from dtest import Tester, debug
 from tools.assertions import assert_length_equal
-from tools.data import insert_c1c2, create_cf, create_ks
+from tools.data import create_cf, create_ks, insert_c1c2
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
