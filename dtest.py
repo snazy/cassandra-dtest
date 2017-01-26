@@ -27,6 +27,7 @@ import ccmlib.repository
 from cassandra import ConsistencyLevel
 from cassandra.cluster import Cluster as PyCluster
 from cassandra.cluster import NoHostAvailable
+from cassandra.cluster import ExecutionProfile, EXEC_PROFILE_DEFAULT
 from cassandra.policies import RetryPolicy, WhiteListRoundRobinPolicy
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
@@ -250,6 +251,12 @@ class Runner(threading.Thread):
             raise self.__error
 
 
+def make_execution_profile(retry_policy=FlakyRetryPolicy(), consistency_level=ConsistencyLevel.ONE, **kwargs):
+    return ExecutionProfile(retry_policy=retry_policy,
+                            consistency_level=consistency_level,
+                            **kwargs)
+
+
 class Tester(TestCase):
 
     maxDiff = None
@@ -415,22 +422,22 @@ class Tester(TestCase):
                 os.symlink(basedir, name)
 
     def cql_connection(self, node, keyspace=None, user=None,
-                       password=None, compression=True, protocol_version=None, port=None, ssl_opts=None):
+                       password=None, compression=True, protocol_version=None, port=None, ssl_opts=None, **kwargs):
 
         return self._create_session(node, keyspace, user, password, compression,
-                                    protocol_version, port=port, ssl_opts=ssl_opts)
+                                    protocol_version, port=port, ssl_opts=ssl_opts, **kwargs)
 
     def exclusive_cql_connection(self, node, keyspace=None, user=None,
-                                 password=None, compression=True, protocol_version=None, port=None, ssl_opts=None):
+                                 password=None, compression=True, protocol_version=None, port=None, ssl_opts=None, **kwargs):
 
         node_ip = get_ip_from_node(node)
         wlrr = WhiteListRoundRobinPolicy([node_ip])
 
         return self._create_session(node, keyspace, user, password, compression,
-                                    protocol_version, wlrr, port=port, ssl_opts=ssl_opts)
+                                    protocol_version, port=port, ssl_opts=ssl_opts, load_balancing_policy=wlrr, **kwargs)
 
-    def _create_session(self, node, keyspace, user, password, compression, protocol_version, load_balancing_policy=None,
-                        port=None, ssl_opts=None):
+    def _create_session(self, node, keyspace, user, password, compression, protocol_version,
+                        port=None, ssl_opts=None, execution_profiles=None, **kwargs):
         node_ip = get_ip_from_node(node)
         if not port:
             port = get_port_from_node(node)
@@ -443,27 +450,29 @@ class Tester(TestCase):
         else:
             auth_provider = None
 
-        cluster = PyCluster([node_ip], auth_provider=auth_provider, compression=compression,
-                            protocol_version=protocol_version, load_balancing_policy=load_balancing_policy, default_retry_policy=FlakyRetryPolicy(),
-                            port=port, ssl_options=ssl_opts, connect_timeout=10, allow_beta_protocol_version=True)
-        session = cluster.connect(wait_for_all_pools=True)
+        profiles = {EXEC_PROFILE_DEFAULT: make_execution_profile(**kwargs)
+                    } if not execution_profiles else execution_profiles
 
-        # temporarily increase client-side timeout to 1m to determine
-        # if the cluster is simply responding slowly to requests
-        session.default_timeout = 60.0
+        cluster = PyCluster([node_ip],
+                            auth_provider=auth_provider,
+                            compression=compression,
+                            protocol_version=protocol_version,
+                            port=port,
+                            ssl_options=ssl_opts,
+                            connect_timeout=10,
+                            allow_beta_protocol_version=True,
+                            execution_profiles=profiles)
+        session = cluster.connect(wait_for_all_pools=True)
 
         if keyspace is not None:
             session.set_keyspace(keyspace)
-
-        # override driver default consistency level of LOCAL_QUORUM
-        session.default_consistency_level = ConsistencyLevel.ONE
 
         self.connections.append(session)
         return session
 
     def patient_cql_connection(self, node, keyspace=None,
                                user=None, password=None, timeout=30, compression=True,
-                               protocol_version=None, port=None, ssl_opts=None):
+                               protocol_version=None, port=None, ssl_opts=None, **kwargs):
         """
         Returns a connection after it stops throwing NoHostAvailables due to not being ready.
 
@@ -485,14 +494,15 @@ class Tester(TestCase):
                 protocol_version=protocol_version,
                 port=port,
                 ssl_opts=ssl_opts,
-                bypassed_exception=NoHostAvailable
+                bypassed_exception=NoHostAvailable,
+                **kwargs
             )
 
         return session
 
     def patient_exclusive_cql_connection(self, node, keyspace=None,
                                          user=None, password=None, timeout=30, compression=True,
-                                         protocol_version=None, port=None, ssl_opts=None):
+                                         protocol_version=None, port=None, ssl_opts=None, **kwargs):
         """
         Returns a connection after it stops throwing NoHostAvailables due to not being ready.
 
@@ -512,7 +522,8 @@ class Tester(TestCase):
             protocol_version=protocol_version,
             port=port,
             ssl_opts=ssl_opts,
-            bypassed_exception=NoHostAvailable
+            bypassed_exception=NoHostAvailable,
+            **kwargs
         )
 
     @classmethod

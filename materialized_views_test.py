@@ -42,7 +42,7 @@ class TestMaterializedViews(Tester):
     @since 3.0
     """
 
-    def prepare(self, user_table=False, rf=1, options=None, nodes=3):
+    def prepare(self, user_table=False, rf=1, options=None, nodes=3, **kwargs):
         cluster = self.cluster
         cluster.populate([nodes, 0])
         if options:
@@ -50,7 +50,7 @@ class TestMaterializedViews(Tester):
         cluster.start()
         node1 = cluster.nodelist()[0]
 
-        session = self.patient_cql_connection(node1)
+        session = self.patient_cql_connection(node1, **kwargs)
         create_ks(session, 'ks', rf)
 
         if user_table:
@@ -176,8 +176,7 @@ class TestMaterializedViews(Tester):
     def populate_mv_after_insert_test(self):
         """Test that a view is OK when created with existing data"""
 
-        session = self.prepare()
-        session.default_consistency_level = ConsistencyLevel.QUORUM
+        session = self.prepare(consistency_level=ConsistencyLevel.QUORUM)
 
         session.execute("CREATE TABLE t (id int PRIMARY KEY, v int)")
 
@@ -196,8 +195,7 @@ class TestMaterializedViews(Tester):
     def populate_mv_after_insert_wide_rows_test(self):
         """Test that a view is OK when created with existing data with wide rows"""
 
-        session = self.prepare()
-        session.default_consistency_level = ConsistencyLevel.QUORUM
+        session = self.prepare(consistency_level=ConsistencyLevel.QUORUM)
 
         session.execute("CREATE TABLE t (id int, v int, PRIMARY KEY (id, v))")
 
@@ -358,8 +356,7 @@ class TestMaterializedViews(Tester):
     def clustering_column_test(self):
         """Test that we can use clustering columns as primary key for a materialized view"""
 
-        session = self.prepare()
-        session.default_consistency_level = ConsistencyLevel.QUORUM
+        session = self.prepare(consistency_level=ConsistencyLevel.QUORUM)
 
         session.execute(("CREATE TABLE users (username varchar, password varchar, gender varchar, "
                          "session_token varchar, state varchar, birth_year bigint, "
@@ -1331,8 +1328,7 @@ class TestMaterializedViews(Tester):
         cluster = self.cluster
         cluster.populate(3).start()
         node1 = cluster.nodelist()[0]
-        session = self.patient_cql_connection(node1)
-        session.default_consistency_level = ConsistencyLevel.QUORUM
+        session = self.patient_cql_connection(node1, consistency_level=ConsistencyLevel.QUORUM)
 
         debug("Creating keyspace")
         session.execute("CREATE KEYSPACE mvtest WITH replication = "

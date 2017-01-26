@@ -40,13 +40,13 @@ class BasePagingTester(ReusableClusterTester):
 
         session.cluster.shutdown()
 
-    def prepare(self):
+    def prepare(self, row_factory=dict_factory):
         supports_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
         protocol_version = 5 if supports_v5_protocol else None
         node1 = self.cluster.nodelist()[0]
-        session = self.patient_cql_connection(node1, protocol_version=protocol_version)
-        session.row_factory = dict_factory
-        session.default_consistency_level = CL.QUORUM
+        session = self.patient_cql_connection(node1, protocol_version=protocol_version,
+                                              consistency_level=CL.QUORUM,
+                                              row_factory=row_factory)
         return session
 
 
@@ -543,10 +543,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-10707
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_group_by', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, d int, e int, primary key (a, b, c, d))")
-        session.row_factory = tuple_factory
 
         session.execute("INSERT INTO test (a, b, c, d, e) VALUES (1, 2, 1, 3, 6)")
         session.execute("INSERT INTO test (a, b, c, d, e) VALUES (1, 2, 2, 6, 12)")
@@ -887,11 +886,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-10707
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'group_by_with_range_name_query_paging_test', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, d int, primary key (a, b, c))")
-
-        session.row_factory = tuple_factory
 
         for i in xrange(1, 5):
             for j in xrange(1, 5):
@@ -965,10 +962,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         """
         @jira_ticket CASSANDRA-10707
         """
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_group_by_and_static_columns', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, s int static, d int, primary key (a, b, c))")
-        session.row_factory = tuple_factory
 
         # ------------------------------------
         # Test with non static columns empty
@@ -1476,10 +1472,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-8502.
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=named_tuple_factory)
         create_ks(session, 'test_paging_static_cols', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, s1 int static, s2 int static, PRIMARY KEY (a, b))")
-        session.row_factory = named_tuple_factory
 
         for i in range(4):
             for j in range(4):
@@ -1720,10 +1715,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-10381.
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=named_tuple_factory)
         create_ks(session, 'test_paging_static_cols', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, s int static, PRIMARY KEY (a, b))")
-        session.row_factory = named_tuple_factory
 
         for i in range(10):
             session.execute("UPDATE test SET s = {} WHERE a = {}".format(i, i))
@@ -1741,10 +1735,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-6377
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_filtering', 2)
         session.execute("CREATE TABLE test (a int, b int, s int static, c int, d int, primary key (a, b))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             session.execute("INSERT INTO test (a, s) VALUES ({}, {})".format(i, i))
@@ -1918,8 +1911,7 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11629
         """
 
-        session = self.prepare()
-        session.row_factory = tuple_factory
+        session = self.prepare(row_factory=tuple_factory)
 
         self._test_paging_with_filtering_on_counter_columns(session, False)
         self._test_paging_with_filtering_on_counter_columns(session, True)
@@ -1931,8 +1923,6 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         else:
             create_ks(session, 'test_flt_clustering_columns', 2)
             session.execute("CREATE TABLE test (a int, b int, c int, d int, PRIMARY KEY (a, b, c))")
-
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             for j in xrange(10):
@@ -2004,7 +1994,7 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11310
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         self._test_paging_with_filtering_on_clustering_columns(session, False)
         self._test_paging_with_filtering_on_clustering_columns(session, True)
 
@@ -2015,11 +2005,10 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11310
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_flt_clustering_clm_contains', 2)
         session.execute("CREATE TABLE test_list (a int, b int, c frozen<list<int>>, d int, PRIMARY KEY (a, b, c))")
         session.execute("CREATE TABLE test_map (a int, b int, c frozen<map<int, int>>, d int, PRIMARY KEY (a, b, c))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             for j in xrange(10):
@@ -2096,10 +2085,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11310
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_filtering_on_static_columns', 2)
         session.execute("CREATE TABLE test (a int, b int, s int static, d int, PRIMARY KEY (a, b))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             for j in xrange(10):
@@ -2137,10 +2125,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11031
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_filtering_on_pk', 2)
         session.execute("CREATE TABLE test (a int, b int, s int static, c int, d int, primary key (a, b))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             session.execute("INSERT INTO test (a, s) VALUES ({}, {})".format(i, i))
@@ -2240,10 +2227,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11031
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_filtering_on_pk_with_limit', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, s int static, d int, primary key ((a, b), c))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             session.execute("INSERT INTO test (a, b, s) VALUES ({}, {}, {})".format(i, 1, i))
@@ -2310,8 +2296,7 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11031
         """
 
-        session = self.prepare()
-        session.row_factory = tuple_factory
+        session = self.prepare(row_factory=tuple_factory)
 
         self._test_paging_with_filtering_on_partition_key_on_counter_columns(session, False)
         self._test_paging_with_filtering_on_partition_key_on_counter_columns(session, True)
@@ -2323,8 +2308,6 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         else:
             create_ks(session, 'test_flt_pk_clustering_columns', 2)
             session.execute("CREATE TABLE test (a int, b int, c int, d int, PRIMARY KEY ((a, b), c))")
-
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             for j in xrange(10):
@@ -2408,7 +2391,7 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11031
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         self._test_paging_with_filtering_on_partition_key_on_clustering_columns(session, False)
         self._test_paging_with_filtering_on_partition_key_on_clustering_columns(session, True)
 
@@ -2419,11 +2402,10 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11031
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_flt_pk_clustering_clm_contains', 2)
         session.execute("CREATE TABLE test_list (a int, b int, c frozen<list<int>>, d int, PRIMARY KEY (a, b, c))")
         session.execute("CREATE TABLE test_map (a int, b int, c frozen<map<int, int>>, d int, PRIMARY KEY (a, b, c))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             for j in xrange(10):
@@ -2501,10 +2483,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11031
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_filtering_on_pk_static_columns', 2)
         session.execute("CREATE TABLE test (a int, b int, s int static, d int, PRIMARY KEY (a, b))")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             for j in xrange(10):
@@ -2536,10 +2517,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11467
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_on_compact_table_with_tombstone', 2)
         session.execute("CREATE TABLE test (a int primary key, b int, c int) WITH COMPACT STORAGE")
-        session.row_factory = tuple_factory
 
         for i in xrange(5):
             session.execute("INSERT INTO test (a, b, c) VALUES ({}, {}, {})".format(i, 1, 1))
@@ -2560,11 +2540,10 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11208
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_no_clustering_columns', 2)
         session.execute("CREATE TABLE test (a int primary key, b int)")
         session.execute("CREATE TABLE test_compact (a int primary key, b int) WITH COMPACT STORAGE")
-        session.row_factory = tuple_factory
 
         for table in ('test', 'test_compact'):
 
@@ -2627,10 +2606,9 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
 
         @jira_ticket CASSANDRA-11535
         """
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_with_per_partition_limit', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, PRIMARY KEY (a, b))")
-        session.row_factory = tuple_factory
 
         for i in range(5):
             for j in range(5):
@@ -2710,11 +2688,10 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         @jira_ticket CASSANDRA-11669
         """
 
-        session = self.prepare()
+        session = self.prepare(row_factory=tuple_factory)
         create_ks(session, 'test_paging_for_range_name_queries', 2)
         session.execute("CREATE TABLE test (a int, b int, c int, d int, PRIMARY KEY(a, b, c))")
         session.execute("CREATE TABLE test_compact (a int, b int, c int, d int, PRIMARY KEY(a, b, c)) WITH COMPACT STORAGE")
-        session.row_factory = tuple_factory
 
         for table in ('test', 'test_compact'):
 
@@ -2757,6 +2734,50 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
                                                                                                                               [3, 1, 2, 4],
                                                                                                                               [3, 2, 1, 5],
                                                                                                                               [3, 2, 2, 5]])
+
+    @since('2.1')
+    def test_paging_with_empty_row_and_empty_static_columns(self):
+        """
+        test paging when the rows and the static columns are empty
+        @jira_ticket CASSANDRA-13017
+        """
+
+        session = self.prepare(row_factory=tuple_factory)
+        create_ks(session, 'test_paging_with_empty_rows_and_static_columns', 2)
+        session.execute("CREATE TABLE test (pk int, c int, v int, s int static, primary key(pk, c))")
+
+        for i in xrange(5):
+            for j in xrange(5):
+                session.execute("INSERT INTO test (pk, c) VALUES ({}, {})".format(i, j))
+
+        for page_size in (2, 3, 4, 5, 7, 10):
+            session.default_fetch_size = page_size
+
+            res = rows_to_list(session.execute("SELECT DISTINCT pk FROM test"))
+            self.assertEqual(res, [[1],
+                                   [0],
+                                   [2],
+                                   [4],
+                                   [3]])
+
+            res = rows_to_list(session.execute("SELECT DISTINCT pk FROM test LIMIT 4"))
+            self.assertEqual(res, [[1],
+                                   [0],
+                                   [2],
+                                   [4]])
+
+            res = rows_to_list(session.execute("SELECT DISTINCT pk, s FROM test"))
+            self.assertEqual(res, [[1, None],
+                                   [0, None],
+                                   [2, None],
+                                   [4, None],
+                                   [3, None]])
+
+            res = rows_to_list(session.execute("SELECT DISTINCT pk, s FROM test LIMIT 4"))
+            self.assertEqual(res, [[1, None],
+                                   [0, None],
+                                   [2, None],
+                                   [4, None]])
 
 
 @since('2.0')
