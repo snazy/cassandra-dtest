@@ -1,9 +1,9 @@
 import time
 from unittest import skipIf
 
-from cassandra import Unauthorized
 from ccmlib.common import is_win
 from ccmlib.node import Node
+from dse import Unauthorized
 
 from dtest import OFFHEAP_MEMTABLES, Tester, debug
 from tools.assertions import assert_all, assert_invalid

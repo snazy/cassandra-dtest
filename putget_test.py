@@ -1,12 +1,13 @@
 import time
 
-from cassandra import ConsistencyLevel
+from dse import ConsistencyLevel
 from thrift.protocol import TBinaryProtocol
 from thrift.transport import TSocket, TTransport
 
 from dtest import Tester
-from tools.data import (create_c1c2_table, insert_c1c2, insert_columns, putget,
-                        query_c1c2, query_columns, range_putget, create_cf, create_ks)
+from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
+                        insert_columns, putget, query_c1c2, query_columns,
+                        range_putget)
 from tools.decorators import no_vnodes, since
 from tools.funcutils import retry_till_success
 

@@ -5,15 +5,16 @@ import time
 from collections import OrderedDict, namedtuple
 from copy import deepcopy
 
-from cassandra import ConsistencyLevel, consistency_value_to_name
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, consistency_value_to_name
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from nose.tools import assert_greater_equal
 
-from tools.assertions import assert_length_equal, assert_none, assert_unavailable
 from dtest import DISABLE_VNODES, MultiError, Tester, debug
-from tools.data import (create_c1c2_table, insert_c1c2, insert_columns,
-                        query_c1c2, rows_to_list, create_cf, create_ks)
+from tools.assertions import (assert_length_equal, assert_none,
+                              assert_unavailable)
+from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
+                        insert_columns, query_c1c2, rows_to_list)
 from tools.decorators import since
 
 ExpectedConsistency = namedtuple('ExpectedConsistency', ('num_write_nodes', 'num_read_nodes', 'is_strong'))

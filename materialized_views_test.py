@@ -3,19 +3,19 @@ import re
 import sys
 import time
 import traceback
+from distutils.version import LooseVersion
 from functools import partial
 from multiprocessing import Process, Queue
 from unittest import skip, skipIf
 
-from cassandra import ConsistencyLevel
-from cassandra.cluster import Cluster
-from cassandra.concurrent import execute_concurrent_with_args
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel
+from dse.cluster import Cluster
+from dse.concurrent import execute_concurrent_with_args
+from dse.query import SimpleStatement
 from enum import Enum  # Remove when switching to py3
 from nose.plugins.attrib import attr
 from nose.tools import assert_equal
 
-from distutils.version import LooseVersion
 from dtest import Tester, debug, get_ip_from_node
 from tools.assertions import (assert_all, assert_crc_check_chance_equal,
                               assert_invalid, assert_none, assert_one,
@@ -25,7 +25,6 @@ from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import get_ip_from_node, new_node
-
 
 # CASSANDRA-10978. Migration wait (in seconds) to use in bootstrapping tests. Needed to handle
 # pathological case of flushing schema keyspace for multiple data directories. See CASSANDRA-6696

@@ -3,8 +3,8 @@ import re
 import time
 from collections import defaultdict
 
-from cassandra import ConsistencyLevel
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import PRINT_DEBUG, DtestTimeoutError, Tester, debug

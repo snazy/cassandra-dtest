@@ -1,6 +1,6 @@
 from collections import Mapping
 
-from cassandra.auth import PlainTextAuthProvider
+from dse.auth import PlainTextAuthProvider
 from ccmlib.node import Node
 
 

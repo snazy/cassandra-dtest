@@ -9,8 +9,8 @@ from distutils.version import LooseVersion
 import parse
 
 from dtest import Tester, debug
-from tools.data import create_ks
 from tools.assertions import assert_length_equal, assert_none, assert_one
+from tools.data import create_ks
 from tools.decorators import since
 
 

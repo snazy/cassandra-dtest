@@ -1,5 +1,5 @@
 from dtest import Tester
-from tools.data import putget, create_cf, create_ks
+from tools.data import create_cf, create_ks, putget
 
 
 class TestMultiDCPutGet(Tester):

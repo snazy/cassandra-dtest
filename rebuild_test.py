@@ -1,8 +1,8 @@
 import time
 from threading import Thread
 
-from cassandra import ConsistencyLevel
 from ccmlib.node import ToolError
+from dse import ConsistencyLevel
 
 from dtest import Tester, debug
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2

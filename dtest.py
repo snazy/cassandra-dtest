@@ -22,24 +22,25 @@ from collections import OrderedDict
 from subprocess import CalledProcessError
 from unittest import TestCase
 
-import cassandra
 import ccmlib.repository
-from cassandra import ConsistencyLevel
-from cassandra.cluster import Cluster as PyCluster
-from cassandra.cluster import NoHostAvailable
-from cassandra.cluster import ExecutionProfile, EXEC_PROFILE_DEFAULT
-from cassandra.policies import RetryPolicy, WhiteListRoundRobinPolicy
+import dse
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
 from ccmlib.common import get_version_from_build, is_win
+from dse import ConsistencyLevel
+from dse.cluster import Cluster as PyCluster
+from dse.cluster import NoHostAvailable
+from dse.cluster import ExecutionProfile, EXEC_PROFILE_DEFAULT
+from dse.policies import RetryPolicy, WhiteListRoundRobinPolicy
 from nose.exc import SkipTest
 from six import print_
 
-from plugins.dtestconfig import GlobalConfigObject
 from plugins.dtestconfig import _CONFIG as CONFIG
+from plugins.dtestconfig import GlobalConfigObject
 from tools.context import log_filter
 from tools.funcutils import merge_dicts, retry_till_success
-from tools.misc import get_port_from_node, get_ip_from_node, get_eager_protocol_version, get_auth_provider
+from tools.misc import (get_auth_provider, get_eager_protocol_version,
+                        get_ip_from_node, get_port_from_node)
 
 LOG_SAVED_DIR = "logs"
 try:
@@ -185,7 +186,7 @@ def debug(msg):
         print msg
 
 
-debug("Python driver version in use: {}".format(cassandra.__version__))
+debug("Python driver version in use: {}".format(dse.__version__))
 
 
 class FlakyRetryPolicy(RetryPolicy):

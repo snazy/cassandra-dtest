@@ -2,13 +2,13 @@ import sys
 import time
 from unittest import skipIf
 
-from cassandra import ConsistencyLevel, Timeout, Unavailable
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel, Timeout, Unavailable
+from dse.query import SimpleStatement
 
 from dtest import APOLLO_DIR, Tester, debug
-from tools.data import create_ks
 from tools.assertions import (assert_all, assert_invalid, assert_one,
                               assert_unavailable)
+from tools.data import create_ks
 from tools.decorators import since
 
 

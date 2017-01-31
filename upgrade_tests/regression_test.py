@@ -3,7 +3,7 @@ Home for upgrade-related tests that don't fit in with the core upgrade testing i
 """
 from unittest import skipUnless
 
-from cassandra import ConsistencyLevel as CL
+from dse import ConsistencyLevel as CL
 from nose.tools import assert_not_in
 
 from dtest import RUN_STATIC_UPGRADE_MATRIX

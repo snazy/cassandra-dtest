@@ -1,4 +1,4 @@
-from cassandra import InvalidRequest
+from dse import InvalidRequest
 
 from dtest import Tester
 

@@ -1,4 +1,4 @@
-from cassandra.query import SimpleStatement
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import TRACE, Tester, debug

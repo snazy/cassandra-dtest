@@ -10,11 +10,11 @@ from distutils.version import LooseVersion
 from unittest import skip, skipUnless
 from uuid import UUID, uuid4
 
-from cassandra import ConsistencyLevel, InvalidRequest
-from cassandra.concurrent import execute_concurrent_with_args
-from cassandra.protocol import ProtocolException, SyntaxException
-from cassandra.query import SimpleStatement
-from cassandra.util import sortedset
+from dse import ConsistencyLevel, InvalidRequest
+from dse.concurrent import execute_concurrent_with_args
+from dse.protocol import ProtocolException, SyntaxException
+from dse.query import SimpleStatement
+from dse.util import sortedset
 from nose.exc import SkipTest
 from nose.tools import assert_not_in
 

@@ -1,7 +1,7 @@
 import time
 
-from tools.assertions import assert_length_equal
 from dtest import Tester
+from tools.assertions import assert_length_equal
 from tools.data import create_cf, create_ks
 
 

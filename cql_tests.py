@@ -3,17 +3,15 @@
 import itertools
 import struct
 import time
-
-from cassandra import ConsistencyLevel, InvalidRequest
-from cassandra.metadata import NetworkTopologyStrategy, SimpleStrategy
-from cassandra.policies import FallthroughRetryPolicy
-from cassandra.protocol import ProtocolException
-from cassandra.query import SimpleStatement, BatchStatement, BatchType
-
-
-from dtest import ReusableClusterTester, debug, Tester
-from tools.data import create_ks
 from distutils.version import LooseVersion
+
+from dse import ConsistencyLevel, InvalidRequest
+from dse.metadata import NetworkTopologyStrategy, SimpleStrategy
+from dse.policies import FallthroughRetryPolicy
+from dse.protocol import ProtocolException
+from dse.query import BatchStatement, BatchType, SimpleStatement
+
+from dtest import ReusableClusterTester, Tester, debug
 from thrift_bindings.v22.ttypes import \
     ConsistencyLevel as ThriftConsistencyLevel
 from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
@@ -21,6 +19,7 @@ from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
 from thrift_tests import get_thrift_client
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_none, assert_one, assert_unavailable)
+from tools.data import create_ks
 from tools.decorators import since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingKeyspaceMetadataWrapper,

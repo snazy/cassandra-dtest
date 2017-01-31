@@ -1,9 +1,9 @@
 import time
 import types
 
-from cassandra import ConsistencyLevel
-from cassandra.concurrent import execute_concurrent_with_args
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel
+from dse.concurrent import execute_concurrent_with_args
+from dse.query import SimpleStatement
 from nose.tools import assert_equal, assert_true, assert_greater_equal
 
 import assertions

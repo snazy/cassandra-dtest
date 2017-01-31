@@ -6,8 +6,8 @@ from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
                                         SlicePredicate, SliceRange,
                                         SuperColumn)
 from thrift_tests import get_thrift_client
-from tools.misc import ImmutableMapping
 from tools.decorators import since
+from tools.misc import ImmutableMapping
 
 
 @since('2.0', max_version='4')

@@ -3,16 +3,16 @@ from datetime import datetime
 from distutils.version import LooseVersion
 from threading import Event
 
-from cassandra import ConsistencyLevel as CL
-from cassandra import ReadFailure
-from cassandra.query import SimpleStatement
 from ccmlib.node import Node, TimeoutError
+from dse import ConsistencyLevel as CL
+from dse import ReadFailure
+from dse.query import SimpleStatement
 from nose.tools import timed
 
 from dtest import Tester, debug
 from tools.data import create_ks
-from tools.misc import get_ip_from_node
 from tools.decorators import no_vnodes, since
+from tools.misc import get_ip_from_node
 
 
 class NotificationWaiter(object):

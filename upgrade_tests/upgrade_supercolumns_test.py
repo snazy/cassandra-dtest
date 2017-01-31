@@ -1,12 +1,11 @@
 import os
-
 from collections import OrderedDict
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
-from pycassa.pool import ConnectionPool
 from pycassa.columnfamily import ColumnFamily
-from tools.assertions import assert_all
+from pycassa.pool import ConnectionPool
 
+from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
+from tools.assertions import assert_all
 
 # Use static supercolumn data to reduce total test time and avoid driver issues connecting to C* 1.2.
 # The data contained in the SSTables is (name, {'attr': {'name': name}}) for the name in NAMES.

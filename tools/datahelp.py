@@ -23,7 +23,7 @@ For more examples reference paging_test.py
 """
 import re
 
-from cassandra.concurrent import execute_concurrent_with_args
+from dse.concurrent import execute_concurrent_with_args
 
 
 def strip(val):

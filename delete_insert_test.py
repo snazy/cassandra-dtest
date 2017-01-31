@@ -2,8 +2,8 @@ import random
 import threading
 import uuid
 
-from cassandra import ConsistencyLevel
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel
+from dse.query import SimpleStatement
 from nose.tools import assert_equal
 
 from dtest import Tester

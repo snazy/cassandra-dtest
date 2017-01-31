@@ -4,8 +4,8 @@ import subprocess
 import time
 
 import parse
-from cassandra.util import sortedset
 from ccmlib import common
+from dse.util import sortedset
 
 from dtest import DISABLE_VNODES, Tester, debug
 from tools.data import rows_to_list

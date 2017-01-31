@@ -1,11 +1,11 @@
 import time
 
-from cassandra import ConsistencyLevel
-from cassandra.query import SimpleStatement
+from dse import ConsistencyLevel
+from dse.query import SimpleStatement
 
-from tools.assertions import assert_one
 from dtest import PRINT_DEBUG, Tester, debug
-from tools.data import rows_to_list, create_ks
+from tools.assertions import assert_one
+from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 
 

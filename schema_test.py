@@ -1,9 +1,9 @@
 import time
 
-from cassandra.concurrent import execute_concurrent_with_args
+from dse.concurrent import execute_concurrent_with_args
 
-from tools.assertions import assert_invalid, assert_all, assert_one
 from dtest import Tester
+from tools.assertions import assert_all, assert_invalid, assert_one
 from tools.data import create_ks
 
 

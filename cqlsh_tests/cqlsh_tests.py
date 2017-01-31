@@ -11,14 +11,15 @@ from distutils.version import LooseVersion
 from tempfile import NamedTemporaryFile
 from uuid import UUID, uuid4
 
-from cassandra import InvalidRequest
-from cassandra.concurrent import execute_concurrent_with_args
 from ccmlib import common
+from dse import InvalidRequest
+from dse.concurrent import execute_concurrent_with_args
 
 from cqlsh_tools import monkeypatch_driver, unmonkeypatch_driver
 from dtest import Tester, debug
 from tools.assertions import assert_all, assert_none
-from tools.data import create_c1c2_table, insert_c1c2, rows_to_list, create_cf, create_ks
+from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
+                        rows_to_list)
 from tools.decorators import since
 
 
