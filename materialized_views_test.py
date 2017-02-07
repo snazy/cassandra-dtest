@@ -1651,6 +1651,7 @@ class TestMaterializedViewsConsistency(Tester):
         """
         self._consistent_reads_after_write_test(1)
 
+    @skip('hangs CI - CSTAR-905')
     def multi_partition_consistent_reads_after_write_test(self):
         """
         Tests consistency of multiple writes to a multiple partitions
