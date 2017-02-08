@@ -403,7 +403,11 @@ class TestOfflineTools(Tester):
 
         node1.flush()
         cluster.stop()
-        [(out, error, rc)] = node1.run_sstabledump(keyspace='ks', column_families=['cf'])
+        try:
+            [(out, error, rc)] = node1.run_sstabledump(keyspace='ks', column_families=['cf'])
+        except Exception:
+            debug(node1.run_sstabledump(keyspace='ks', column_families=['cf']))
+            self.fail("More than one sstable found.")
         debug(out)
         debug(error)
 
