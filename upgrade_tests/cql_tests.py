@@ -2904,8 +2904,8 @@ class TestCQL(UpgradeTester):
             query = "SELECT i, blobAsText(b) FROM test WHERE k = 0"
             assert_one(cursor, query, [3, 'foobar'])
 
-    # Fixed by CASSANDRA-12654 in 3.12
-    @since('2.0', max_version='3.12')
+    # Fixed by CASSANDRA-12654 (which for apollo means starting with 3.11.0)
+    @since('2.0', max_version='3.11')
     def IN_clause_on_last_key_test(self):
         """
         Tests patch to improve validation by not throwing an assertion when using map, list, or set
