@@ -2904,8 +2904,8 @@ class TestCQL(UpgradeTester):
             query = "SELECT i, blobAsText(b) FROM test WHERE k = 0"
             assert_one(cursor, query, [3, 'foobar'])
 
-    # Fixed by CASSANDRA-12654 in 3.12
-    @since('2.0', max_version='3.12')
+    # Fixed by CASSANDRA-12654 in dse 5.1 (corresponding to 3.11)
+    @since('2.0', max_version='3.10')
     def IN_clause_on_last_key_test(self):
         """
         Tests patch to improve validation by not throwing an assertion when using map, list, or set
@@ -2925,8 +2925,10 @@ class TestCQL(UpgradeTester):
         """)
 
         for is_upgraded, cursor in self.do_upgrade(cursor):
-            debug("Querying {} node".format("upgraded" if is_upgraded else "old"))
-            assert_invalid(cursor, "select * from test where key = 'foo' and c in (1,3,4);")
+            version = self.get_node_version(is_upgraded)
+            if version < LooseVersion('3.11'):
+                debug("Querying {} node".format("upgraded" if is_upgraded else "old"))
+                assert_invalid(cursor, "select * from test where key = 'foo' and c in (1,3,4);")
 
     def function_and_reverse_type_test(self):
         """
