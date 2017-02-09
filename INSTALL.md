@@ -1,4 +1,4 @@
-Setup instructions for cassandra-dtest
+Setup instructions for apollo-dtest
 ======================================
 
 These are instructions for setting up dtests on a fresh install of Ubuntu Linux 12.04 LTS. If you use something else, you'll need to adapt these for your particular situation (or better yet, append to this file with your platform's requirements and send a pull request.)
@@ -52,50 +52,18 @@ These are instructions for setting up dtests on a fresh install of Ubuntu Linux 
 It's best to download the git source tree for these libraries as you
 will often need to modify them in some fashion at some later point:
 
-* ccm:
+* dependencies
+
+        pip install -r requirements.txt
+
+* apollo
 
         cd ~/git/cstar
-        git clone git://github.com/pcmanus/ccm.git
-        sudo apt-get install libyaml-dev
-        sudo pip install -e ccm
-        sudo pip install pyyaml
-
-* python-driver
-
-        cd ~/git/cstar
-        Cassandra 2.x:
-        sudo pip install cassandra-driver
-        Cassandra 3.x (requires latest python-driver):
-        sudo pip install git+git://github.com/datastax/python-driver@cassandra-test  # install dedicated test branch for new Cassandra features
-        sudo pip install --pre cassandra-driver  # fallback driver for new features
-        For more instructions on how to install the python-driver,
-        see http://datastax.github.io/python-driver/installation.html
-
-* cql
-
-        sudo pip install cql
-
-* cassandra-dtest
-
-        cd ~/git/cstar
-        git clone git://github.com/riptano/cassandra-dtest.git
-
-* nose
-
-        sudo apt-get install python-nose
-
-* flaky
-
-		sudo pip install flaky
-
-* cassandra
-
-        cd ~/git/cstar
-        git clone http://git-wip-us.apache.org/repos/asf/cassandra.git
-        cd cassandra
+        git clone https://github.com/riptano/apollo
+        cd apollo
         ant clean jar
 
- Optionally, you can self-check cassandra at this point by running
+ Optionally, you can self-check apollo at this point by running
  it's unit tests:
 
         ant test
@@ -109,24 +77,24 @@ will often need to modify them in some fashion at some later point:
 
         sudo pip install decorator
 
-* Set CASSANDRA_DIR environment variable.
+* Set APOLLO_DIR environment variable.
   Set the variable in your ~/.bashrc file once so that you don't have to keep setting it everytime you run dtests:
 
-        export CASSANDRA_DIR=~/git/cstar/cassandra
+        export APOLLO_DIR=~/git/cstar/apollo
 
 * Run the full dtest suite (takes multiple hours, depending on your hardware):
 
-         cd ~/git/cstar/cassandra-dtest
+         cd ~/git/cstar/apollo-dtest
          nosetests
 
 * Run the full dtest suite, retrying tests decorated with `flaky` (see [the `flaky` plugin](https://github.com/box/flaky) for more documentation):
 
-         cd ~/git/cstar/cassandra-dtest
+         cd ~/git/cstar/apollo-dtest
          nosetests --with-flaky
 
 * Run a single dtest, printing debug info, stopping at the first error encountered (if any):
 
-         cd ~/git/cstar/cassandra-dtest
+         cd ~/git/cstar/apollo-dtest
          PRINT_DEBUG=true nosetests -x -s -v putget_test.py
 
 * Some tests will not run with vnodes enabled (you'll see a "SKIP: Test disabled for vnodes" message in that case). Use the provided runner script instead:

@@ -1,12 +1,12 @@
-Cassandra Distributed Tests
+Apollo Distributed Tests
 ===========================
 
-Tests for [Apache Cassandra](http://apache.cassandra.org) clusters.
+Tests for [Apollo](https://github.com/riptano/apollo) clusters.
 
 Prerequisites
 ------------
 
-An up to date copy of ccm should be installed for starting and stopping Cassandra.
+An up to date copy of ccm should be installed for starting and stopping Apollo.
 The tests are run using nosetests.
 These tests require the datastax python driver.
 A few tests still require the deprecated python CQL over thrift driver.
@@ -20,22 +20,22 @@ Usage
 -----
 
 The tests are run by nosetests. The only thing the framework needs to know is
-the location of the (compiled) sources for Cassandra. There are two options:
+the location of the (compiled) sources for Apollo. There are two options:
 
 Use existing sources:
 
-    CASSANDRA_DIR=~/path/to/cassandra nosetests
+    APOLLO_DIR=~/path/to/apollo nosetests
 
 Use ccm ability to download/compile released sources from archives.apache.org:
 
-    CASSANDRA_VERSION=1.0.0 nosetests
+    APOLLO_VERSION=1.0.0 nosetests
 
 A convenient option if tests are regularly run against the same existing
-directory is to set a `default_dir` in `~/.cassandra-dtest`. Create the file and
+directory is to set a `default_dir` in `~/.apollo-dtest`. Create the file and
 set it to something like:
 
     [main]
-    default_dir=~/path/to/cassandra
+    default_dir=~/path/to/apollo
 
 The tests will use this directory by default, avoiding the need for any
 environment variable (that still will have precedence if given though).
@@ -55,12 +55,12 @@ JAVA7_HOME and JAVA8_HOME, respectively.
 Installation Instructions
 -------------------------
 
-See more detailed instructions in the included [INSTALL file](https://github.com/riptano/cassandra-dtest/blob/master/INSTALL.md).
+See more detailed instructions in the included [INSTALL file](https://github.com/riptano/apollo-dtest/blob/master/INSTALL.md).
 
 Writing Tests
 -------------
 
 - Most of the time when you start a node with `node.start()`, you'll want to pass in `wait_for_binary_proto=True` so the call blocks until the node is ready to accept CQL connections. We tried setting this to `True` by default once, but the problems caused there (e.g. when it waited the full timeout time on a node that was deliberately down) were more unpleasant and more difficult to debug than the problems caused by having it `False` by default.
-- If you're using JMX via [the `tools.jmxutils` module](tools/jmxutils.py), make sure to call `remove_perf_disable_shared_mem` on the node or nodes you want to query with JMX _before starting the nodes_. `remove_perf_disable_shared_mem` disables a JVM option that's incompatible with JMX (see [this JMX ticket](https://github.com/rhuss/jolokia/issues/198)). It works by performing a string replacement in the node's Cassandra startup script, so changes will only propagate to the node at startup time.
+- If you're using JMX via [the `tools.jmxutils` module](tools/jmxutils.py), make sure to call `remove_perf_disable_shared_mem` on the node or nodes you want to query with JMX _before starting the nodes_. `remove_perf_disable_shared_mem` disables a JVM option that's incompatible with JMX (see [this JMX ticket](https://github.com/rhuss/jolokia/issues/198)). It works by performing a string replacement in the node's Apollo startup script, so changes will only propagate to the node at startup time.
 
 If you'd like to know what to expect during a code review, please see the included [CONTRIBUTING file](CONTRIBUTING.md).

@@ -66,7 +66,7 @@ To run doxygen to generate HTML from these test plans, you will need to do the f
         sudo python setup.py install
 ```
 * Install **doxygen**, via your system's package manager
-* Edit the **INPUT** and **OUTPUT_DIRECTORY** fields in **doxygen/Doxyfile_python**. They must be absolute paths. **INPUT** should point to **cassandra-dtest/**.
+* Edit the **INPUT** and **OUTPUT_DIRECTORY** fields in **doxygen/Doxyfile_python**. They must be absolute paths. **INPUT** should point to **apollo-dtest/**.
 * Run doxygen
 ```
         doxygen doxygen/Doxyfile_python
@@ -80,13 +80,13 @@ In some cases, we organize our test files by putting them in directories. If you
 
 ## Assertions
 
-- When possible, you should use the assert functions from [`tools/assertions.py`](https://github.com/riptano/cassandra-dtest/blob/master/tools/assertions.py).
+- When possible, you should use the assert functions from [`tools/assertions.py`](https://github.com/riptano/apollo-dtest/blob/master/tools/assertions.py).
 - When none of these are applicable, use python's built in [unittest assertions](https://docs.python.org/2/library/unittest.html#assert-methods).
 - Naked assert statements should never be used, e.g. `assert True`
 
 ## Byteman Files
 
-Any and all byteman (.btm) files should be saved in the cassandra-dtest/byteman/ directory.
+Any and all byteman (.btm) files should be saved in the apollo-dtest/byteman/ directory.
 
 ## Summary: Review Checklist
 
@@ -100,11 +100,11 @@ Any and all byteman (.btm) files should be saved in the cassandra-dtest/byteman/
     - Does the code use `.format()` over `%` for format strings?
     - If there are new test files, do they use the requested imports for Python 3 compatibility?
     - Have the changes caused any style regressions? In particular, did Travis find any?
-    - Are `cassandra.cluster.Session` objects named `session` (and not `cursor`)?
+    - Are `dse.cluster.Session` objects named `session` (and not `cursor`)?
 - Documentation and Metadata:
     - Are new tests and test classes documented with docstrings?
     - Are changed tests' documentation updated?
-    - Is Cassandra's desired behavior described in the documentation if it's not immediately readable in the test?
+    - Is Apollo's desired behavior described in the documentation if it's not immediately readable in the test?
     - Does the documentation include all appropriate Doxygen annotations, in particular `@jira_ticket`?
 - Readability and Reusability
     - Are any data structures built by looping that could be succinctly created in a comprehension
