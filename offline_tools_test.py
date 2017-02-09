@@ -403,7 +403,14 @@ class TestOfflineTools(Tester):
 
         node1.flush()
         cluster.stop()
-        [(out, error, rc)] = node1.run_sstabledump(keyspace='ks', column_families=['cf'])
+        try:
+            [(out, error, rc)] = node1.run_sstabledump(keyspace='ks', column_families=['cf'])
+        except Exception:
+            for out, error, rc in node1.run_sstabledump(keyspace='ks', column_families=['cf']):
+                debug(json.loads(out))
+                debug(error)
+                debug(rc)
+            self.fail("More than one sstable found.")
         debug(out)
         debug(error)
 
