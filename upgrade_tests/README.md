@@ -12,7 +12,11 @@ This procedure closely mirrors how CI jobs are configured to run upgrade tests.
 - to preview tests names, use:
 > nosetests -v --collect-only upgrade_tests/
 
-Note: Only define the LOCAL_GIT_REPO env var if you are testing upgrade to a _single_ local version. For more complicated cases, such as upgrading using multiple local versions, leave this unset and read the section on the upgrade manifest below.
+Note: Only define the LOCAL_GIT_REPO env var if you are testing upgrade to a _single_ local version. 
+For more complicated cases, such as upgrading using multiple local versions, 
+leave this unset and read the section on the upgrade manifest below. Then check out
+this [upgrade_manifest.py](https://github.com/riptano/apollo-dtest/blob/master/upgrade_tests/upgrade_manifest.py#L148)
+comment on how to use multiple local directories.
 
 #### Customizing the upgrade path
 In most cases the above instructions are what you probably need to do. However, in some instances you may need to further customize the upgrade paths being used, or point to non-local code. This simple [example pr](https://github.com/riptano/cassandra-dtest/pull/1282) demonstrates the basic procedure for building custom upgrade paths; these paths will supercede the normal upgrade tests when run in this fashion.
