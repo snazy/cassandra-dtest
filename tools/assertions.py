@@ -64,11 +64,11 @@ def _assert_exception(fun, *args, **kwargs):
         assert False, "Expecting query to raise an exception, but nothing was raised."
 
 
-def assert_exception(session, query, matching=None, expected=None):
+def assert_exception(session, query, matching=None, expected=None, execution_profile=None):
     if expected is None:
         assert False, "Expected exception should not be None. Your test code is wrong, please set `expected`."
 
-    _assert_exception(session.execute, query, matching=matching, expected=expected)
+    _assert_exception(session.execute, query, matching=matching, expected=expected, execution_profile=execution_profile)
 
 
 def assert_unavailable(fun, *args):
@@ -84,7 +84,7 @@ def assert_unavailable(fun, *args):
     _assert_exception(fun, *args, expected=(Unavailable, WriteTimeout, WriteFailure, ReadTimeout, ReadFailure))
 
 
-def assert_invalid(session, query, matching=None, expected=InvalidRequest):
+def assert_invalid(session, query, matching=None, expected=InvalidRequest, execution_profile=None):
     """
     Attempt to issue a query and assert that the query is invalid.
     @param session Session to use
@@ -95,10 +95,10 @@ def assert_invalid(session, query, matching=None, expected=InvalidRequest):
     Examples:
     assert_invalid(session, 'DROP USER nonexistent', "nonexistent doesn't exist")
     """
-    assert_exception(session, query, matching=matching, expected=expected)
+    assert_exception(session, query, matching=matching, expected=expected, execution_profile=execution_profile)
 
 
-def assert_unauthorized(session, query, message):
+def assert_unauthorized(session, query, message, execution_profile=None):
     """
     Attempt to issue a query, and assert Unauthorized is raised.
     @param session Session to use
@@ -109,10 +109,16 @@ def assert_unauthorized(session, query, message):
     assert_unauthorized(session, "ALTER USER cassandra NOSUPERUSER", "You aren't allowed to alter your own superuser status")
     assert_unauthorized(cathy, "ALTER TABLE ks.cf ADD val int", "User cathy has no ALTER permission on <table ks.cf> or any of its parents")
     """
-    assert_exception(session, query, matching=message, expected=Unauthorized)
+    assert_exception(session, query, matching=message, expected=Unauthorized, execution_profile=execution_profile)
 
 
-def assert_one(session, query, expected, cl=None):
+def _execute(session, query, cl=None, execution_profile=None):
+    simple_query = SimpleStatement(query, consistency_level=cl)
+    return session.execute(simple_query) if not execution_profile \
+        else session.execute(simple_query, execution_profile=execution_profile)
+
+
+def assert_one(session, query, expected, execution_profile=None, cl=None):
     """
     Assert query returns one row.
     @param session Session to use
@@ -124,13 +130,12 @@ def assert_one(session, query, expected, cl=None):
     assert_one(session, "LIST USERS", ['cassandra', True])
     assert_one(session, query, [0, 0])
     """
-    simple_query = SimpleStatement(query, consistency_level=cl)
-    res = session.execute(simple_query)
+    res = _execute(session, query, cl=cl, execution_profile=execution_profile)
     list_res = _rows_to_list(res)
     assert list_res == [expected], "Expected {} from {}, but got {}".format([expected], query, list_res)
 
 
-def assert_none(session, query, cl=None):
+def assert_none(session, query, cl=None, execution_profile=None):
     """
     Assert query returns nothing
     @param session Session to use
@@ -141,13 +146,12 @@ def assert_none(session, query, cl=None):
     assert_none(self.session1, "SELECT * FROM test where key=2;")
     assert_none(cursor, "SELECT * FROM test WHERE k=2", cl=ConsistencyLevel.SERIAL)
     """
-    simple_query = SimpleStatement(query, consistency_level=cl)
-    res = session.execute(simple_query)
+    res = _execute(session, query, cl=cl, execution_profile=execution_profile)
     list_res = _rows_to_list(res)
     assert list_res == [], "Expected nothing from {}, but got {}".format(query, list_res)
 
 
-def assert_all(session, query, expected, cl=None, ignore_order=False):
+def assert_all(session, query, expected, cl=None, ignore_order=False, execution_profile=None):
     """
     Assert query returns all expected items optionally in the correct order
     @param session Session in use
@@ -160,8 +164,7 @@ def assert_all(session, query, expected, cl=None, ignore_order=False):
     assert_all(session, "LIST USERS", [['aleksey', False], ['cassandra', True]])
     assert_all(self.session1, "SELECT * FROM ttl_table;", [[1, 42, 1, 1]])
     """
-    simple_query = SimpleStatement(query, consistency_level=cl)
-    res = session.execute(simple_query)
+    res = _execute(session, query, cl=cl, execution_profile=execution_profile)
     list_res = _rows_to_list(res)
     if ignore_order:
         expected = sorted(expected)
@@ -187,7 +190,7 @@ def assert_almost_equal(*args, **kwargs):
     assert vmin > vmax * (1.0 - error) or vmin == vmax, "values not within {:.2f}% of the max: {} ({})".format(error * 100, args, error_message)
 
 
-def assert_row_count(session, table_name, expected, where=None):
+def assert_row_count(session, table_name, expected, where=None, execution_profile=None):
     """
     Assert the number of rows in a table matches expected.
     @params session Session to use
@@ -201,14 +204,14 @@ def assert_row_count(session, table_name, expected, where=None):
         query = "SELECT count(*) FROM {} WHERE {};".format(table_name, where)
     else:
         query = "SELECT count(*) FROM {};".format(table_name)
-    res = session.execute(query)
+    res = _execute(session, query, execution_profile=execution_profile)
     count = res[0][0]
     assert count == expected, "Expected a row count of {} in table '{}', but got {}".format(
         expected, table_name, count
     )
 
 
-def assert_crc_check_chance_equal(session, table, expected, ks="ks", view=False):
+def assert_crc_check_chance_equal(session, table, expected, ks="ks", view=False, execution_profile=None):
     """
     Assert crc_check_chance equals expected for a given table or view
     @param session Session to use
@@ -227,12 +230,14 @@ def assert_crc_check_chance_equal(session, table, expected, ks="ks", view=False)
         assert_one(session,
                    "SELECT crc_check_chance from system_schema.views WHERE keyspace_name = 'ks' AND "
                    "view_name = '{table}';".format(table=table),
-                   [expected])
+                   [expected],
+                   execution_profile=execution_profile)
     else:
         assert_one(session,
                    "SELECT crc_check_chance from system_schema.tables WHERE keyspace_name = 'ks' AND "
                    "table_name = '{table}';".format(table=table),
-                   [expected])
+                   [expected],
+                   execution_profile=execution_profile)
 
 
 def assert_length_equal(object_with_length, expected_length):
@@ -262,8 +267,8 @@ def assert_not_running(node):
     assert_false(node.is_running())
 
 
-def assert_read_timeout_or_failure(session, query):
-    assert_exception(session, query, expected=(ReadTimeout, ReadFailure))
+def assert_read_timeout_or_failure(session, query, execution_profile=None):
+    assert_exception(session, query, expected=(ReadTimeout, ReadFailure), execution_profile=execution_profile)
 
 
 def assert_stderr_clean(err, acceptable_errors=None):
@@ -285,7 +290,7 @@ def assert_stderr_clean(err, acceptable_errors=None):
     assert_true(match, "Attempted to check that stderr was empty. Instead, stderr is {}, but the regex used to check against stderr is {}".format(err, regex_str))
 
 
-def assert_bootstrap_state(tester, node, expected_bootstrap_state):
+def assert_bootstrap_state(tester, node, expected_bootstrap_state, execution_profile=None):
     """
     Assert that a node is on a given bootstrap state
     @param tester The dtest.Tester object to fetch the exclusive connection to the node
@@ -296,4 +301,5 @@ def assert_bootstrap_state(tester, node, expected_bootstrap_state):
     assert_bootstrap_state(self, node3, 'COMPLETED')
     """
     session = tester.patient_exclusive_cql_connection(node)
-    assert_one(session, "SELECT bootstrapped FROM system.local WHERE key='local'", [expected_bootstrap_state])
+    assert_one(session, "SELECT bootstrapped FROM system.local WHERE key='local'",
+               [expected_bootstrap_state], execution_profile=execution_profile)

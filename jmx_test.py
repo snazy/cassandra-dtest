@@ -3,13 +3,21 @@ import time
 
 import ccmlib.common
 import parse
+
 from ccmlib.node import ToolError
 
-from dtest import Tester, debug
+from dse import ConsistencyLevel as CL
+from dse.cluster import ContinuousPagingOptions
+from dse.policies import FallthroughRetryPolicy
+
+from dtest import Tester, debug, make_execution_profile
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, enable_jmx_ssl, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.sslkeygen import generate_ssl_stores
+
+EXEC_PROFILE_CP_ONE = object()
+EXEC_PROFILE_CP_ALL = object()
 
 
 class TestJMX(Tester):
@@ -180,6 +188,87 @@ class TestJMX(Tester):
 
         self.assertGreater(endpoint2Phi, 0.0)
         self.assertLess(endpoint2Phi, max_phi)
+
+    @since('3.11')
+    def test_continuous_paging(self):
+        """
+        Verify the continuous paging metrics.
+        """
+        cluster = self.cluster
+        cluster.populate(3)
+        node1 = cluster.nodelist()[0]
+        remove_perf_disable_shared_mem(node1)
+        cluster.start()
+
+        # insert some data, we need replication factor 3 to ensure each node owns a copy of all the data,
+        # so that continuous paging requests at CL.ONE will be executed with the locally optimized path
+        node1.stress(['write', 'n=1K', 'no-warmup', '-schema', 'replication(factor=3)'])
+
+        # retrieve some data with continuous paging, using both CL.ONE and CL.ALL so that both slow and
+        # optimized continuous paging paths are used, use an exclusive connection, so that node1 receives both requests
+        profiles = {
+            EXEC_PROFILE_CP_ONE: make_execution_profile(consistency_level=CL.ONE,
+                                                        retry_policy=FallthroughRetryPolicy(),
+                                                        continuous_paging_options=ContinuousPagingOptions()),
+            EXEC_PROFILE_CP_ALL: make_execution_profile(consistency_level=CL.ALL,
+                                                        retry_policy=FallthroughRetryPolicy(),
+                                                        continuous_paging_options=ContinuousPagingOptions())
+        }
+        session = self.patient_exclusive_cql_connection(node1, protocol_version=65, execution_profiles=profiles)
+        session.default_fetch_size = 1000
+
+        res = session.execute("SELECT * from keyspace1.standard1", execution_profile=EXEC_PROFILE_CP_ONE)
+        self.assertEquals(1000, len(list(res)))
+
+        res = session.execute("SELECT * from keyspace1.standard1", execution_profile=EXEC_PROFILE_CP_ALL)
+        self.assertEquals(1000, len(list(res)))
+
+        # create the metrics mbeans
+        optimized_path_latency = make_mbean('metrics', type='ContinuousPaging', scope='OptimizedPathLatency', name='Latency')
+        slow_path_latency = make_mbean('metrics', type='ContinuousPaging', scope='SlowPathLatency', name='Latency')
+        live_sessions = make_mbean('metrics', type='ContinuousPaging', scope='', name='LiveSessions')
+        pending_pages = make_mbean('metrics', type='ContinuousPaging', scope='', name='PendingPages')
+        requests = make_mbean('metrics', type='ContinuousPaging', scope='', name='Requests')
+        creation_failures = make_mbean('metrics', type='ContinuousPaging', scope='', name='CreationFailures')
+        too_many_sessions = make_mbean('metrics', type='ContinuousPaging', scope='', name='TooManySessions')
+        client_write_exceptions = make_mbean('metrics', type='ContinuousPaging', scope='', name='ClientWriteExceptions')
+        failures = make_mbean('metrics', type='ContinuousPaging', scope='', name='Failures')
+        waiting_time = make_mbean('metrics', type='ContinuousPaging', scope='WaitingTime', name='Latency')
+        server_blocked = make_mbean('metrics', type='ContinuousPaging', scope='', name='ServerBlocked')
+        server_blocked_latency = make_mbean('metrics', type='ContinuousPaging', scope='ServerBlockedLatency', name='Latency')
+
+        # query the metrics
+        with JolokiaAgent(node1) as jmx:
+            debug('{}: {}'.format(optimized_path_latency, jmx.read_attribute(optimized_path_latency, "Count")))
+            debug('{}: {}'.format(slow_path_latency, jmx.read_attribute(slow_path_latency, "Count")))
+            debug('{}: {}'.format(live_sessions, jmx.read_attribute(live_sessions, "Value")))
+            debug('{}: {}'.format(pending_pages, jmx.read_attribute(pending_pages, "Value")))
+            debug('{}: {}'.format(requests, jmx.read_attribute(requests, "Count")))
+            debug('{}: {}'.format(creation_failures, jmx.read_attribute(creation_failures, "Count")))
+            debug('{}: {}'.format(too_many_sessions, jmx.read_attribute(too_many_sessions, "Count")))
+            debug('{}: {}'.format(client_write_exceptions, jmx.read_attribute(client_write_exceptions, "Count")))
+            debug('{}: {}'.format(failures, jmx.read_attribute(failures, "Count")))
+            debug('{}: {}'.format(waiting_time, jmx.read_attribute(waiting_time, "Count")))
+            debug('{}: {}'.format(server_blocked, jmx.read_attribute(server_blocked, "Count")))
+            debug('{}: {}'.format(server_blocked_latency, jmx.read_attribute(server_blocked_latency, "Count")))
+
+            # Check the values for the metrics that we are sure of the excepted value, for the remaining metrics,
+            # if the debug statements above did not cause any exceptions, then it means that
+            # they exist, which is good enough rather than risk a Flaky test
+            self.assertGreater(jmx.read_attribute(optimized_path_latency, "Count"), 0,
+                               'Unepected value for {}: {}'.format(optimized_path_latency,
+                                                                   jmx.read_attribute(optimized_path_latency, "Count")))
+            self.assertGreater(jmx.read_attribute(slow_path_latency, "Count"), 0,
+                               'Unepected value for {}: {}'.format(slow_path_latency,
+                                                                   jmx.read_attribute(slow_path_latency, "Count")))
+            self.assertEquals(0, jmx.read_attribute(live_sessions, "Value"))
+            self.assertEquals(0, jmx.read_attribute(pending_pages, "Value"))
+            self.assertEquals(2, jmx.read_attribute(requests, "Count"))
+            self.assertEquals(0, jmx.read_attribute(creation_failures, "Count"))
+            self.assertEquals(0, jmx.read_attribute(too_many_sessions, "Count"))
+            self.assertEquals(0, jmx.read_attribute(client_write_exceptions, "Count"))
+            self.assertEquals(0, jmx.read_attribute(failures, "Count"))
+            # the remaining 3 metrics may or may not be zero depending on machine CPU usage
 
 
 @since('3.9')
