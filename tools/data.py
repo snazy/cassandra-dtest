@@ -204,6 +204,7 @@ def create_cf(session, name, key_type="varchar", speculative_retry=None, read_re
 
 
 def create_ks(session, name, rf):
+    debug('Creating {} with rf {}'.format(name, rf))
     query = 'CREATE KEYSPACE %s WITH replication={%s}'
     if isinstance(rf, types.IntType):
         # we assume simpleStrategy

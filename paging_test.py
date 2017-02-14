@@ -31,32 +31,51 @@ class BasePagingTester(ReusableClusterTester):
     # Set to True when a sub-class is annotated with @with_continuous_paging
     use_continuous_paging = False
 
+    default_config = ImmutableMapping({})
+
     @classmethod
     def post_initialize_cluster(cls):
         cluster = cls.cluster
         cluster.populate(3)
+
+        if cls.default_config:
+            cluster.set_configuration_options(values=cls.default_config)
+
         cluster.start(jvm_args=['-Dio.netty.leakDetection.level=advanced'])
         cls.cached_config = ImmutableMapping(cluster._config_options)
 
     def setUp(self):
         super(BasePagingTester, self).setUp()
-        self._cleanup_schema()
+
+    def tearDown(self):
+        super(BasePagingTester, self).tearDown()
+
+        if hasattr(self, 'session'):
+            self._cleanup_schema()
+            debug('shutting down last session')
+            self.session.cluster.shutdown()
+            debug('session closed')
 
     def _cleanup_schema(self):
-        session = self.patient_cql_connection(self.cluster.nodelist()[0])
-        keyspaces = [ks for ks in session.cluster.metadata.keyspaces.keys() if 'system' not in ks]
+        debug('_cleanup_schema')
+        keyspaces = [ks for ks in self.session.cluster.metadata.keyspaces.keys() if 'system' not in ks]
 
         for ks in keyspaces:
-            session.execute("DROP KEYSPACE IF EXISTS {}".format(ks))
-
-        session.cluster.shutdown()
+            debug('Dropping {}'.format(ks))
+            self.session.execute("DROP KEYSPACE IF EXISTS {}".format(ks))
+            debug('Dropped {}'.format(ks))
 
     def prepare(self, row_factory=dict_factory):
+        if hasattr(self, 'session'):
+            debug('shutting down old session')
+            self.session.cluster.shutdown()
+
         protocol_version = self.get_protocol_version()
         node1 = self.cluster.nodelist()[0]
 
         profiles = {
             EXEC_PROFILE_DEFAULT: make_execution_profile(row_factory=row_factory,
+                                                         request_timeout=60,  # needed for schema agreement
                                                          consistency_level=CL.QUORUM),
             EXEC_PROFILE_CONTINUOUS_PAGING: make_execution_profile(row_factory=row_factory,
                                                                    consistency_level=CL.QUORUM,
@@ -64,7 +83,11 @@ class BasePagingTester(ReusableClusterTester):
                                                                    continuous_paging_options=ContinuousPagingOptions())
         }
 
-        return self.patient_cql_connection(node1, protocol_version=protocol_version, execution_profiles=profiles)
+        self.session = self.patient_cql_connection(node1,
+                                                   protocol_version=protocol_version,
+                                                   execution_profiles=profiles)
+        self.session.cluster.max_schema_agreement_wait = 60
+        return self.session
 
     def get_protocol_version(self):
         supports_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
@@ -3270,8 +3293,6 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
     default_config = ImmutableMapping({'tombstone_failure_threshold': 100000})
 
     def setUp(self):
-        if hasattr(self, 'session'):
-            self.session.cluster.shutdown()
         super(TestPagingWithDeletions, self).setUp()
 
     def tearDown(self):
@@ -3335,7 +3356,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
     def test_single_partition_deletions(self):
         """Test single partition deletions """
-        self.session = self.prepare()
+        self.prepare()
         expected_data = self.setup_data()
 
         # Delete the a single partition at the beginning
@@ -3373,7 +3394,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
     def test_multiple_partition_deletions(self):
         """Test multiple partition deletions """
-        self.session = self.prepare()
+        self.prepare()
         expected_data = self.setup_data()
 
         # Keep only the partition '1'
@@ -3386,7 +3407,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
     def test_single_row_deletions(self):
         """Test single row deletions """
-        self.session = self.prepare()
+        self.prepare()
         expected_data = self.setup_data()
 
         # Delete the first row
@@ -3435,7 +3456,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
         """Test multiple row deletions.
            @jira_ticket CASSANDRA-6237
         """
-        self.session = self.prepare()
+        self.prepare()
         expected_data = self.setup_data()
 
         # Delete a bunch of rows
@@ -3453,7 +3474,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
     def test_single_cell_deletions(self):
         """Test single cell deletions """
-        self.session = self.prepare()
+        self.prepare()
         expected_data = self.setup_data()
 
         # Delete the first cell of some rows of the last partition
@@ -3500,7 +3521,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
     def test_multiple_cell_deletions(self):
         """Test multiple cell deletions """
-        self.session = self.prepare()
+        self.prepare()
         expected_data = self.setup_data()
 
         # Delete the multiple cells of some rows of the second partition
@@ -3535,7 +3556,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
     def test_ttl_deletions(self):
         """Test ttl deletions. Paging over a query that has only tombstones """
-        self.session = self.prepare()
+        self.prepare()
         data = self.setup_data()
 
         # Set TTL to all row
@@ -3559,7 +3580,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
         self.allow_log_errors = True
         restart_cluster_and_update_config(self.cluster, {'tombstone_failure_threshold': 500})
-        self.session = self.prepare()
+        self.prepare()
         self.setup_data()
 
         # Add more data
@@ -3601,7 +3622,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
 
         @jira_ticket CASSANDRA-10010
         """
-        self.session = self.prepare()
+        self.prepare()
         create_ks(self.session, 'test_paging_size', 2)
         self.session.execute("CREATE TABLE paging_test ( "
                              "k int, s int static, c int, v int, "
