@@ -118,7 +118,7 @@ def _execute(session, query, cl=None, execution_profile=None):
         else session.execute(simple_query, execution_profile=execution_profile)
 
 
-def assert_one(session, query, expected, execution_profile=None, cl=None):
+def assert_one(session, query, expected, cl=None, execution_profile=None):
     """
     Assert query returns one row.
     @param session Session to use
