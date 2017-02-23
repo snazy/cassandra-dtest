@@ -50,17 +50,31 @@ def write_rows_to_csv(filename, data):
         csvfile.close
 
 
+def deserialize_date_fallback_int(byts, protocol_version):
+    timestamp_ms = dse.marshal.int64_unpack(byts)
+    try:
+        return dse.util.datetime_from_timestamp(timestamp_ms / 1000.0)
+    except OverflowError:
+        return timestamp_ms
+
+
 def monkeypatch_driver():
     """
     Monkeypatches the `dse` driver module in the same way
     that cqlsh does. Returns a dictionary containing the original values of
     the monkeypatched names.
     """
-    cache = {'deserialize': dse.cqltypes.BytesType.deserialize,
+    cache = {'BytesType_deserialize': dse.cqltypes.BytesType.deserialize,
+             'DateType_deserialize': dse.cqltypes.DateType.deserialize,
              'support_empty_values': dse.cqltypes.CassandraType.support_empty_values}
 
     dse.cqltypes.BytesType.deserialize = staticmethod(lambda byts, protocol_version: bytearray(byts))
+    dse.cqltypes.DateType.deserialize = staticmethod(deserialize_date_fallback_int)
     dse.cqltypes.CassandraType.support_empty_values = True
+
+    if hasattr(dse, 'deserializers'):
+        cache['DesDateType'] = dse.deserializers.DesDateType
+        del dse.deserializers.DesDateType
 
     return cache
 
@@ -70,5 +84,9 @@ def unmonkeypatch_driver(cache):
     Given a dictionary that was used to cache parts of `dse` for
     monkeypatching, restore those values to the `dse` module.
     """
-    dse.cqltypes.BytesType.deserialize = staticmethod(cache['deserialize'])
+    dse.cqltypes.BytesType.deserialize = staticmethod(cache['BytesType_deserialize'])
+    dse.cqltypes.DateType.deserialize = staticmethod(cache['DateType_deserialize'])
     dse.cqltypes.CassandraType.support_empty_values = cache['support_empty_values']
+
+    if hasattr(dse, 'deserializers'):
+        dse.deserializers.DesDateType = cache['DesDateType']
