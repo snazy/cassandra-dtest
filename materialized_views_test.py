@@ -91,6 +91,29 @@ class TestMaterializedViews(Tester):
                     time.sleep(0.1)
                     attempts -= 1
 
+    def _wait_for_view(self, ks, view):
+        debug("waiting for view")
+        not_finished_match = re.compile("has not finished building")
+
+        def _view_build_finished(node):
+            (stdout, stderr, rc) = node.nodetool("viewbuildstatus %s %s" % (ks, view))
+            lines = re.split("\n+", stdout)
+            for line in lines:
+                match = not_finished_match.match(line)
+                if match is not None:
+                    debug("View not built yet")
+                    return False
+                else:
+                    debug("line=%s" % line)
+            return True
+
+        for node in self.cluster.nodelist():
+            if node.is_running():
+                attempts = 50  # 1 sec per attempt, so 50 seconds total
+                while attempts > 0 and not _view_build_finished(node):
+                    time.sleep(1)
+                    attempts -= 1
+
     def _insert_data(self, session):
         # insert data
         insert_stmt = "INSERT INTO users (username, password, gender, state, birth_year) VALUES "
@@ -185,6 +208,9 @@ class TestMaterializedViews(Tester):
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t WHERE v IS NOT NULL "
                          "AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
+        debug("wait for view to build")
+        self._wait_for_view("ks", "t_by_v")
+
         debug("wait that all batchlogs are replayed")
         self._replay_batchlogs()
 
@@ -204,6 +230,9 @@ class TestMaterializedViews(Tester):
 
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t WHERE v IS NOT NULL "
                          "AND id IS NOT NULL PRIMARY KEY (v, id)"))
+
+        debug("wait for view to build")
+        self._wait_for_view("ks", "t_by_v")
 
         debug("wait that all batchlogs are replayed")
         self._replay_batchlogs()
