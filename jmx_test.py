@@ -4,16 +4,19 @@ import time
 import ccmlib.common
 import parse
 
+from collections import defaultdict
 from ccmlib.node import ToolError
+from threading import Thread
 
 from dse import ConsistencyLevel as CL
 from dse.cluster import ContinuousPagingOptions
-from dse.policies import FallthroughRetryPolicy
+from dse.policies import FallthroughRetryPolicy, WhiteListRoundRobinPolicy
 
-from dtest import Tester, debug, make_execution_profile
+from dtest import Tester, debug, get_ip_from_node, make_execution_profile
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, enable_jmx_ssl, make_mbean,
                             remove_perf_disable_shared_mem)
+from tools.paging import ContinuousPageFetcher
 from tools.sslkeygen import generate_ssl_stores
 
 EXEC_PROFILE_CP_ONE = object()
@@ -196,32 +199,44 @@ class TestJMX(Tester):
         """
         cluster = self.cluster
         cluster.populate(3)
+
+        cluster.set_configuration_options({
+            'continuous_paging': {
+                'max_concurrent_sessions': 24,
+                'max_session_pages': 10,
+                'max_page_size_mb': 8,
+                'max_client_wait_time_ms': 30000,
+                'max_local_query_time_ms': 5000
+            }
+        })
+
         node1 = cluster.nodelist()[0]
         remove_perf_disable_shared_mem(node1)
         cluster.start()
 
         # insert some data, we need replication factor 3 to ensure each node owns a copy of all the data,
         # so that continuous paging requests at CL.ONE will be executed with the locally optimized path
-        node1.stress(['write', 'n=1K', 'no-warmup', '-schema', 'replication(factor=3)'])
+        node1.stress(['write', 'n=100K', 'no-warmup', '-schema', 'replication(factor=3)'])
+        address = get_ip_from_node(node1)
 
         # retrieve some data with continuous paging, using both CL.ONE and CL.ALL so that both slow and
         # optimized continuous paging paths are used, use an exclusive connection, so that node1 receives both requests
+        paging_options = ContinuousPagingOptions(max_pages_per_second=15)
         profiles = {
             EXEC_PROFILE_CP_ONE: make_execution_profile(consistency_level=CL.ONE,
+                                                        load_balancing_policy=WhiteListRoundRobinPolicy([address]),
                                                         retry_policy=FallthroughRetryPolicy(),
-                                                        continuous_paging_options=ContinuousPagingOptions()),
+                                                        continuous_paging_options=paging_options),
             EXEC_PROFILE_CP_ALL: make_execution_profile(consistency_level=CL.ALL,
+                                                        load_balancing_policy=WhiteListRoundRobinPolicy([address]),
                                                         retry_policy=FallthroughRetryPolicy(),
-                                                        continuous_paging_options=ContinuousPagingOptions())
+                                                        continuous_paging_options=paging_options)
         }
+
+        # execute a small CP query so that the mbeans are initialized
         session = self.patient_exclusive_cql_connection(node1, protocol_version=65, execution_profiles=profiles)
         session.default_fetch_size = 1000
-
-        res = session.execute("SELECT * from keyspace1.standard1", execution_profile=EXEC_PROFILE_CP_ONE)
-        self.assertEquals(1000, len(list(res)))
-
-        res = session.execute("SELECT * from keyspace1.standard1", execution_profile=EXEC_PROFILE_CP_ALL)
-        self.assertEquals(1000, len(list(res)))
+        session.execute("SELECT * from keyspace1.standard1 LIMIT 1000", execution_profile=EXEC_PROFILE_CP_ONE)
 
         # create the metrics mbeans
         optimized_path_latency = make_mbean('metrics', type='ContinuousPaging', scope='OptimizedPathLatency', name='Latency')
@@ -237,38 +252,63 @@ class TestJMX(Tester):
         server_blocked = make_mbean('metrics', type='ContinuousPaging', scope='', name='ServerBlocked')
         server_blocked_latency = make_mbean('metrics', type='ContinuousPaging', scope='ServerBlockedLatency', name='Latency')
 
-        # query the metrics
-        with JolokiaAgent(node1) as jmx:
-            debug('{}: {}'.format(optimized_path_latency, jmx.read_attribute(optimized_path_latency, "Count")))
-            debug('{}: {}'.format(slow_path_latency, jmx.read_attribute(slow_path_latency, "Count")))
-            debug('{}: {}'.format(live_sessions, jmx.read_attribute(live_sessions, "Value")))
-            debug('{}: {}'.format(pending_pages, jmx.read_attribute(pending_pages, "Value")))
-            debug('{}: {}'.format(requests, jmx.read_attribute(requests, "Count")))
-            debug('{}: {}'.format(creation_failures, jmx.read_attribute(creation_failures, "Count")))
-            debug('{}: {}'.format(too_many_sessions, jmx.read_attribute(too_many_sessions, "Count")))
-            debug('{}: {}'.format(client_write_exceptions, jmx.read_attribute(client_write_exceptions, "Count")))
-            debug('{}: {}'.format(failures, jmx.read_attribute(failures, "Count")))
-            debug('{}: {}'.format(waiting_time, jmx.read_attribute(waiting_time, "Count")))
-            debug('{}: {}'.format(server_blocked, jmx.read_attribute(server_blocked, "Count")))
-            debug('{}: {}'.format(server_blocked_latency, jmx.read_attribute(server_blocked_latency, "Count")))
+        collecting = True
+        collected_values = defaultdict(list)
 
-            # Check the values for the metrics that we are sure of the excepted value, for the remaining metrics,
-            # if the debug statements above did not cause any exceptions, then it means that
-            # they exist, which is good enough rather than risk a Flaky test
-            self.assertGreater(jmx.read_attribute(optimized_path_latency, "Count"), 0,
-                               'Unepected value for {}: {}'.format(optimized_path_latency,
-                                                                   jmx.read_attribute(optimized_path_latency, "Count")))
-            self.assertGreater(jmx.read_attribute(slow_path_latency, "Count"), 0,
-                               'Unepected value for {}: {}'.format(slow_path_latency,
-                                                                   jmx.read_attribute(slow_path_latency, "Count")))
-            self.assertEquals(0, jmx.read_attribute(live_sessions, "Value"))
-            self.assertEquals(0, jmx.read_attribute(pending_pages, "Value"))
-            self.assertEquals(2, jmx.read_attribute(requests, "Count"))
-            self.assertEquals(0, jmx.read_attribute(creation_failures, "Count"))
-            self.assertEquals(0, jmx.read_attribute(too_many_sessions, "Count"))
-            self.assertEquals(0, jmx.read_attribute(client_write_exceptions, "Count"))
-            self.assertEquals(0, jmx.read_attribute(failures, "Count"))
-            # the remaining 3 metrics may or may not be zero depending on machine CPU usage
+        # start real time monitoring of some metrics
+        def check_real_time_metrics():
+            with JolokiaAgent(node1) as jmx:
+                while collecting:
+                    collected_values[optimized_path_latency].append(jmx.read_attribute(optimized_path_latency, "Count"))
+                    collected_values[slow_path_latency].append(jmx.read_attribute(slow_path_latency, "Count"))
+                    collected_values[live_sessions].append(jmx.read_attribute(live_sessions, "Value"))
+                    collected_values[pending_pages].append(jmx.read_attribute(pending_pages, "Value"))
+                    collected_values[requests].append(jmx.read_attribute(requests, "Count"))
+                    collected_values[creation_failures].append(jmx.read_attribute(creation_failures, "Count"))
+                    collected_values[too_many_sessions].append(jmx.read_attribute(too_many_sessions, "Count"))
+                    collected_values[client_write_exceptions].append(jmx.read_attribute(client_write_exceptions, "Count"))
+                    collected_values[failures].append(jmx.read_attribute(failures, "Count"))
+                    collected_values[waiting_time].append(jmx.read_attribute(waiting_time, "Count"))
+                    collected_values[server_blocked].append(jmx.read_attribute(server_blocked, "Count"))
+                    collected_values[server_blocked_latency].append(jmx.read_attribute(server_blocked_latency, "Count"))
+                    time.sleep(0.05)
+
+        monitoring_thread = Thread(target=check_real_time_metrics)
+        monitoring_thread.start()
+
+        fetchers = []
+        for _ in xrange(4):
+            fut = session.execute_async("SELECT * from keyspace1.standard1", execution_profile=EXEC_PROFILE_CP_ONE)
+            fetchers.append(ContinuousPageFetcher(fut, session.default_fetch_size))
+
+        for _ in xrange(6):
+            fut = session.execute_async("SELECT * from keyspace1.standard1", execution_profile=EXEC_PROFILE_CP_ALL)
+            fetchers.append(ContinuousPageFetcher(fut, session.default_fetch_size))
+
+        # wait until we've received all the pages
+        for fetcher in fetchers:
+            fetcher.wait(timeout=60)  # this will fail if the last page is not received
+
+        # stop the monitoring thread
+        collecting = False
+        monitoring_thread.join(timeout=5)
+
+        # Now print and check the metrics
+        for metric, values in collected_values.iteritems():
+            debug('{}: {}'.format(metric, values))
+
+        self.assertGreater(max(collected_values[optimized_path_latency]), 0)
+        self.assertGreater(max(collected_values[slow_path_latency]), 0)
+        self.assertGreater(max(collected_values[live_sessions]), 0)
+        self.assertGreater(max(collected_values[pending_pages]), 0)
+        self.assertEquals(11, max(collected_values[requests]))
+        self.assertEquals(0, max(collected_values[creation_failures]))
+        self.assertEquals(0, max(collected_values[too_many_sessions]))
+        self.assertEquals(0, max(collected_values[client_write_exceptions]))
+        self.assertEquals(0, max(collected_values[failures]))
+        self.assertGreater(max(collected_values[waiting_time]), 0)
+        self.assertGreater(max(collected_values[server_blocked]), 0)
+        self.assertGreater(max(collected_values[server_blocked_latency]), 0)
 
 
 @since('3.9')

@@ -227,10 +227,11 @@ class ContinuousPageFetcher(object):
         """
         Blocks until all rows have been received.
         """
-        timeout = 5 if timeout is None else timeout
-        # debug('Waiting for up to {} seconds'.format(timeout))
-        with self._condition:
-            self._condition.wait(timeout)
+        if not self.all_fetched:
+            timeout = 5 if timeout is None else timeout
+            # debug('Waiting for up to {} seconds'.format(timeout))
+            with self._condition:
+                self._condition.wait(timeout)
 
         if self.error:
             raise self.error
