@@ -10,6 +10,7 @@ from tools.jmxutils import (JolokiaAgent, make_mbean,
 
 
 class TestSpeculativeRetry(Tester):
+
     def _attempt_speculative_retry(self, speculative_retry_config, read_iteration_delay):
         cluster = self.cluster
         cluster.populate(3)
