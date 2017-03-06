@@ -5,6 +5,7 @@ from abc import ABCMeta
 from unittest import skipIf
 
 from ccmlib.common import get_version_from_build, is_win
+from tools.jmxutils import remove_perf_disable_shared_mem
 
 from dtest import CASSANDRA_VERSION_FROM_BUILD, DEBUG, Tester, debug
 from tools.data import create_ks
@@ -61,6 +62,7 @@ class UpgradeTester(Tester):
         self.ignore_log_patterns = self.ignore_log_patterns[:] + [
             r'RejectedExecutionException.*ThreadPoolExecutor has shut down',  # see  CASSANDRA-12364
         ]
+        self.enable_for_jolokia = False
         super(UpgradeTester, self).__init__(*args, **kwargs)
 
     def setUp(self):
@@ -100,7 +102,12 @@ class UpgradeTester(Tester):
         cluster.populate(nodes)
         node1 = cluster.nodelist()[0]
         cluster.set_install_dir(version=self.UPGRADE_PATH.starting_version)
-        cluster.start()
+
+        self.enable_for_jolokia = kwargs.pop('jolokia', False)
+        if self.enable_for_jolokia:
+            remove_perf_disable_shared_mem(node1)
+
+        cluster.start(wait_for_binary_proto=True)
 
         node1 = cluster.nodelist()[0]
         time.sleep(0.2)
@@ -158,6 +165,10 @@ class UpgradeTester(Tester):
                       'with Cassandra version {}'.format(self.protocol_version, new_version_from_build))
         node1.set_log_level("DEBUG" if DEBUG else "INFO")
         node1.set_configuration_options(values={'internode_compression': 'none'})
+
+        if self.enable_for_jolokia:
+            remove_perf_disable_shared_mem(node1)
+
         node1.start(wait_for_binary_proto=True, wait_other_notice=True)
 
         sessions_and_meta = []
