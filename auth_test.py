@@ -719,7 +719,6 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         * As cathy, try granting SELECT on cf to bob, without specifying the ks; verify it fails
         * As cathy, USE ks, try again, verify it works this time
         """
-        self.prepare()
 
         cassandra = self.get_session(user='cassandra', password='cassandra')
 
