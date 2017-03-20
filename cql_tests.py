@@ -1065,7 +1065,7 @@ class SlowQueryTester(CQLTester):
             );
         """)
 
-        for i, j in itertools.product(range(100), range(10)):
+        for i, j in itertools.product(range(100), range(20)):
             session.execute("INSERT INTO test2 (id, col, val) VALUES ({}, {}, 'foo')".format(i, j))
 
         # only check debug logs because at INFO level the no-spam logger has unpredictable results
