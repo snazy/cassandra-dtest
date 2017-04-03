@@ -74,6 +74,8 @@ class BaseReplaceAddressTest(Tester):
             session.execute("""ALTER KEYSPACE system_auth
                             WITH replication = {'class':'SimpleStrategy',
                             'replication_factor':2};""")
+        else:
+            self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'FailureDetector.* unknown endpoint']  # APOLLO-59
 
     def _do_replace(self, same_address=False, jvm_option='replace_address',
                     wait_other_notice=False, wait_for_binary_proto=True,
