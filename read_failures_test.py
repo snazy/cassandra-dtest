@@ -1,6 +1,7 @@
 from dse import ConsistencyLevel, ReadFailure, ReadTimeout
 from dse.policies import FallthroughRetryPolicy
 from dse.query import SimpleStatement
+from nose.plugins.attrib import attr
 
 from dtest import Tester
 from tools.decorators import since
@@ -80,6 +81,7 @@ class TestReadFailures(Tester):
                 break
         self.assertTrue(expected_code_found, "The error code map did not contain " + str(expected_code))
 
+    @attr("smoke-test")
     @since('2.1')
     def test_tombstone_failure_v3(self):
         """
@@ -91,6 +93,7 @@ class TestReadFailures(Tester):
         self._insert_tombstones(session, 600)
         self._perform_cql_statement(session, "SELECT value FROM tombstonefailure")
 
+    @attr("smoke-test")
     @since('2.2')
     def test_tombstone_failure_v4(self):
         """
@@ -101,6 +104,7 @@ class TestReadFailures(Tester):
         self._insert_tombstones(session, 600)
         self._perform_cql_statement(session, "SELECT value FROM tombstonefailure")
 
+    @attr("smoke-test")
     @since('3.10')
     def test_tombstone_failure_v5(self):
         """

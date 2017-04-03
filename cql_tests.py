@@ -10,6 +10,7 @@ from dse.metadata import NetworkTopologyStrategy, SimpleStrategy
 from dse.policies import FallthroughRetryPolicy
 from dse.protocol import ProtocolException
 from dse.query import BatchStatement, BatchType, SimpleStatement
+from nose.plugins.attrib import attr
 
 from dtest import ReusableClusterTester, Tester, debug
 from thrift_bindings.v22.ttypes import \
@@ -70,6 +71,7 @@ class StorageProxyCQLTester(CQLTester):
     #      is covered in greater detail in other test classes.
     """
 
+    @attr("smoke-test")
     def keyspace_test(self):
         """
         Smoke test that basic keyspace operations work:
@@ -103,6 +105,7 @@ class StorageProxyCQLTester(CQLTester):
         session.execute("DROP KEYSPACE ks")
         self.assertNotIn('ks', meta.keyspaces)
 
+    @attr("smoke-test")
     def table_test(self):
         """
         Smoke test that basic table operations work:
@@ -154,6 +157,7 @@ class StorageProxyCQLTester(CQLTester):
         session.execute("DROP TABLE test2")
         self.assertNotIn('test2', ks_meta.tables)
 
+    @attr("smoke-test")
     def index_test(self):
         """
         Smoke test CQL statements related to indexes:
@@ -181,6 +185,7 @@ class StorageProxyCQLTester(CQLTester):
         session.execute("DROP INDEX testidx")
         self.assertNotIn('testidx', table_meta.indexes)
 
+    @attr("smoke-test")
     def type_test(self):
         """
         Smoke test basic TYPE operations:
@@ -213,6 +218,7 @@ class StorageProxyCQLTester(CQLTester):
         session.execute("DROP TYPE address_t")
         self.assertNotIn('address_t', ks_meta.user_types)
 
+    @attr("smoke-test")
     def user_test(self):
         """
         Smoke test for basic USER queries:
@@ -243,6 +249,7 @@ class StorageProxyCQLTester(CQLTester):
         session.execute("DROP USER user1")
         self.assertNotIn('user1', get_usernames())
 
+    @attr("smoke-test")
     def statements_test(self):
         """
         Smoke test SELECT and UPDATE statements:
@@ -286,6 +293,7 @@ class StorageProxyCQLTester(CQLTester):
 
         assert_one(session, "SELECT COUNT(*) FROM test7 WHERE kind = 'ev1'", [0])
 
+    @attr("smoke-test")
     @since('3.10')
     def partition_key_allow_filtering_test(self):
         """
@@ -420,6 +428,7 @@ class StorageProxyCQLTester(CQLTester):
         with self.assertRaises(InvalidRequest):
             session.execute("SELECT * FROM test_filter WHERE k2 > 0")
 
+    @attr("smoke-test")
     def batch_test(self):
         """
         Smoke test for BATCH statements:
@@ -565,6 +574,7 @@ class MiscellaneousCQLTester(CQLTester):
         session.execute("ALTER TABLE test RENAME column1 TO foo1 AND column2 TO foo2 AND column3 TO foo3")
         assert_one(session, "SELECT foo1, foo2, foo3 FROM test", [4, 3, 2])
 
+    @attr("smoke-test")
     def invalid_string_literals_test(self):
         """
         @jira_ticket CASSANDRA-8101
@@ -589,6 +599,7 @@ class MiscellaneousCQLTester(CQLTester):
         with self.assertRaisesRegexp(ProtocolException, 'Cannot decode string as UTF8'):
             session.execute("insert into invalid_string_literals (k, c) VALUES (0, '\xc2\x01')")
 
+    @attr("smoke-test")
     def prepared_statement_invalidation_test(self):
         """
         @jira_ticket CASSANDRA-7910
@@ -639,6 +650,7 @@ class MiscellaneousCQLTester(CQLTester):
             result = session.execute(explicit_prepared.bind(None))
             self.assertEqual(result, [(0, 0, 0, None)])
 
+    @attr("smoke-test")
     def range_slice_test(self):
         """
         Regression test for CASSANDRA-1337:
@@ -675,6 +687,7 @@ class MiscellaneousCQLTester(CQLTester):
         res = list(session.execute("SELECT * FROM test"))
         self.assertEqual(len(res), 2, msg=res)
 
+    @attr("smoke-test")
     def many_columns_test(self):
         """
         Test for tables with thousands of columns.

@@ -1,4 +1,5 @@
 import time
+from nose.plugins.attrib import attr
 
 from dtest import Tester
 from tools.data import create_cf, create_ks, rows_to_list
@@ -8,6 +9,7 @@ from tools.jmxutils import (JolokiaAgent, make_mbean,
 
 class TestDeletion(Tester):
 
+    @attr("smoke-test")
     def gc_test(self):
         """
         Test that tombstone purging doesn't bring back deleted data by writing
@@ -45,6 +47,7 @@ class TestDeletion(Tester):
         self.assertEqual(rows_to_list(session.execute('select * from cf;')),
                          [[2, 1]])
 
+    @attr("smoke-test")
     def tombstone_size_test(self):
         self.cluster.populate(1)
         node1 = self.cluster.nodelist()[0]

@@ -310,6 +310,7 @@ class TestAvailability(TestHelper):
         else:
             assert_unavailable(self.query_user, session, end, age, read_cl, check_ret)
 
+    @attr("smoke-test")
     def test_simple_strategy(self):
         """
         Test for a single datacenter, using simple replication strategy.
@@ -341,6 +342,7 @@ class TestAvailability(TestHelper):
 
         self._test_simple_strategy(combinations)
 
+    @attr("smoke-test")
     @since("3.0")
     def test_simple_strategy_each_quorum(self):
         """
@@ -674,6 +676,7 @@ class TestAccuracy(TestHelper):
         self.log("Testing multiple dcs, users, each quorum reads")
         self._run_test_function_in_parallel(TestAccuracy.Validation.validate_users, self.nodes, self.rf.values(), combinations)
 
+    @attr("smoke-test")
     def test_simple_strategy_counters(self):
         """
         Test for a single datacenter, counters table.
@@ -702,6 +705,7 @@ class TestAccuracy(TestHelper):
         self.log("Testing single dc, counters")
         self._run_test_function_in_parallel(TestAccuracy.Validation.validate_counters, [self.nodes], [self.rf], combinations)
 
+    @attr("smoke-test")
     @since("3.0")
     def test_simple_strategy_each_quorum_counters(self):
         """
@@ -835,6 +839,7 @@ class TestConsistency(Tester):
 
             session.execute('TRUNCATE cf')
 
+    @attr("smoke-test")
     def short_read_delete_test(self):
         """ Test short reads ultimately leaving no columns alive [#4000] """
         cluster = self.cluster
@@ -868,6 +873,7 @@ class TestConsistency(Tester):
 
         assert_none(session, "SELECT c, v FROM cf WHERE key=\'k0\' LIMIT 1", cl=ConsistencyLevel.QUORUM)
 
+    @attr("smoke-test")
     def short_read_quorum_delete_test(self):
         """
         @jira_ticket CASSANDRA-8933
@@ -910,6 +916,7 @@ class TestConsistency(Tester):
         node3.stop(wait_other_notice=True)
         assert_none(session, "SELECT * FROM t WHERE id = 0 LIMIT 1", cl=ConsistencyLevel.QUORUM)
 
+    @attr("smoke-test")
     def readrepair_test(self):
         cluster = self.cluster
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
@@ -942,6 +949,7 @@ class TestConsistency(Tester):
         for n in xrange(0, 10000):
             query_c1c2(session, n, ConsistencyLevel.ONE)
 
+    @attr("smoke-test")
     def quorum_available_during_failure_test(self):
         CL = ConsistencyLevel.QUORUM
         RF = 3

@@ -2,6 +2,7 @@ import uuid
 from distutils.version import LooseVersion
 
 from dse import ConsistencyLevel, WriteFailure, WriteTimeout
+from nose.plugins.attrib import attr
 
 from dtest import Tester
 from thrift_bindings.v22 import ttypes as thrift_types
@@ -101,6 +102,7 @@ class TestWriteFailures(Tester):
                 break
         self.assertTrue(expected_code_found, "The error code map did not contain " + str(expected_code))
 
+    @attr("smoke-test")
     @since('2.2', max_version='2.2.x')
     def test_mutation_v2(self):
         """
@@ -110,6 +112,7 @@ class TestWriteFailures(Tester):
         self.protocol_version = 2
         self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1')")
 
+    @attr("smoke-test")
     def test_mutation_v3(self):
         """
         A failed mutation at v3 receives a WriteTimeout
@@ -118,6 +121,7 @@ class TestWriteFailures(Tester):
         self.protocol_version = 3
         self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1')")
 
+    @attr("smoke-test")
     def test_mutation_v4(self):
         """
         A failed mutation at v4 receives a WriteFailure
@@ -126,6 +130,7 @@ class TestWriteFailures(Tester):
         self.protocol_version = 4
         self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1')")
 
+    @attr("smoke-test")
     @since('3.10')
     def test_mutation_v5(self):
         """
@@ -136,6 +141,7 @@ class TestWriteFailures(Tester):
         exc = self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1')")
         self._assert_error_code_map_exists_with_code(exc, 0x0000)
 
+    @attr("smoke-test")
     def test_mutation_any(self):
         """
         A WriteFailure is not received at consistency level ANY
@@ -146,6 +152,7 @@ class TestWriteFailures(Tester):
         self.failing_nodes = [0, 1, 2]
         self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1')")
 
+    @attr("smoke-test")
     def test_mutation_one(self):
         """
             A WriteFailure is received at consistency level ONE
@@ -157,6 +164,7 @@ class TestWriteFailures(Tester):
         if self.supports_v5_protocol:
             self._assert_error_code_map_exists_with_code(exc, 0x0000)
 
+    @attr("smoke-test")
     def test_mutation_quorum(self):
         """
         A WriteFailure is not received at consistency level
@@ -167,6 +175,7 @@ class TestWriteFailures(Tester):
         self.failing_nodes = [2]
         self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1')")
 
+    @attr("smoke-test")
     def test_batch(self):
         """
         A failed batch receives a WriteFailure
@@ -180,6 +189,7 @@ class TestWriteFailures(Tester):
         if self.supports_v5_protocol:
             self._assert_error_code_map_exists_with_code(exc, 0x0000)
 
+    @attr("smoke-test")
     def test_counter(self):
         """
         A failed counter mutation receives a WriteFailure
@@ -193,6 +203,7 @@ class TestWriteFailures(Tester):
         if self.supports_v5_protocol:
             self._assert_error_code_map_exists_with_code(exc, 0x0000)
 
+    @attr("smoke-test")
     def test_paxos(self):
         """
         A light transaction receives a WriteFailure
@@ -201,6 +212,7 @@ class TestWriteFailures(Tester):
         if self.supports_v5_protocol:
             self._assert_error_code_map_exists_with_code(exc, 0x0000)
 
+    @attr("smoke-test")
     def test_paxos_any(self):
         """
         A light transaction at consistency level ANY does not receive a WriteFailure

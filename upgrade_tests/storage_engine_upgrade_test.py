@@ -1,6 +1,8 @@
 import os
 import time
 
+from nose.plugins.attrib import attr
+
 from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
 from sstable_generation_loading_test import BaseSStableLoaderTest
 from thrift_bindings.v22.Cassandra import (ConsistencyLevel, Deletion,
@@ -95,6 +97,7 @@ class TestStorageEngineUpgrade(Tester):
 
         assert_one(cursor, "SELECT * FROM t", ['some_key', 0])
 
+    @attr("smoke-test")
     def upgrade_with_clustered_CQL_table_test(self):
         """
         Validates we can do basic slice queries (forward and reverse ones) on legacy sstables for a CQL table
@@ -109,6 +112,7 @@ class TestStorageEngineUpgrade(Tester):
         """
         self.upgrade_with_clustered_table(compact_storage=True)
 
+    @attr("smoke-test")
     def upgrade_with_unclustered_CQL_table_test(self):
         """
         Validates we can do basic name queries on legacy sstables for a CQL table without clustering.
@@ -309,6 +313,7 @@ class TestStorageEngineUpgrade(Tester):
             else:
                 assert_none(session, query)
 
+    @attr("smoke-test")
     def upgrade_with_index_test(self):
         """
         Checks a simple index can still be read after upgrade.

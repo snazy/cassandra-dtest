@@ -1,5 +1,6 @@
 # coding: utf-8
 from distutils.version import LooseVersion
+from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
 from tools.data import create_ks
@@ -91,6 +92,7 @@ class TestCqlTracing(Tester):
         self.assertIn('Request complete ', out)
         self.assertIn(" Frodo |  Baggins", out)
 
+    @attr("smoke-test")
     @since('2.2')
     def tracing_simple_test(self):
         """
@@ -103,6 +105,7 @@ class TestCqlTracing(Tester):
         session = self.prepare()
         self.trace(session)
 
+    @attr("smoke-test")
     @since('3.4')
     def tracing_unknown_impl_test(self):
         """
@@ -133,6 +136,7 @@ class TestCqlTracing(Tester):
         err = errs[0][0]
         self.assertIn(expected_error, err)
 
+    @attr("smoke-test")
     @since('3.4')
     def tracing_default_impl_test(self):
         """

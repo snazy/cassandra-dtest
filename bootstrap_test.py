@@ -9,6 +9,7 @@ import time
 from ccmlib.node import NodeError
 from dse import ConsistencyLevel
 from dse.concurrent import execute_concurrent_with_args
+from nose.plugins.attrib import attr
 
 from dtest import DISABLE_VNODES, Tester, debug
 from tools.assertions import (assert_almost_equal, assert_bootstrap_state,
@@ -184,6 +185,7 @@ class TestBootstrap(BaseBootstrapTest):
             self.assertTrue(node.grep_log('Sending keep-alive', filename='debug.log'))
             self.assertTrue(node.grep_log('Received keep-alive', filename='debug.log'))
 
+    @attr("smoke-test")
     def simple_bootstrap_test_nodata(self):
         """
         @jira_ticket CASSANDRA-11010
@@ -201,6 +203,7 @@ class TestBootstrap(BaseBootstrapTest):
 
         assert_bootstrap_state(self, node3, 'COMPLETED')
 
+    @attr("smoke-test")
     def read_from_bootstrapped_node_test(self):
         """
         Test bootstrapped node sees existing data
@@ -374,6 +377,7 @@ class TestBootstrap(BaseBootstrapTest):
         # check if 2nd bootstrap succeeded
         assert_bootstrap_state(self, node3, 'COMPLETED')
 
+    @attr("smoke-test")
     def manual_bootstrap_test(self):
         """
             Test adding a new node and bootstrapping it manually. No auto_bootstrap.

@@ -1,6 +1,7 @@
 import time
 
 from dse.concurrent import execute_concurrent_with_args
+from nose.plugins.attrib import attr
 
 from dtest import Tester
 from tools.assertions import assert_all, assert_invalid, assert_one
@@ -9,6 +10,7 @@ from tools.data import create_ks
 
 class TestSchema(Tester):
 
+    @attr("smoke-test")
     def table_alteration_test(self):
         """
         Tests that table alters return as expected with many sstables at different schema points
@@ -50,6 +52,7 @@ class TestSchema(Tester):
                 self.assertEqual(row.c2, 'ddd')
                 self.assertFalse(hasattr(row, 'c0'))
 
+    @attr("smoke-test")
     def drop_column_compact_test(self):
         session = self.prepare()
 
@@ -58,6 +61,7 @@ class TestSchema(Tester):
 
         assert_invalid(session, "ALTER TABLE cf DROP c1", "Cannot drop columns from a")
 
+    @attr("smoke-test")
     def drop_column_compaction_test(self):
         session = self.prepare()
         session.execute("USE ks")
@@ -83,6 +87,7 @@ class TestSchema(Tester):
         session = self.patient_cql_connection(node)
         assert_all(session, "SELECT c1 FROM ks.cf", [[None], [None], [None], [4]], ignore_order=True)
 
+    @attr("smoke-test")
     def drop_column_queries_test(self):
         session = self.prepare()
 
@@ -115,6 +120,7 @@ class TestSchema(Tester):
 
         assert_one(session, "SELECT * FROM cf WHERE c2 = 5", [3, 4, 5])
 
+    @attr("smoke-test")
     def drop_column_and_restart_test(self):
         """
         Simply insert data in a table, drop a column involved in the insert and restart the node afterwards.
@@ -141,6 +147,7 @@ class TestSchema(Tester):
         session.execute("USE ks")
         assert_one(session, "SELECT * FROM t", [0, 0])
 
+    @attr("smoke-test")
     def drop_static_column_and_restart_test(self):
         """
         Dropping a static column caused an sstable corrupt exception after restarting, here

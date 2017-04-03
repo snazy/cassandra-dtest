@@ -2,6 +2,7 @@ import os
 import time
 
 from dse import ConsistencyLevel
+from nose.plugins.attrib import attr
 
 from dtest import DISABLE_VNODES, Tester
 from tools.data import create_c1c2_table, create_ks, insert_c1c2, query_c1c2
@@ -71,6 +72,7 @@ class TestHintedHandoffConfig(Tester):
             else:
                 query_c1c2(session, n, ConsistencyLevel.ONE, tolerate_missing=True, must_be_missing=True)
 
+    @attr("smoke-test")
     def nodetool_test(self):
         """
         Test various nodetool commands
@@ -97,6 +99,7 @@ class TestHintedHandoffConfig(Tester):
             res = self._launch_nodetool_cmd(node, 'statushandoff')
             self.assertEqual('Hinted handoff is running', res.rstrip())
 
+    @attr("smoke-test")
     def hintedhandoff_disabled_test(self):
         """
         Test gloabl hinted handoff disabled
@@ -109,6 +112,7 @@ class TestHintedHandoffConfig(Tester):
 
         self._do_hinted_handoff(node1, node2, False)
 
+    @attr("smoke-test")
     def hintedhandoff_enabled_test(self):
         """
         Test global hinted handoff enabled
