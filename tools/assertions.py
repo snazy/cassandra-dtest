@@ -4,6 +4,7 @@ from time import sleep
 
 from dse import (InvalidRequest, ReadFailure, ReadTimeout, Unauthorized,
                  Unavailable, WriteFailure, WriteTimeout)
+from dse.cluster import _NOT_SET
 from dse.query import SimpleStatement
 from nose.tools import (assert_equal, assert_false, assert_regexp_matches,
                         assert_true)
@@ -112,10 +113,10 @@ def assert_unauthorized(session, query, message, execution_profile=None):
     assert_exception(session, query, matching=message, expected=Unauthorized, execution_profile=execution_profile)
 
 
-def _execute(session, query, cl=None, execution_profile=None):
+def _execute(session, query, cl=None, execution_profile=None, timeout=_NOT_SET):
     simple_query = SimpleStatement(query, consistency_level=cl)
-    return session.execute(simple_query) if not execution_profile \
-        else session.execute(simple_query, execution_profile=execution_profile)
+    return session.execute(simple_query, timeout=timeout) if not execution_profile \
+        else session.execute(simple_query, execution_profile=execution_profile, timeout=timeout)
 
 
 def assert_one(session, query, expected, cl=None, execution_profile=None):
@@ -151,7 +152,7 @@ def assert_none(session, query, cl=None, execution_profile=None):
     assert list_res == [], "Expected nothing from {}, but got {}".format(query, list_res)
 
 
-def assert_all(session, query, expected, cl=None, ignore_order=False, execution_profile=None):
+def assert_all(session, query, expected, cl=None, ignore_order=False, execution_profile=None, timeout=None):
     """
     Assert query returns all expected items optionally in the correct order
     @param session Session in use
@@ -159,12 +160,13 @@ def assert_all(session, query, expected, cl=None, ignore_order=False, execution_
     @param expected Expected results from query
     @param cl Optional Consistency Level setting. Default ONE
     @param ignore_order Optional boolean flag determining whether response is ordered
+    @param timeout Optional query timeout, in seconds
 
     Examples:
     assert_all(session, "LIST USERS", [['aleksey', False], ['cassandra', True]])
     assert_all(self.session1, "SELECT * FROM ttl_table;", [[1, 42, 1, 1]])
     """
-    res = _execute(session, query, cl=cl, execution_profile=execution_profile)
+    res = _execute(session, query, cl=cl, execution_profile=execution_profile, timeout=timeout)
     list_res = _rows_to_list(res)
     if ignore_order:
         expected = sorted(expected)
