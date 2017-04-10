@@ -259,9 +259,9 @@ class TestOfflineTools(Tester):
             hashcomputed = False
             for line in outlines:
                 if sstable in line:
-                    if "Verifying BigTableReader" in line:
+                    if "Verifying" in line and "TableReader" in line:
                         verified = True
-                    elif "Checking computed hash of BigTableReader" in line:
+                    elif "Checking computed hash" in line and "TableReader" in line:
                         hashcomputed = True
                     else:
                         debug(line)
