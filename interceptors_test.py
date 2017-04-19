@@ -36,6 +36,7 @@ def _assert(session, expected, cl=ConsistencyLevel.ALL):
     assert_all(session, query, [[x] for x in expected], cl=cl)
 
 
+@since('4.0')
 class InterceptorsTester(Tester):
     """
     Basic tests of the default interceptors to ensure they do what they are
