@@ -11,6 +11,7 @@ from dse.query import SimpleStatement
 
 from dtest import Tester
 from tools.assertions import assert_all
+from tools.decorators import since
 from tools.preparation import prepare
 from tools.interceptors import (dropping_interceptor, delaying_interceptor,
                                 fake_write_interceptor, Verb, Direction, Type)
