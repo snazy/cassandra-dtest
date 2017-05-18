@@ -12,11 +12,10 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
-from tools.assertions import assert_almost_equal, assert_one
+from tools.assertions import assert_none, assert_almost_equal, assert_one
 from tools.data import create_cf, create_ks, insert_c1c2
 from tools.decorators import since, no_vnodes
 from tools.misc import new_node
-
 
 class ConsistentState(object):
     PREPARING = 0
@@ -758,3 +757,157 @@ class TestIncRepair(Tester):
         for node in self.cluster.nodelist():
             result = node.repair(options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
+
+    @since('3.0', max_version='4')
+    def do_not_ressurrect_on_compaction_race_test(self):
+        self._incremental_repair_data_ressurection_regression_test(compact_during_repair=True, fail_during_anticompaction=False)
+
+    @since('3.0', max_version='4')
+    def do_not_ressurrect_on_anticompaction_failure_test(self):
+        self._incremental_repair_data_ressurection_regression_test(compact_during_repair=False, fail_during_anticompaction=True)
+
+    def _incremental_repair_data_ressurection_regression_test(self, compact_during_repair, fail_during_anticompaction):
+        """
+        @jira_ticket APOLLO-596
+        * Table replicated in node1 and node2 (RF=2)
+        * 10 rows inserted on both nodes
+        * Node2 dies
+        * 10 rows are deleted, but tombstones only go to node1 since node2 is down
+        * Node2 recovers
+        * Repair is run
+          * SSTables containing 10 original rows are compacted before anti-compaction on node2, so cannot be marked as repaired
+          * Tombstones for these rows are transferred from node1 to node2
+          * On node1, all SStables are successfully marked as repaired
+        * Rows are purged on node1 after gc_grace_seconds=60
+        * On the next repair we must ensure data is not ressurrected on node1
+          * Before APOLLO-596, the rows could not be purged on node2 because they were in separate compactions bucket
+          so in the next repair only the data rows without the tombstones were propagated to node1 which already purged
+          these rows.
+        """
+        # anticompaction failure requires 3 nodes
+        nodes = 3 if fail_during_anticompaction else 2
+        gc_grace_seconds = 90 if fail_during_anticompaction else 60
+
+        cluster = self.cluster
+        cluster.populate(nodes)
+        node1, node2 = cluster.nodelist()[:2]
+
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+        cluster.set_batch_commitlog(enabled=True)
+
+        if fail_during_anticompaction:
+            self.ignore_log_patterns = ["Error during anti-compaction"]
+
+        debug("Setting up byteman on {}".format(node2.name))
+        # set up byteman
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        debug("Starting cluster")
+        cluster.start()
+
+        session = self.patient_exclusive_cql_connection(node1)
+        # create keyspace with RF=2 to be able to be repaired
+        create_ks(session, 'ks', 2)
+
+        # create table with short gc_gs
+        debug("Creating table with gc_grace_seconds=60")
+        session.execute("""
+            CREATE TABLE cf1 (
+                key text,
+                c1 text,
+                c2 text,
+                PRIMARY KEY (key, c1)
+            )
+            WITH gc_grace_seconds={}
+            AND compaction = {{'class': 'SizeTieredCompactionStrategy', 'enabled': 'false'}};
+        """.format(gc_grace_seconds))
+
+        time.sleep(.5)
+
+        debug("Populating table ks.cf2")
+
+        # insert some data in multiple sstables
+        for i in xrange(0, 10):
+            for j in xrange(0, 1000):
+                query = SimpleStatement("INSERT INTO cf1 (key, c1, c2) VALUES ('k{}', 'v{}', 'value')".format(i, j), consistency_level=ConsistencyLevel.ONE)
+                session.execute(query)
+            cluster.flush()
+
+        debug("Stopping node2")
+
+        # take down node2, so that only node1 has gc-able data
+        node2.stop(wait_other_notice=True)
+
+        debug("Deleting data on node1")
+
+        deletion_time = time.time()
+        # delete those data, half with row tombstone, and the rest with cell range tombstones
+        for i in xrange(0, 5):
+            query = SimpleStatement("DELETE FROM cf1 WHERE key='k{}'".format(i), consistency_level=ConsistencyLevel.ONE)
+            session.execute(query)
+        node1.flush()
+
+        for i in xrange(5, 10):
+            for j in xrange(0, 1000):
+                query = SimpleStatement("DELETE FROM cf1 WHERE key='k{}' AND c1='v{}'".format(i, j), consistency_level=ConsistencyLevel.ONE)
+                session.execute(query)
+        node1.flush()
+
+        debug("Starting node2 with byteman enabled")
+
+        # bring up node2 with byteman installedand run incremental repair
+        node2.start(wait_for_binary_proto=True, wait_other_notice=True)
+
+        debug("Install byteman rule on node2")
+        node2.byteman_submit(['./byteman/major_compact_sstables_during_repair.btm'])
+        if fail_during_anticompaction:
+            node2.byteman_submit(['./byteman/repair_fail_anticompaction.btm'])
+
+        mark = node2.mark_log()
+
+        debug("Run repair on node1")
+        node1.nodetool('repair ks cf1')
+
+        self.assertTrue(node2.grep_log("could not be marked as repaired because they potentially shadow rows compacted during repair",
+                                       from_mark=mark))
+
+        if fail_during_anticompaction:
+            debug("Run repair on node2")
+            node3 = cluster.nodelist()[2]
+            node3.nodetool('repair ks cf1')
+
+        repair_time = time.time()
+
+        # Wait for tombstones to expire
+        time_until_expiration = gc_grace_seconds - (repair_time - deletion_time)
+        self.assertGreater(time_until_expiration, 0, "Data must be repaired before gc_grace_seconds={} but took {} seconds to repair."
+                                                     .format(gc_grace_seconds, repair_time - deletion_time))
+        debug("Will sleep {} seconds to wait for data to expire.".format(time_until_expiration))
+        time.sleep(time_until_expiration)
+
+        # Run compaction so tombstones will be garbage collected
+        node1.compact()
+        node2.compact()
+
+        # Check data is not present
+        for i in xrange(0, 10):
+            assert_none(session, "SELECT * FROM cf1 WHERE key = 'k{}'".format(i), cl=ConsistencyLevel.ALL)
+
+        if fail_during_anticompaction:
+            debug("Restarting node2")
+            node2.stop(wait_other_notice=True)
+            node2.start(wait_other_notice=True)
+
+        debug("Run repair again")
+        node1.nodetool('repair ks cf1')
+        if fail_during_anticompaction:
+            node3 = cluster.nodelist()[2]
+            node3.nodetool('repair ks cf1')
+
+        node1.compact()
+        node2.compact()
+
+        # Data is still not present
+        for i in xrange(0, 10):
+            assert_none(session, "SELECT * FROM cf1 WHERE key = 'k{}'".format(i), cl=ConsistencyLevel.ALL)

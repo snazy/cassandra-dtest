@@ -1,7 +1,4 @@
-#
-# Sleep 60s during streaming session
-#
-RULE sleep 60s on stream session
+RULE Kill node during streaming
 CLASS org.apache.cassandra.streaming.StreamSession
 METHOD messageReceived
 AT ENTRY
@@ -9,5 +6,5 @@ AT ENTRY
 IF NOT flagged("done")
 DO
    flag("done");
-   Thread.sleep(60000)
+   System.exit(1);
 ENDRULE

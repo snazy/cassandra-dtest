@@ -1,0 +1,9 @@
+RULE Fail anti-compaction
+CLASS org.apache.cassandra.db.compaction.LocalAntiCompactionTask
+METHOD doAntiCompaction
+AT ENTRY
+# set flag to only run this rule once.
+IF true
+DO
+   throw new RuntimeException("Dummy failure");
+ENDRULE
