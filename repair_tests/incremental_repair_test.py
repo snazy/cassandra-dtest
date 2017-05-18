@@ -17,6 +17,8 @@ from tools.assertions import assert_none, assert_almost_equal, assert_one, asser
 from tools.data import create_cf, create_ks, insert_c1c2
 from tools.decorators import since, no_vnodes
 from tools.misc import new_node
+from tools.jmxutils import (JolokiaAgent, make_mbean,
+                            remove_perf_disable_shared_mem)
 
 
 class ConsistentState(object):
@@ -900,8 +902,8 @@ class TestIncRepair(Tester):
             self.assertTrue(node2.grep_log("Dummy failure", from_mark=mark))
         elif self.cluster.version() < "4.0":
             # Message is only print on 3.X
-            self.assertTrue(node2.grep_log("could not be marked as repaired because they potentially shadow rows compacted during repair",
-                                           from_mark=mark))
+            self.assertTrue(node2.grep_log("because they potentially shadow rows compacted during repair",
+                                           from_mark=mark, filename="debug.log"))
 
         # When testing anti-compaction failure, the RF is higher (3), so we need to repair node3
         # to ensure all dataset will be repaired
@@ -1173,3 +1175,97 @@ class TestIncRepair(Tester):
             if self.cluster.version() >= '4':  # Requires compaction to run to mark SSTables as repaired
                 self.wait_sstables_to_be_marked_repaired(node)
             self.assertAllRepairedSSTables(node, 'keyspace1')
+
+    @since('3.0', max_version='4')
+    def non_anticompacted_metric_test(self):
+        """
+        @jira_ticket APOLLO-689
+        - Run repair on table replicated on node1 and node2
+        - Simulate race on node2 by running compaction during repair with byteman
+        - Check that warning was logged on node2 about not all SSTables being anti-compacted
+        - Check AntiCompactedBytes > 0 on node1 and NonAntiCompactedBytes > 0 on node2
+        """
+        cluster = self.cluster
+        cluster.populate(2)
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+        cluster.set_batch_commitlog(enabled=True)
+        node1, node2 = cluster.nodelist()
+
+        debug("Setting up byteman on {}".format(node2.name))
+        # set up byteman
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        # allow metrics to be fetched
+        remove_perf_disable_shared_mem(node1)
+        remove_perf_disable_shared_mem(node2)
+
+        debug("Starting nodes")
+        cluster.start()
+        node1, node2 = cluster.nodelist()
+
+        debug("Creating tables")
+        session = self.patient_cql_connection(node1)
+        create_ks(session, 'ks', 2)
+        session.execute("create table tab(key int PRIMARY KEY, val int) "
+                        "WITH compaction = {'class': 'SizeTieredCompactionStrategy', "
+                        "'enabled': 'false'};")
+
+        debug("Stopping node2")
+        node2.stop(wait_other_notice=True)
+
+        debug("Insert 50 rows")
+        for x in range(0, 50):
+            session.execute("insert into tab(key,val) values(" + str(x) + ",0)")
+        node1.flush()
+
+        debug("Starting node2")
+        node2.start(wait_for_binary_proto=True)
+
+        debug("Stopping node1")
+        node1.stop(wait_other_notice=True)
+
+        debug("Insert 60 rows")
+        session = self.patient_cql_connection(node2)
+        session.execute('USE ks')
+        for x in range(40, 100):
+            session.execute("insert into tab(key,val) values(" + str(x) + ",1)")
+        cluster.flush()
+
+        debug("Starting node1")
+        node1.start(wait_for_binary_proto=True)
+
+        debug("Install byteman rule on node2")
+        node2.byteman_submit(['./byteman/major_compact_sstables_during_repair.btm'])
+
+        debug("Repairing node2")
+        self.repair(node2)
+
+        # Check that warning was logged on node2 but not on node1
+        debug("Checking that node2 logged warning")
+        self.assertTrue(node2.grep_log('could not be marked as repaired because'))
+        self.assertFalse(node1.grep_log('could not be marked as repaired because'))
+
+        debug("Checking anti-compacted metrics on node1 and node2")
+        self.assertGreater(table_metric(node1, "ks", "tab", 'AntiCompactedBytes'), 0)
+        self.assertEqual(table_metric(node1, "ks", "tab", 'NonAntiCompactedBytes'), 0)
+        self.assertEqual(table_metric(node2, "ks", "tab", 'AntiCompactedBytes'), 0)
+        self.assertGreater(table_metric(node2, "ks", "tab", 'NonAntiCompactedBytes'), 0)
+
+        debug("Checking data")
+        for x in range(0, 40):
+            assert_one(session, "select val from tab where key =" + str(x), [0], cl=ConsistencyLevel.ALL)
+
+        for x in range(40, 100):
+            assert_one(session, "select val from tab where key =" + str(x), [1], cl=ConsistencyLevel.ALL)
+
+
+def table_metric(node, keyspace, table, name):
+    version = node.get_cassandra_version()
+    typeName = "ColumnFamily" if version <= '2.2.X' else 'Table'
+    with JolokiaAgent(node) as jmx:
+        mbean = make_mbean('metrics', type=typeName,
+                           name=name, keyspace=keyspace, scope=table)
+        value = jmx.read_attribute(mbean, 'Count')
+
+    return value
