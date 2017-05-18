@@ -9,6 +9,7 @@ from ccmlib.node import ToolError
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
+from incremental_repair_test import get_repair_options
 
 from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
@@ -213,8 +214,6 @@ class TestRepair(BaseRepairTest):
         t.join(timeout=60)
         self.assertFalse(t.isAlive(), 'Repair thread on inexistent table is still running')
 
-        if self.cluster.version() >= '2.2' and self.cluster.version() < '4.0':
-            node1.watch_log_for("Unknown keyspace/cf pair", timeout=60)
         # Repair only finishes with error status after CASSANDRA-12508 on 3.0+
         if self.cluster.version() >= '3.0':
             self.assertTrue('nodetool_error' in globals() and isinstance(nodetool_error, ToolError),
@@ -307,7 +306,7 @@ class TestRepair(BaseRepairTest):
         # disable compaction to make sure that we won't create any new sstables with repairedAt 0
         node1.nodetool('disableautocompaction keyspace1 standard1')
         # Do incremental repair of all ranges. All sstables are expected for have repairedAt set afterwards.
-        node1.nodetool("repair keyspace1 standard1")
+        node1.nodetool("repair -inc keyspace1 standard1")
         meta = self._get_repaired_data(node1, 'keyspace1')
         repaired = set([m for m in meta if m.repaired > 0])
         self.assertEquals(len(repaired), len(meta))
@@ -323,23 +322,138 @@ class TestRepair(BaseRepairTest):
         # already repaired sstables must remain untouched
         self.assertEquals(repaired.intersection(repairedAfterFull), repaired)
 
-    @since('2.2.1', '4')
-    @attr('resource-intensive')
-    def anticompaction_after_normal_repair_test(self):
+    @since('3.0', '4')
+    def default_repair_test(self):
         """
-        * Launch a four node, two DC cluster
-        * Start a normal repair
-        * Assert every node anticompacts
-        @jira_ticket CASSANDRA-10422
+        * Running repair without parameters on table that have never run repair before- should be full repair
+        * Running repair with -inc parameter - should be incremental repair
+        * Running repair without parameters with repaired data - should be incremental repair
+        * Running repair on keyspace with mixed tables - should run both incremental and full repair
+
+        @jira_ticket APOLLO-691
         """
         cluster = self.cluster
         debug("Starting cluster..")
-        cluster.populate([2, 2]).start()
-        node1_1, node2_1, node1_2, node2_2 = cluster.nodelist()
-        node1_1.stress(stress_options=['write', 'n=50K', 'no-warmup', 'cl=ONE', '-schema', 'replication(factor=4)'])
-        node1_1.nodetool("repair keyspace1 standard1")
+        cluster.populate(2).start()
+        node1, node2 = cluster.nodelist()
+
+        debug("Adding data")
+        node1.stress(stress_options=['write', 'n=100', 'no-warmup', 'cl=ONE', '-schema', 'replication(factor=2)'])
+
+        debug("Running repair without parameters - should be full repair")
+        stdout, _, _ = node1.nodetool("repair keyspace1 standard1")
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[standard1\]'))
+        # Message should not be print on clusters that have never ran incremental repair
+        self.assertNotIn('INFO: Neither --inc or --full repair options were provided.', stdout)
+
+        mark = node1.mark_log()
+        debug("Running repair with -inc parameter - should be incremental repair")
+        stdout, _, _ = node1.nodetool("repair -inc keyspace1 standard1")
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
+        # Message should not be print when -inc parameter is provided
+        self.assertNotIn('INFO: Neither --inc or --full repair options were provided.', stdout)
+
+        mark = node1.mark_log()
+        debug("Running repair without parameters with repaired data - should be incremental repair")
+        stdout, _, _ = node1.nodetool("repair keyspace1 standard1")
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
+        # Message should not be print when all tables to repair are incremental
+        self.assertNotIn('INFO: Neither --inc or --full repair options were provided.', stdout)
+
+        debug("Creating new table on some keyspace and insert some data")
+        session = self.patient_cql_connection(node1)
+        query = """
+            CREATE TABLE keyspace1.cf1 (
+                key text,
+                c1 text,
+                c2 text,
+                PRIMARY KEY (key, c1)
+            )
+            WITH gc_grace_seconds=1
+            AND compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'false'};
+        """
+        session.execute(query)
+
+        for i in xrange(0, 10):
+            query = SimpleStatement("INSERT INTO keyspace1.cf1 (key, c1, c2) VALUES ('k{}', 'v{}', 'value')".format(i, i), consistency_level=ConsistencyLevel.ONE)
+            session.execute(query)
+
+        mark = node1.mark_log()
+        debug("Running repair on new table cf1 without parameters - should be full repair")
+        stdout, _, _ = node1.nodetool("repair keyspace1 cf1")
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[cf1\]', from_mark=mark))
+        # Message should be print on clusters that have ran incremental repair on other tables
+        self.assertTrue(re.compile('INFO: Neither --inc or --full repair options were provided. Running full repairs on tables with MVs.*'
+                        'or that were never incrementally repaired: \[cf1\]').search(stdout))
+
+        mark = node1.mark_log()
+        debug("Running repair on keyspace with mixed tables - should run both incremental and full repair")
+        stdout, _, _ = node1.nodetool("repair keyspace1")
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[counter1, cf1\]', from_mark=mark))
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
+        # Message should be print on clusters that have ran incremental repair on other tables
+        self.assertTrue(re.compile('INFO: Neither --inc or --full repair options were provided. Running full repairs on tables with MVs.*'
+                        'or that were never incrementally repaired: \[counter1, cf1\]').search(stdout))
+
+    @since('2.2.1', '3.0')
+    def anticompaction_after_normal_repair_test(self):
+        """
+        On 2.2 incremental repair was default.
+        """
+        self._anticompaction_after_repair_test(expect_anticompaction=True)
+
+    @since('3.0')
+    def anticompact_after_incremental_repair_test(self):
+        """
+        Since 3.0, incremental repair is still default if table was previously repaired
+        """
+        self._anticompaction_after_repair_test(expect_anticompaction=True, incremental=True)
+
+    @since('3.0')
+    def do_not_anticompact_after_full_repair_test(self):
+        """
+        Since 3.0, full repair is default if table was previously repaired
+        """
+        self._anticompaction_after_repair_test(expect_anticompaction=False, incremental=False, repaired_table=True)
+
+    @since('3.0', '4')
+    def anticompact_after_full_repair_with_run_anticompaction_option_test(self):
+        self._anticompaction_after_repair_test(expect_anticompaction=True, repaired_table=True, incremental=False, run_anticompaction=True)
+
+    def _anticompaction_after_repair_test(self, expect_anticompaction, repaired_table=False, incremental=None, run_anticompaction=False):
+        """
+        * Launch a four node cluster
+        * Start a normal repair with different options
+        * Check if anticompaction was executed (indicating incremental repair)
+        """
+        cluster = self.cluster
+        debug("Starting cluster..")
+        cluster.populate(2).start()
+        node1, node2 = cluster.nodelist()
+        node1.stress(stress_options=['write', 'n=100', 'no-warmup', 'cl=ONE', '-schema', 'replication(factor=2)'])
+
+        if repaired_table:
+            node1.nodetool("repair {} keyspace1 standard1".format(" ".join(get_repair_options(self.cluster.version(),
+                                                                           incremental=True))))
+
+        opts = [] if incremental is None else get_repair_options(self.cluster.version(), incremental, run_anticompaction)
+
+        mark = node1.mark_log()
+        debug("options are  " + str(opts))
+        stdout, stderr, rc = node1.nodetool("repair {} keyspace1 standard1".format(" ".join(opts)))
         for node in cluster.nodelist():
-            self.assertTrue("Starting anticompaction")
+            if expect_anticompaction:
+                self.assertTrue(node1.grep_log("Starting anticompaction", from_mark=mark))
+            else:
+                self.assertFalse(node1.grep_log("Starting anticompaction", from_mark=mark))
+
+        debug(stdout)
+        if self.cluster.version() < "4.0" and repaired_table and not expect_anticompaction:
+            self.assertIn('INFO: Anticompaction is no longer run after full repair. Use the --run-anticompaction '
+                          'option to anticompact SSTables after full repair.', stdout)
+        else:
+            self.assertNotIn('INFO: Anticompaction is no longer run after full repair. Use the --run-anticompaction '
+                             'option to anticompact SSTables after full repair.', stdout)
 
     def simple_sequential_repair_test(self):
         """
