@@ -1581,13 +1581,13 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
                 self.assertEqual(res, [[1, datetime.datetime.strptime("2016-09-27 16:10:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 1, 3, 3],
                                        [2, datetime.datetime.strptime("2016-09-27 16:25:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 10, 10, 1]])
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 5m{}), min(v), max(v), count(v) FROM testWithTimestamp WHERE pk = 1 GROUP BY pk, floor(time, 5m{}) ORDER BY time DESC".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 5m{}), min(v), max(v), count(v) FROM testWithTimestamp WHERE pk = 1 GROUP BY pk, floor(time, 5m{}) ORDER BY time DESC".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, datetime.datetime.strptime("2016-09-27 16:25:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 7, 8, 2],
                                        [1, datetime.datetime.strptime("2016-09-27 16:20:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 5, 6, 2],
                                        [1, datetime.datetime.strptime("2016-09-27 16:15:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 4, 4, 1],
                                        [1, datetime.datetime.strptime("2016-09-27 16:10:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 1, 3, 3]])
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 5m{}), min(v), max(v), count(v) FROM testWithTimestamp WHERE pk = 1 GROUP BY pk, floor(time, 5m{}) ORDER BY time DESC LIMIT 2".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 5m{}), min(v), max(v), count(v) FROM testWithTimestamp WHERE pk = 1 GROUP BY pk, floor(time, 5m{}) ORDER BY time DESC LIMIT 2".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, datetime.datetime.strptime("2016-09-27 16:25:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 7, 8, 2],
                                        [1, datetime.datetime.strptime("2016-09-27 16:20:00 UTC", "%Y-%m-%d %H:%M:%S %Z"), 5, 6, 2]])
 
@@ -1613,26 +1613,26 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
 
             for startingTime in ('', ', \'2016-06-01\''):
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate GROUP BY pk, floor(time, 1mo{})".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate GROUP BY pk, floor(time, 1mo{})".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, Date("2016-09-01"), 1, 4, 4],
                                        [1, Date("2016-10-01"), 5, 7, 3],
                                        [1, Date("2016-11-01"), 8, 8, 1],
                                        [2, Date("2016-11-01"), 10, 11, 2]])
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate GROUP BY pk, floor(time, 1mo{}) LIMIT 2".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate GROUP BY pk, floor(time, 1mo{}) LIMIT 2".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, Date("2016-09-01"), 1, 4, 4],
                                        [1, Date("2016-10-01"), 5, 7, 3]])
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate GROUP BY pk, floor(time, 1mo{}) PER PARTITION LIMIT 1".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate GROUP BY pk, floor(time, 1mo{}) PER PARTITION LIMIT 1".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, Date("2016-09-01"), 1, 4, 4],
                                        [2, Date("2016-11-01"), 10, 11, 2]])
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate WHERE pk = 1 GROUP BY pk, floor(time, 1mo{}) ORDER BY time DESC".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate WHERE pk = 1 GROUP BY pk, floor(time, 1mo{}) ORDER BY time DESC".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, Date("2016-11-01"), 8, 8, 1],
                                        [1, Date("2016-10-01"), 5, 7, 3],
                                        [1, Date("2016-09-01"), 1, 4, 4]])
 
-                res =  self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate WHERE pk = 1 GROUP BY pk, floor(time, 1mo{}) ORDER BY time DESC LIMIT 2".format(startingTime, startingTime))
+                res = self.get_rows(session, "SELECT pk, floor(time, 1mo{}), min(v), max(v), count(v) FROM testWithDate WHERE pk = 1 GROUP BY pk, floor(time, 1mo{}) ORDER BY time DESC LIMIT 2".format(startingTime, startingTime))
                 self.assertEqual(res, [[1, Date("2016-11-01"), 8, 8, 1],
                                        [1, Date("2016-10-01"), 5, 7, 3]])
 
@@ -1656,27 +1656,27 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
         for page_size in (2, 3, 4, 5, 7, 10):
             session.default_fetch_size = page_size
 
-            res =  self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime GROUP BY pk, date, floor(time, 5m)")
-            self.assertEqual(res, [[1, Date("2016-09-27"), Time("16:10:00"), 1, 3, 3L],
-                                   [1, Date("2016-09-27"), Time("16:15:00"), 4, 4, 1L],
-                                   [1, Date("2016-09-27"), Time("16:20:00"), 5, 6, 2L],
-                                   [1, Date("2016-09-27"), Time("16:25:00"), 7, 8, 2L],
-                                   [1, Date("2016-09-28"), Time("16:25:00"), 9, 10, 2L]])
+            res = self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime GROUP BY pk, date, floor(time, 5m)")
+            self.assertEqual(res, [[1, Date("2016-09-27"), Time("16:10:00"), 1, 3, 3],
+                                   [1, Date("2016-09-27"), Time("16:15:00"), 4, 4, 1],
+                                   [1, Date("2016-09-27"), Time("16:20:00"), 5, 6, 2],
+                                   [1, Date("2016-09-27"), Time("16:25:00"), 7, 8, 2],
+                                   [1, Date("2016-09-28"), Time("16:25:00"), 9, 10, 2]])
 
-            res =  self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime GROUP BY pk, date, floor(time, 5m) LIMIT 2")
-            self.assertEqual(res, [[1, Date("2016-09-27"), Time("16:10:00"), 1, 3, 3L],
-                                   [1, Date("2016-09-27"), Time("16:15:00"), 4, 4, 1L]])
+            res = self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime GROUP BY pk, date, floor(time, 5m) LIMIT 2")
+            self.assertEqual(res, [[1, Date("2016-09-27"), Time("16:10:00"), 1, 3, 3],
+                                   [1, Date("2016-09-27"), Time("16:15:00"), 4, 4, 1]])
 
-            res =  self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime WHERE pk = 1 GROUP BY pk, date, floor(time, 5m) ORDER BY date DESC, time DESC")
-            self.assertEqual(res, [[1, Date("2016-09-28"), Time("16:25:00"), 9, 10, 2L],
-                                   [1, Date("2016-09-27"), Time("16:25:00"), 7, 8, 2L],
-                                   [1, Date("2016-09-27"), Time("16:20:00"), 5, 6, 2L],
-                                   [1, Date("2016-09-27"), Time("16:15:00"), 4, 4, 1L],
-                                   [1, Date("2016-09-27"), Time("16:10:00"), 1, 3, 3L]])
+            res = self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime WHERE pk = 1 GROUP BY pk, date, floor(time, 5m) ORDER BY date DESC, time DESC")
+            self.assertEqual(res, [[1, Date("2016-09-28"), Time("16:25:00"), 9, 10, 2],
+                                   [1, Date("2016-09-27"), Time("16:25:00"), 7, 8, 2],
+                                   [1, Date("2016-09-27"), Time("16:20:00"), 5, 6, 2],
+                                   [1, Date("2016-09-27"), Time("16:15:00"), 4, 4, 1],
+                                   [1, Date("2016-09-27"), Time("16:10:00"), 1, 3, 3]])
 
-            res =  self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime WHERE pk = 1 GROUP BY pk, date, floor(time, 5m) ORDER BY date DESC, time DESC LIMIT 2")
-            self.assertEqual(res, [[1, Date("2016-09-28"), Time("16:25:00"), 9, 10, 2L],
-                                   [1, Date("2016-09-27"), Time("16:25:00"), 7, 8, 2L]])
+            res = self.get_rows(session, "SELECT pk, date, floor(time, 5m), min(v), max(v), count(v) FROM testWithTime WHERE pk = 1 GROUP BY pk, date, floor(time, 5m) ORDER BY date DESC, time DESC LIMIT 2")
+            self.assertEqual(res, [[1, Date("2016-09-28"), Time("16:25:00"), 9, 10, 2],
+                                   [1, Date("2016-09-27"), Time("16:25:00"), 7, 8, 2]])
 
     @since('2.0.6')
     def static_columns_paging_test(self):
@@ -3966,7 +3966,7 @@ class TestContinuousPageDelivery(BasePagingTester, PageAssertionMixin):
             try:
                 self.assertEqual(num_pages, pf.pagecount())
                 self.assertEqualIgnoreOrder(expected_data, pf.all_data())
-            except AssertionError, e:
+            except AssertionError as e:
                 traceback.print_exc()
                 failures.append(e)
 
