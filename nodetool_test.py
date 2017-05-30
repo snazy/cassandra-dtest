@@ -1,4 +1,5 @@
 import os
+import re
 
 from ccmlib.node import ToolError
 
@@ -28,6 +29,31 @@ class TestNodetool(Tester):
         except ToolError as e:
             self.assertEqual('', e.stderr)
             self.assertTrue('Unsupported operation' in e.stdout)
+
+    def test_sjk(self):
+        """
+        Verify that SJK generally works.
+        """
+
+        cluster = self.cluster
+        cluster.populate([1]).start()
+        node = cluster.nodelist()[0]
+
+        out, err, _ = node.nodetool('sjk --help')
+        debug(out)
+        hasPattern = False
+        for line in out.split(os.linesep):
+            if "    ttop      [Thread Top] Displays threads from JVM process" == line:
+                hasPattern = True
+        self.assertTrue(hasPattern, "Expected help about SJK ttop")
+
+        out, err, _ = node.nodetool('sjk hh -n 10 --live')
+        debug(out)
+        hasPattern = False
+        for line in out.split(os.linesep):
+            if re.match('.*Instances.*Bytes.*Type.*', line):
+                hasPattern = True
+        self.assertTrue(hasPattern, "Expected 'SJK hh' output")
 
     def test_correct_dc_rack_in_nodetool_info(self):
         """
