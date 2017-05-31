@@ -1,7 +1,9 @@
 import binascii
 import glob
 import os
+import random
 import stat
+import string
 import struct
 import time
 from distutils.version import LooseVersion
@@ -54,7 +56,8 @@ class TestCommitLog(Tester):
             query = """
               CREATE TABLE test (
                 key int primary key,
-                col1 int
+                col1 int,
+                col2 text
               )
             """
             self.session1.execute(query)
@@ -144,12 +147,12 @@ class TestCommitLog(Tester):
         debug('Provoking commitlog failure')
         # Test things are ok at this point
         self.session1.execute("""
-            INSERT INTO test (key, col1) VALUES (1, 1);
+            INSERT INTO test (key, col1, col2) VALUES (1, 1, 'abc');
         """)
         assert_one(
             self.session1,
             "SELECT * FROM test where key=1;",
-            [1, 1]
+            [1, 1, 'abc']
         )
 
         self._change_commitlog_perms(0)
@@ -324,7 +327,7 @@ class TestCommitLog(Tester):
         # Cannot write anymore after the failure
         with self.assertRaises(NoHostAvailable):
             self.session1.execute("""
-              INSERT INTO test (key, col1) VALUES (2, 2);
+              INSERT INTO test (key, col1, col2) VALUES (2, 2, 'abc');
             """)
 
         # Should not be able to read neither
@@ -342,7 +345,7 @@ class TestCommitLog(Tester):
         })
 
         self.session1.execute("""
-            INSERT INTO test (key, col1) VALUES (2, 2);
+            INSERT INTO test (key, col1, col2) VALUES (2, 2, 'abc');
         """)
 
         self._provoke_commitlog_failure()
@@ -351,19 +354,24 @@ class TestCommitLog(Tester):
         self.assertTrue(failure, "Cannot find the commitlog failure message in logs")
         self.assertTrue(self.node1.is_running(), "Node1 should still be running")
 
+        # In order to fail, the mutation has to be large enough so that it does not
+        # fit in the existing CL segment (the mutations inserted in _provoke_commitlog_failure()
+        # are about 5K, hence mutations smaller than 5k would fit and cause no timeout)
+        large_text = ''.join(random.choice(string.ascii_letters) for _ in range(5000))
+
         # Cannot write anymore after the failure
         debug('attempting to insert to node with failing commitlog; should fail')
         with self.assertRaises((OperationTimedOut, WriteTimeout)):
             self.session1.execute("""
-              INSERT INTO test (key, col1) VALUES (2, 2);
-            """)
+              INSERT INTO test (key, col1, col2) VALUES (2, 2, '{}');
+            """.format(large_text))
 
         # Should be able to read
         debug('attempting to read from node with failing commitlog; should succeed')
         assert_one(
             self.session1,
             "SELECT * FROM test where key=2;",
-            [2, 2]
+            [2, 2, 'abc']
         )
 
     def die_failure_policy_test(self):
@@ -393,11 +401,16 @@ class TestCommitLog(Tester):
         self.assertTrue(failure, "Cannot find the commitlog failure message in logs")
         self.assertTrue(self.node1.is_running(), "Node1 should still be running")
 
+        # In order to fail, the mutation has to be large enough so that it does not
+        # fit in the existing CL segment (the mutations inserted in _provoke_commitlog_failure
+        # are about 5K, hence mutations smaller than 5k would fit and cause no timeout)
+        large_text = ''.join(random.choice(string.ascii_letters) for _ in range(5000))
+
         # on Windows, we can't delete the segments if they're chmod to 0 so they'll still be available for use by CLSM,
         # and we can still create new segments since os.chmod is limited to stat.S_IWRITE and stat.S_IREAD to set files
         # as read-only. New mutations will still be allocated and WriteTimeouts will not be raised. It's sufficient that
         # we confirm that a) the node isn't dead (stop) and b) the node doesn't terminate the thread (stop_commit)
-        query = "INSERT INTO test (key, col1) VALUES (2, 2);"
+        query = "INSERT INTO test (key, col1, col2) VALUES (2, 2, '{}');".format(large_text)
         if is_win():
             # We expect this to succeed
             self.session1.execute(query)
@@ -414,19 +427,24 @@ class TestCommitLog(Tester):
         self._change_commitlog_perms(stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
 
         self.session1.execute("""
-          INSERT INTO test (key, col1) VALUES (3, 3);
+          INSERT INTO test (key, col1, col2) VALUES (3, 3, 'abc');
         """)
         assert_one(
             self.session1,
             "SELECT * FROM test where key=3;",
-            [3, 3]
+            [3, 3, 'abc']
         )
 
+        # This query works because the IO thread pool (previously the mutation stage) was blocked waiting for
+        # a CL allocation, and once the CL becomes available, the allocation succeeds and the mutation is applied
+        # even though the client has received a timeout. I'm not so sure this is a good thing to test though,
+        # since in future it would be legitimate to abort mutations that have already timed out or to insert a
+        # timeout on how long we wait for CL allocations.
         time.sleep(2)
         assert_one(
             self.session1,
             "SELECT * FROM test where key=2;",
-            [2, 2]
+            [2, 2, large_text]
         )
 
     @since('2.2')
