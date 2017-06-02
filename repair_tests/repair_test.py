@@ -13,7 +13,6 @@ from nose.plugins.attrib import attr
 from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
-from tools.jmxutils import JolokiaAgent, remove_perf_disable_shared_mem
 
 
 def _repair_options(version, ks='', cf=None, sequential=True):
@@ -1127,14 +1126,7 @@ class TestRepair(BaseRepairTest):
         """
         self._test_failure_during_repair(phase='validation')
 
-    @since('3.0')
-    def test_terminate_repair_during_validation(self):
-        """
-        @jira_ticket CASSANDRA-12901
-        """
-        self._test_failure_during_repair(phase='validation', kill_node=False)
-
-    def _test_failure_during_repair(self, phase, initiator=False, kill_node=True):
+    def _test_failure_during_repair(self, phase, initiator=False):
         cluster = self.cluster
         # We are not interested in specific errors, but
         # that the repair session finishes on node failure without hanging
@@ -1161,7 +1153,6 @@ class TestRepair(BaseRepairTest):
         # set up byteman
         node_to_kill.byteman_port = '8100'
         node_to_kill.import_config_files()
-        remove_perf_disable_shared_mem(node1)
 
         debug("Starting cluster..")
         cluster.start(wait_other_notice=True)
@@ -1196,37 +1187,25 @@ class TestRepair(BaseRepairTest):
         t = Thread(target=node1_repair)
         t.start()
 
+        debug("Will kill {} in middle of {}".format(node_to_kill.name, phase))
         msg_to_wait = 'streaming plan for Repair'
         if phase == 'anticompaction':
             msg_to_wait = 'Got anticompaction request'
         elif phase == 'validation':
             msg_to_wait = 'Validating'
         node_to_kill.watch_log_for(msg_to_wait, filename='debug.log')
-
-        if kill_node:
-            debug("Will kill {} in middle of {}".format(node_to_kill.name, phase))
-            node_to_kill.stop(gently=False, wait_other_notice=True)
-        else:
-            debug("Will abort all repairs via StorageServiceMbean.forceTerminateAllRepairSessions")
-            with JolokiaAgent(node1) as jmx:
-                result = jmx.execute_method("org.apache.cassandra.db:type=StorageService", "forceTerminateAllRepairSessions")
-                debug("result is {}".format(result))
+        node_to_kill.stop(gently=False, wait_other_notice=True)
 
         debug("Killed {}, now waiting repair to finish".format(node_to_kill.name))
-        t.join(timeout=30)
-        self.assertFalse(t.isAlive(), 'Repair still running after {} {} was killed'
-                                      .format(phase, "initiator" if initiator else "participant"))
+        t.join(timeout=60)
+        self.assertFalse(t.isAlive(), 'Repair still running after sync {} was killed'
+                                      .format("initiator" if initiator else "participant"))
 
-        if cluster.version() >= '3.0':
-            with JolokiaAgent(node1) as jmx:
-                thread_dump = jmx.execute_method("java.lang:type=Threading", "dumpAllThreads", arguments=[True, True])
-                self.assertFalse("RepairJob" in str(thread_dump), "Found RepairJob thread after job was finished.")
-
-        if kill_node and (cluster.version() < '4.0' or phase != 'sync'):
+        if cluster.version() < '4.0' or phase != 'sync':
             # the log entry we're watching for in the sync task came from the
             # anti compaction at the end of the repair, which has been removed in 4.0
-            node1.watch_log_for('Endpoint .* died', timeout=30)
-        node1.watch_log_for('Repair command .* finished', timeout=30)
+            node1.watch_log_for('Endpoint .* died', timeout=60)
+        node1.watch_log_for('Repair command .* finished', timeout=60)
 
 
 RepairTableContents = namedtuple('RepairTableContents',
