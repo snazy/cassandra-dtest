@@ -45,8 +45,7 @@ def get_repair_options(version, incremental, force_anti_compaction=False):
 class TestIncRepair(Tester):
     ignore_log_patterns = (r'Can\'t send migration request: node.*is down',)
 
-    @classmethod
-    def _get_repaired_data(cls, node, keyspace):
+    def _get_repaired_data(self, node, keyspace):
         _sstable_name = compile('SSTable: (.+)')
         _repaired_at = compile('Repaired at: (\d+)')
         _pending_repair = compile('Pending repair: (\-\-|null|[a-f0-9\-]+)')
@@ -61,7 +60,7 @@ class TestIncRepair(Tester):
 
         def uuid_or_none(s):
             return None if s == 'null' or s == '--' else UUID(s)
-        pending_repairs = [uuid_or_none(m.group(1)) for m in matches(_pending_repair)]
+        pending_repairs = [uuid_or_none(m.group(1)) for m in matches(_pending_repair)] if self.cluster.version() >= "4.0" else [None for m in names]
         assert names
         assert repaired_times
         assert pending_repairs
@@ -1087,3 +1086,89 @@ class TestIncRepair(Tester):
         for node in self.cluster.nodelist():
             if node.is_running():
                 node.nodetool("replaybatchlog")
+
+    def wait_sstables_to_be_marked_repaired(self, node, num_sstables=3):
+        mark = node.mark_log()
+        node.nodetool('disableautocompaction keyspace1 standard1')
+        node.nodetool('enableautocompaction keyspace1 standard1')
+        for n in xrange(0, num_sstables):
+            debug("Waiting for sstable {} to be marked repaired.".format(n))
+            node.watch_log_for("Removing compaction strategy", from_mark=mark, timeout=10, filename="debug.log")
+            mark = node.mark_log()
+
+    @since('3.0')
+    def mark_unrepaired_test(self):
+        """
+        * Launch a four node, two DC cluster
+        * Start a normal repair
+        * Assert every node anticompacts
+        @jira_ticket APOLLO-692
+        """
+        cluster = self.cluster
+        debug("Starting cluster..")
+        cluster.populate(2).start()
+        node1, node2 = cluster.nodelist()
+
+        debug("Inserting data (2 sstables)..")
+        node1.stress(['write', 'n=10', 'no-warmup', '-schema', 'replication(factor=2)', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)'])
+        cluster.flush()
+        node1.stress(['write', 'n=10', 'no-warmup', '-schema', 'replication(factor=2)', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)'])
+        cluster.flush()
+
+        debug("Repairing..")
+        self.repair(node1, options=["keyspace1 standard1"])
+
+        debug("Checking all sstables were marked as repaired..")
+        for node in cluster.nodelist():
+            if self.cluster.version() >= '4.0':  # Requires compaction to run to mark SSTables as repaired
+                self.wait_sstables_to_be_marked_repaired(node)
+            self.assertAllRepairedSSTables(node, 'keyspace1')
+
+        stdout, _, _ = node1.nodetool("info")
+        self.assertTrue("Percent Repaired       : 100.0%" in stdout)
+
+        debug("Marking all sstables from keyspace1 as unrepaired without --force - should throw exception")
+        with self.assertRaises(ToolError) as ctx:
+            node1.nodetool("mark_unrepaired keyspace1")
+
+        self.assertTrue("WARNING: This operation will mark all SSTables of keyspace keyspace1 as unrepaired, "
+                        "potentially creating new compaction tasks. Only use this when no longer running incremental "
+                        "repair on this node. Use --force option to confirm." in ctx.exception.stdout)
+
+        debug("Marking all sstables from keyspace1 as unrepaired with --force on node1")
+        stdout, _, _ = node1.nodetool("mark_unrepaired keyspace1 --force")
+        debug(stdout)
+        num_sstables = 6 if cluster.version() >= "3.1" else 2  # 6696
+        self.assertTrue("Marked {} SSTable(s) as unrepaired.".format(num_sstables) in stdout)
+
+        debug("Checking all sstables were marked as unrepaired")
+        stdout, _, _ = node1.nodetool("info")
+        self.assertTrue("Percent Repaired       : 0.0%" in stdout)
+
+        debug("Major compact node2")
+        node2.nodetool("compact keyspace1")
+
+        self.assertNoRepairedSSTables(node1, 'keyspace1')
+        self.assertAllRepairedSSTables(node2, 'keyspace1')
+
+        debug("Marking all sstables from keyspace1 as unrepaired with --force on node2")
+        stdout, _, _ = node2.nodetool("mark_unrepaired keyspace1 --force")
+        debug(stdout)
+        num_sstables = 3 if cluster.version() >= '3.1' else 1  # 6696
+        self.assertTrue("Marked {} SSTable(s) as unrepaired.".format(num_sstables) in stdout)
+
+        self.assertNoRepairedSSTables(node1, 'keyspace1')
+        self.assertNoRepairedSSTables(node2, 'keyspace1')
+
+        debug("Try to mark again as unrepaired - Should say there are no sstables to mark as unrepaired")
+        stdout, _, _ = node1.nodetool("mark_unrepaired keyspace1 --force")
+        self.assertTrue("No repaired SSTables to mark as unrepaired." in stdout)
+
+        debug("Repairing again")
+        self.repair(node1, options=["keyspace1 standard1"])
+
+        debug("Checking all sstables were marked as repaired..")
+        for node in cluster.nodelist():
+            if self.cluster.version() >= '4':  # Requires compaction to run to mark SSTables as repaired
+                self.wait_sstables_to_be_marked_repaired(node)
+            self.assertAllRepairedSSTables(node, 'keyspace1')
