@@ -47,6 +47,14 @@ class TestNodetool(Tester):
                 hasPattern = True
         self.assertTrue(hasPattern, "Expected help about SJK ttop")
 
+        out, err, _ = node.nodetool('sjk')
+        debug(out)
+        hasPattern = False
+        for line in out.split(os.linesep):
+            if "    ttop      [Thread Top] Displays threads from JVM process" == line:
+                hasPattern = True
+        self.assertTrue(hasPattern, "Expected help about SJK ttop")
+
         out, err, _ = node.nodetool('sjk hh -n 10 --live')
         debug(out)
         hasPattern = False
