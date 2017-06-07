@@ -25,7 +25,7 @@ class TestCrcCheckChanceUpgrade(Tester):
         cluster = self.cluster
 
         # Forcing cluster version on purpose
-        cluster.set_install_dir(version="git:cassandra-2.2")
+        cluster.set_install_dir(version="github:apache/cassandra-2.2")
         cluster.populate(2).start()
 
         node1, node2 = cluster.nodelist()
@@ -126,7 +126,7 @@ class TestCrcCheckChanceUpgrade(Tester):
         debug('Updating version to tag {tag}'.format(**format_args))
 
         debug('Set new cassandra dir for {node}: {tag}'.format(**format_args))
-        node.set_install_dir(version='git:' + tag, verbose=True)
+        node.set_install_dir(version='github:apache/' + tag, verbose=True)
         # Restart node on new version
         debug('Starting {node} on new version ({tag})'.format(**format_args))
         # Setup log4j / logback again (necessary moving from 2.0 -> 2.1):

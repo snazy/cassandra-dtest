@@ -37,7 +37,7 @@ class TestSCUpgrade(Tester):
 
         Tester.__init__(self, *args, **kwargs)
 
-    def prepare(self, num_nodes=1, cassandra_version="git:cassandra-2.1"):
+    def prepare(self, num_nodes=1, cassandra_version="github:apache/cassandra-2.1"):
         cluster = self.cluster
 
         # Forcing cluster version on purpose
