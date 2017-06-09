@@ -63,6 +63,125 @@ class TestNodetool(Tester):
                 hasPattern = True
         self.assertTrue(hasPattern, "Expected 'SJK hh' output")
 
+    # DSE 5.1.2
+    @since('3.11')
+    def test_sequence(self):
+        """
+        @jira_ticket APOLLO-651
+
+        Verify that command sequences work.
+
+        nodetool sequence options:
+            list of commands, one argument (eventually quoted) is one command including its options
+            -i <input>      input resource on classpath, file or stdin (use /dev/stdin or "-")
+            --stoponerror   Stop on error and do not continue executing the remaining commands
+            --failonerror   Let nodetool fail in case of an error
+        """
+
+        cluster = self.cluster
+        cluster.populate([1]).start()
+        node = cluster.nodelist()[0]
+
+        # help
+
+        out, err, _ = node.nodetool('help sequence')
+        debug(out)
+        lines = out.split(os.linesep)
+        self.assertTrue(any(re.match('.*-i <input>, --input <input>', line) for line in lines),
+                        'Missing correct output from "nodetool help sequence"')
+        self.assertTrue(any(re.match('.*<commands>', line) for line in lines),
+                        'Missing correct output from "nodetool help sequence"')
+
+        # 0 commands
+
+        out, err, _ = node.nodetool('sequence')
+        debug(out)
+        lines = out.split(os.linesep)
+        self.assertTrue(any(re.match('.*Executing 0 commands.*', line) for line in lines),
+                        'Missing "Executing 0 commands" output from "nodetool sequence" invocation without arguments')
+        self.assertTrue(any(re.match('.*Out of 0 commands, 0 completed successfully, 0 failed.*', line) for line in lines),
+                        'Missing "Out of 0 commands, 0 completed successfully, 0 failed." output from "nodetool sequence" invocation without arguments')
+
+        # 4 commands via command line
+
+        out, err, _ = node.nodetool('sequence status : gettimeout read : sjk hh -n 5 --live : info')
+        debug(out)
+        lines = out.split(os.linesep)
+        # nodetool sequence header line
+        self.assertTrue(any(re.match('.*Executing 4 commands.*', line) for line in lines),
+                        'Missing "Executing 4 commands." output from "nodetool sequence" invocation with 4 commands')
+        # a line from 'status'
+        self.assertTrue(any(re.match('.*State=Normal/Leaving/Joining/Moving.*', line) for line in lines),
+                        'Missing output for "status" output from "nodetool sequence" invocation with 4 commands')
+        # a line from 'gettimeout'
+        self.assertTrue(any(re.match('.*Current timeout for type read: .*', line) for line in lines),
+                        'Missing output for "gettimeout" output from "nodetool sequence" invocation with 4 commands')
+        # a line from 'info'
+        self.assertTrue(any(re.match('.*Native Transport active.*', line) for line in lines),
+                        'Missing output for "info" output from "nodetool sequence" invocation with 4 commands')
+        # a line from 'sjk ...'
+        self.assertTrue(any(re.match('.*Instances          Bytes  Type.*', line) for line in lines),
+                        'Missing output for "sjk hh" output from "nodetool sequence" invocation with 4 commands')
+        # nodetool sequence summary line
+        self.assertTrue(any(re.match('.*Out of 4 commands, 4 completed successfully, 0 failed.*', line) for line in lines),
+                        'Missing summary line from "nodetool sequence" invocation with 4 commands')
+
+        # --stoponerror
+
+        out, err, _ = node.nodetool('sequence --stoponerror status : gettimeout eternity : sjk hh -n 5 --live : info')
+        debug(out)
+        lines = out.split(os.linesep)
+        # nodetool sequence header line
+        self.assertTrue(any(re.match('.*Executing 4 commands.*', line) for line in lines),
+                        'Missing "Executing 4 commands." output from "nodetool sequence" invocation with 4 commands, --stoponerror')
+        # a line from 'status'
+        self.assertTrue(any(re.match('.*State=Normal/Leaving/Joining/Moving.*', line) for line in lines),
+                        'Missing output for "status" output from "nodetool sequence" invocation with 4 commands, --stoponerror')
+        # error line from 'gettimeout'
+        self.assertTrue(any(re.match('.*Timeout type requires one of.*', line) for line in lines),
+                        'Missing output for "gettimeout" output from "nodetool sequence" invocation with 4 commands, --stoponerror')
+        # no line from 'info'
+        self.assertFalse(any(re.match('.*Native Transport active.*', line) for line in lines),
+                         'Missing output for "info" output from "nodetool sequence" invocation with 4 commands, --stoponerror')
+        # no line from 'sjk ...'
+        self.assertFalse(any(re.match('.*Instances          Bytes  Type.*', line) for line in lines),
+                         'Missing output for "sjk hh" output from "nodetool sequence" invocation with 4 commands, --stoponerror')
+        # nodetool sequence summary line
+        self.assertTrue(any(re.match('.*Out of 4 commands, 1 completed successfully, 1 failed.*', line) for line in lines),
+                        'Missing summary line from "nodetool sequence" invocation with 4 commands, --stoponerror')
+
+        # --failonerror
+
+        with self.assertRaises(ToolError):
+            node.nodetool('sequence --failonerror status : gettimeout eternity : sjk hh -n 5 --live : info')
+
+        # execute 'support-standard' (contains 35+ commands)
+
+        out, err, _ = node.nodetool('sequence -i support-standard')
+        debug(out)
+        lines = out.split(os.linesep)
+        # nodetool sequence header line
+        self.assertTrue(any(re.match('.*Executing 3[0-9] commands.*', line) for line in lines),
+                        'Missing "Executing 3? commands." output from "nodetool sequence -i support-standard"')
+        # a line from 'gettimeout'
+        self.assertTrue(any(re.match('.*Current timeout for type read.*', line) for line in lines),
+                        'Missing output for "gettimeout" output from "nodetool sequence -i support-standard"')
+        # a line from 'status'
+        self.assertTrue(any(re.match('.*State=Normal/Leaving/Joining/Moving.*', line) for line in lines),
+                        'Missing output for "status" output from "nodetool sequence"')
+        # a line from 'info'
+        self.assertTrue(any(re.match('.*Native Transport active.*', line) for line in lines),
+                        'Missing output for "info" output from "nodetool sequence"')
+        # a line from 'ring'
+        self.assertTrue(any(re.match('.*Warning: "nodetool ring" is used to output all the tokens of a node.*', line) for line in lines),
+                        'Missing output for "ring" output from "nodetool sequence"')
+        # a line from 'toppartitions 2000'
+        self.assertTrue(any(re.match('.*Nothing recorded during sampling period.*', line) for line in lines),
+                        'Missing output for "toppartitions" output from "nodetool sequence"')
+        # nodetool sequence summary line
+        self.assertTrue(any(re.match('.*Out of 3[0-9] commands, 3[0-9] completed successfully, [0-9] failed.*', line) for line in lines),
+                        'Missing summary line from "nodetool sequence -i support-standard"')
+
     def test_correct_dc_rack_in_nodetool_info(self):
         """
         @jira_ticket CASSANDRA-10382
