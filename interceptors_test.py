@@ -15,6 +15,7 @@ from tools.decorators import since
 from tools.preparation import prepare
 from tools.interceptors import (dropping_interceptor, delaying_interceptor,
                                 fake_write_interceptor, Verb, Direction, Type)
+from tools.preparation import get_local_reads_properties
 
 
 # A few methods to insert/read from a table. For those tests, we don't really
@@ -22,8 +23,11 @@ from tools.interceptors import (dropping_interceptor, delaying_interceptor,
 # focus writes on a single partition as that makes it a tad easier to reason
 # about (no underlying range queries for instance).
 
-def _create_table(session):
-    session.execute("CREATE TABLE test (k int, v int, PRIMARY KEY(k, v))")
+def _create_table(session, guarantee_local_reads=False):
+    cmd = "CREATE TABLE test (k int, v int, PRIMARY KEY(k, v))"
+    if guarantee_local_reads:
+        cmd += " WITH " + get_local_reads_properties()
+    session.execute(cmd)
 
 
 def _insert(session, values, cl=ConsistencyLevel.ALL):
@@ -126,7 +130,7 @@ class InterceptorsTester(Tester):
         session = prepare(self, nodes=3, rf=3, interceptors=interceptor, guarantee_local_reads=True)
         node1, node2, node3 = self.cluster.nodelist()
 
-        _create_table(session)
+        _create_table(session, guarantee_local_reads=True)
 
         # Sanity checks
         _insert(session, range(0, 5))

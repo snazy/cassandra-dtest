@@ -82,8 +82,8 @@ def prepare(tester,
         if isinstance(nodes, int):
             for node in cluster.nodelist():
                 node.data_center = 'dc1'
-            cluster.set_configuration_options(values={
-                'endpoint_snitch': 'org.apache.cassandra.locator.PropertyFileSnitch'})
+            options['endpoint_snitch'] = 'org.apache.cassandra.locator.PropertyFileSnitch'
+        cluster.set_configuration_options(values=options)
 
     jvm_args = None
     if interceptors:
@@ -116,3 +116,11 @@ def config_opts(use_cache=False, start_thrift=False, **kwargs):
         options['start_rpc'] = True
 
     return options
+
+
+def get_local_reads_properties():
+    """
+    If we must read from the local replica first, then we should disable read repair and
+    speculative retry, see CASSANDRA-12092
+    """
+    return " dclocal_read_repair_chance = 0 AND read_repair_chance = 0 AND speculative_retry =  'NONE'"

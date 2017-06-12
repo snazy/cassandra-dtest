@@ -16,6 +16,7 @@ from tools.assertions import (assert_length_equal, assert_none,
 from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
                         insert_columns, query_c1c2, rows_to_list)
 from tools.decorators import since
+from tools.preparation import get_local_reads_properties
 
 ExpectedConsistency = namedtuple('ExpectedConsistency', ('num_write_nodes', 'num_read_nodes', 'is_strong'))
 
@@ -172,17 +173,9 @@ class TestHelper(Tester):
             ) WITH COMPACT STORAGE"""
 
         if requires_local_reads:
-            create_cmd += " AND " + self.get_local_reads_properties()
+            create_cmd += " AND " + get_local_reads_properties()
 
         session.execute(create_cmd)
-
-    @staticmethod
-    def get_local_reads_properties():
-        """
-        If we must read from the local replica first, then we should disable read repair and
-        speculative retry, see CASSANDRA-12092
-        """
-        return " dclocal_read_repair_chance = 0 AND read_repair_chance = 0 AND speculative_retry =  'NONE'"
 
     def insert_user(self, session, userid, age, consistency, serial_consistency=None):
         text = "INSERT INTO users (userid, firstname, lastname, age) VALUES ({}, 'first{}', 'last{}', {}) {}"\
@@ -218,7 +211,7 @@ class TestHelper(Tester):
             )"""
 
         if requires_local_reads:
-            create_cmd += " WITH " + self.get_local_reads_properties()
+            create_cmd += " WITH " + get_local_reads_properties()
 
         session.execute(create_cmd)
 
