@@ -83,13 +83,13 @@ class Locality(Enum):
         return self.value
 
 
-def dropping_interceptor(*args):
-    return Interceptor("DroppingInterceptor", verbs=args)
+def dropping_interceptor(*args, **kwargs):
+    return Interceptor(_build_name_from_kwargs("DroppingInterceptor", kwargs), verbs=args)
 
 
-def delaying_interceptor(delay_ms, *args):
+def delaying_interceptor(delay_ms, *args, **kwargs):
     delay_str = "-D%s.message_delay_ms=%d" % (_PREFIX, delay_ms)
-    return Interceptor("DelayingInterceptor", verbs=args, runtime_properties=[delay_str])
+    return Interceptor(_build_name_from_kwargs("DelayingInterceptor", kwargs), verbs=args, runtime_properties=[delay_str])
 
 
 def fake_write_interceptor():
@@ -116,6 +116,9 @@ def make_jvm_args(interceptors):
 
 def _pack(prop):
     return ','.join([str(v) for v in prop])
+
+def _build_name_from_kwargs(name, kwargs):
+    return name + "=" + kwargs.get("name") if kwargs.__contains__("name") else name
 
 
 class Interceptor:
@@ -158,7 +161,7 @@ class Interceptor:
         def __init__(self, interceptor, node):
             self.interceptor = interceptor
             self.node = node
-            self.__mbean = _JMX_TEMPLATE % interceptor.name
+            self.__mbean = _JMX_TEMPLATE % (interceptor.name.split("=")[1] if "=" in interceptor.name else interceptor.name)
             self.__jmx = JolokiaAgent(node)
 
         def intercepted_count(self):
