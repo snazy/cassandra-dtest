@@ -100,7 +100,9 @@ class TestWriteFailures(Tester):
             if error_code == expected_code:
                 expected_code_found = True
                 break
-        self.assertTrue(expected_code_found, "The error code map did not contain " + str(expected_code))
+        self.assertTrue(expected_code_found,
+                        "The error code map did not contain {}, got instead: {}"
+                        .format(expected_code, exception.error_code_map.values()))
 
     @attr("smoke-test")
     @since('2.2', max_version='2.2.x')
@@ -201,7 +203,10 @@ class TestWriteFailures(Tester):
                 where key = {uuid}
         """.format(uuid=_id))
         if self.supports_v5_protocol:
-            self._assert_error_code_map_exists_with_code(exc, 0x0000)
+            if self.cluster.version() >= LooseVersion('4.0'):
+                self._assert_error_code_map_exists_with_code(exc, 0x0004)
+            else:
+                self._assert_error_code_map_exists_with_code(exc, 0x0000)
 
     @attr("smoke-test")
     def test_paxos(self):
