@@ -86,8 +86,8 @@ class Locality(Enum):
 def dropping_interceptor(verbs, name=None):
     """
     Creates a DroppingInterceptor
-    *args contains list of Verbs to intercept
-    **kwargs should only contain a name entry, if a name is needed for interceptor disambiguation
+    verbs is either a single Verb or String or a list of Verbs or Strings
+    name is used for interceptor disambiguation
     """
     return Interceptor(_interceptor_name("DroppingInterceptor", name), verbs=verbs)
 
@@ -95,8 +95,8 @@ def dropping_interceptor(verbs, name=None):
 def delaying_interceptor(delay_ms, verbs, name=None):
     """
     Creates a DelayingInterceptor
-    *args contains list of Verbs to intercept
-    **kwargs should only contain a name entry, if a name is needed for interceptor disambiguation
+    verbs is either a single Verb or String or a list of Verbs or Strings
+    name is used for interceptor disambiguation
     """
     delay_str = "-D%s.message_delay_ms=%d" % (_PREFIX, delay_ms)
     return Interceptor(_interceptor_name("DelayingInterceptor", name), verbs=verbs,
