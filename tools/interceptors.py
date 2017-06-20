@@ -16,6 +16,7 @@ though the python context-manager API (using 'with').
 Simple example of usage can be found in the interceptors_test.py file.
 """
 
+import types
 from enum import Enum
 from tools.jmxutils import JolokiaAgent
 
@@ -83,23 +84,24 @@ class Locality(Enum):
         return self.value
 
 
-def dropping_interceptor(*args, **kwargs):
+def dropping_interceptor(verbs, name=None):
     """
     Creates a DroppingInterceptor
     *args contains list of Verbs to intercept
     **kwargs should only contain a name entry, if a name is needed for interceptor disambiguation
     """
-    return Interceptor(_build_name_from_kwargs("DroppingInterceptor", kwargs), verbs=args)
+    return Interceptor(_interceptor_name("DroppingInterceptor", name), verbs=verbs)
 
 
-def delaying_interceptor(delay_ms, *args, **kwargs):
+def delaying_interceptor(delay_ms, verbs, name=None):
     """
     Creates a DelayingInterceptor
     *args contains list of Verbs to intercept
     **kwargs should only contain a name entry, if a name is needed for interceptor disambiguation
     """
     delay_str = "-D%s.message_delay_ms=%d" % (_PREFIX, delay_ms)
-    return Interceptor(_build_name_from_kwargs("DelayingInterceptor", kwargs), verbs=args, runtime_properties=[delay_str])
+    return Interceptor(_interceptor_name("DelayingInterceptor", name), verbs=verbs,
+                       runtime_properties=[delay_str])
 
 
 def fake_write_interceptor():
@@ -127,14 +129,14 @@ def make_jvm_args(interceptors):
 def _pack(prop):
     return ','.join([str(v) for v in prop])
 
-def _build_name_from_kwargs(name, kwargs):
-    return name + "=" + kwargs.get("name") if kwargs.__contains__("name") else name
+def _interceptor_name(interceptor_class, name):
+    return interceptor_class + "=" + name if name is not None else interceptor_class
 
 
 class Interceptor:
     def __init__(self, name, verbs=None, runtime_properties=None):
         self.name = name
-        self.verbs = verbs
+        self.verbs = verbs if isinstance(verbs, list) or verbs is None else [verbs]
         self.types = None
         self.directions = None
         self.localities = None
