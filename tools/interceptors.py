@@ -16,7 +16,6 @@ though the python context-manager API (using 'with').
 Simple example of usage can be found in the interceptors_test.py file.
 """
 
-import types
 from enum import Enum
 from tools.jmxutils import JolokiaAgent
 
@@ -128,6 +127,7 @@ def make_jvm_args(interceptors):
 
 def _pack(prop):
     return ','.join([str(v) for v in prop])
+
 
 def _interceptor_name(interceptor_class, name):
     return interceptor_class + "=" + name if name is not None else interceptor_class

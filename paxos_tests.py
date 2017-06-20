@@ -10,7 +10,7 @@ from dtest import Tester
 from tools.assertions import assert_unavailable
 from tools.data import create_ks
 from tools.decorators import no_vnodes, since
-from tools.interceptors import (delaying_interceptor, dropping_interceptor, Interceptor, Verb, Direction, Type)
+from tools.interceptors import (delaying_interceptor, dropping_interceptor, Verb, Direction, Type)
 from tools.preparation import prepare as standard_prepare
 
 
@@ -112,8 +112,8 @@ class TestPaxos(Tester):
         # We need to drop the prepare going to node2 to insure that node3 gets the missing
         # commit "repaired"
         with dropping_commit.enable(node1) as interception_1,\
-             dropping_prepare.enable(node2) as interception_2_prepare,\
-             delaying.enable(node3) as interception_3:
+                dropping_prepare.enable(node2) as interception_2_prepare,\
+                delaying.enable(node3) as interception_3:
             session.execute("INSERT INTO test (k, v) VALUES (0, 1) IF NOT EXISTS")
             # since the condition does not imply, we would only see commits sent to node1 and node2
             # if they needed to be repaired, which shouldn't be, since the above round completes
