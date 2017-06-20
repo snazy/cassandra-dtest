@@ -132,13 +132,13 @@ def _build_name_from_kwargs(name, kwargs):
 
 
 class Interceptor:
-    def __init__(self, name, verbs=None, runtime_properties=[]):
+    def __init__(self, name, verbs=None, runtime_properties=None):
         self.name = name
         self.verbs = verbs
         self.types = None
         self.directions = None
         self.localities = None
-        self.runtime_properties = runtime_properties
+        self.runtime_properties = [] if runtime_properties is None else runtime_properties
 
     def intercept(self, verbs=None, types=None, directions=None, localities=None):
         """
