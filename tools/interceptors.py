@@ -16,6 +16,7 @@ though the python context-manager API (using 'with').
 Simple example of usage can be found in the interceptors_test.py file.
 """
 
+import types
 from enum import Enum
 from tools.jmxutils import JolokiaAgent
 
@@ -136,7 +137,7 @@ def _interceptor_name(interceptor_class, name):
 class Interceptor:
     def __init__(self, name, verbs=None, runtime_properties=None):
         self.name = name
-        self.verbs = verbs if isinstance(verbs, list) or verbs is None else [verbs]
+        self.verbs = (verbs,) if isinstance(verbs, (Verb, types.StringTypes)) else verbs
         self.types = None
         self.directions = None
         self.localities = None
@@ -147,13 +148,13 @@ class Interceptor:
         Configure aspects of what is intercepted.
         """
         if verbs:
-            self.verbs = verbs if isinstance(verbs, list) else [verbs]
+            self.verbs = (verbs,) if isinstance(verbs, (Verb, types.StringTypes)) else verbs
         if types:
-            self.types = types if isinstance(types, list) else [types]
+            self.types = (types,) if isinstance(types, Type) else types
         if directions:
-            self.directions = directions if isinstance(directions, list) else [directions]
+            self.directions = (directions,) if isinstance(directions, Direction) else directions
         if localities:
-            self.localities = localities if isinstance(localities, list) else [localities]
+            self.localities = (localities,) if isinstance(localities, Locality) else localities
         return self
 
     def enable(self, node):
