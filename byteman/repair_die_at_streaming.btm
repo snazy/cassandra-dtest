@@ -1,0 +1,10 @@
+RULE Kill node at streaming
+CLASS org.apache.cassandra.streaming.StreamResultFuture
+METHOD attachConnection
+AT EXIT
+# set flag to only run this rule once.
+IF NOT flagged("done")
+DO
+   flag("done");
+   System.exit(1);
+ENDRULE

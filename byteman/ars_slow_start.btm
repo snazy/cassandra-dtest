@@ -1,0 +1,8 @@
+RULE ActiveRepairService slow start
+CLASS org.apache.cassandra.service.ActiveRepairService
+METHOD start
+AT ENTRY
+IF TRUE
+DO
+   Thread.sleep(10000);
+ENDRULE
