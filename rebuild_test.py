@@ -1,10 +1,10 @@
 import time
+from ccmlib.node import TimeoutError, ToolError
+from dse import ConsistencyLevel
 from threading import Thread
 
-from ccmlib.node import ToolError
-from dse import ConsistencyLevel
-
 from dtest import Tester, debug
+from tools.assertions import assert_length_equal, assert_nodetool_error
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
 
@@ -318,7 +318,7 @@ class TestRebuild(Tester):
         session.execute("CREATE KEYSPACE ks1 WITH replication = {'class':'SimpleStrategy', 'replication_factor':2};")
 
         with self.assertRaisesRegexp(ToolError, 'is not a range that is owned by this node'):
-            node1.nodetool('rebuild -ks ks1 -ts (%s,%s]' % (node1_token, node2_token))
+            node1.nodetool('rebuild -ks ks1 -ts (%s,%s] DC1' % (node1_token, node2_token))
 
     @since('3.10')
     @no_vnodes()
@@ -436,3 +436,239 @@ class TestRebuild(Tester):
         session.execute('USE ks2')
         for i in xrange(0, keys):
             query_c1c2(session, i, ConsistencyLevel.ONE, tolerate_missing=True, must_be_missing=True)
+
+    def _refetch_reset_iteration(self, rebuild_node, sessions, nodetoolCmd):
+        """
+        Stop the 4th node and populate _more_ data. Since the 4th node is down and hints are disabled,
+        the 4th node won't get the new data when it starts.
+        Then start the 4th node, issue the rebuild command and verify the data is on the 4th node.
+        """
+
+        # verify topology
+        assert_length_equal(sessions, 3, "Expecting 3 driver sessions in param 'sessions'")
+        nodes = rebuild_node.cluster.nodelist()
+        assert_length_equal(nodes, 4, "Expecting exactly 4 nodes in the cluster")
+        self.assertEqual(nodes[0].data_center, 'dc1', "1st node must be in dc1")
+        self.assertEqual(nodes[1].data_center, 'dc1', "1st node must be in dc1")
+        self.assertEqual(nodes[2].data_center, 'dc2', "1st node must be in dc2")
+        self.assertEqual(nodes[3].data_center, 'dc2', "1st node must be in dc2")
+
+        # ensure the test table is clean
+        sessions[0].execute('TRUNCATE TABLE ks1.cf')
+
+        keysInitial = xrange(0, 100)
+        keysDown = xrange(100, 200)
+
+        # insert initial values while all all nodes up
+        insert_c1c2(sessions[0], keys=keysInitial, consistency=ConsistencyLevel.LOCAL_QUORUM, c1value='initial')
+
+        # verify nodes 1, 2, 3 and 4 have the initial data
+        for key in keysInitial:
+            for session in sessions:
+                query_c1c2(session, key, ConsistencyLevel.LOCAL_ONE, c1value='initial',
+                           additional_error_text="initial, key={}, session={}".format(key, sessions.index(session)))
+        rebuild_node_session = self.patient_exclusive_cql_connection(rebuild_node, keyspace='ks1')
+        for key in keysInitial:
+            query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='initial',
+                       additional_error_text="initial, key={}, rebuild-node".format(key))
+        rebuild_node_session.shutdown()
+
+        rebuild_node.stop(wait_other_notice=True)
+
+        # update initial data
+        insert_c1c2(sessions[0], keys=keysInitial, consistency=ConsistencyLevel.LOCAL_QUORUM, c1value='updated')
+        # insert new values with 4th node down (so it doesn't get these mutations)
+        insert_c1c2(sessions[0], keys=keysDown, consistency=ConsistencyLevel.LOCAL_QUORUM, c1value='down')
+
+        # verify nodes 1, 2, 3 have the new data
+        for key in keysInitial:
+            for session in sessions:
+                query_c1c2(session, key, ConsistencyLevel.LOCAL_ONE, c1value='updated',
+                           additional_error_text="updated, key={}, session={}".format(key, sessions.index(session)))
+
+        # start 4th node - no hints will be replayed since hints are disabled
+        rebuild_node.start(wait_other_notice=True, wait_for_binary_proto=True)
+        rebuild_node_session = self.patient_exclusive_cql_connection(rebuild_node, keyspace='ks1')
+
+        # down node must have the old state of the initial data (before it went down)
+        for key in keysInitial:
+            query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='initial',
+                       additional_error_text="initial, key={}".format(key))
+        # down node must not have the added data while it was down
+        for key in keysDown:
+            query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, tolerate_missing=True, must_be_missing=True,
+                       additional_error_text="initial, key={}, rebuild-node".format(key))
+
+        # rebuild refetch/reset
+        rebuild_node.mark_log()
+        rebuild_node.mark_log_for_errors()
+        rebuild_node.nodetool(nodetoolCmd)
+        # Expect the nodetool command to _not_ let the node log the "Streaming range ... from 127.0.0.3" message,
+        # because that would indicate that it is streaming from that node, which is what don't want.
+        with self.assertRaises(TimeoutError):
+            rebuild_node.watch_log_for('Streaming range .* from endpoint /127.0.0.3 for keyspace ks1', from_mark=True, timeout=3)
+
+        # down node must now have updated data
+        for key in keysInitial:
+            query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='updated',
+                       additional_error_text="updated, key={}".format(key))
+        # down node must now have new data
+        for key in keysDown:
+            query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='down',
+                       additional_error_text="down, key={}".format(key))
+
+        rebuild_node_session.shutdown()
+
+    def _expect_bootstrap_error(self, node, jvm_args, expected_error):
+        node.start(wait_other_notice=False, wait_for_binary_proto=False, jvm_args=jvm_args)
+        node.watch_log_for(expected_error, timeout=60)
+        # TL;DR: node didn't start successfully - have to set node.pid=None
+        # Long version: The method expects an error during bootstrap. node.start() starts the process and stores
+        # the PID in pid. However, since bootstrap fails (as expected), the process dies, but pid is still not None.
+        # Following calls against node (e.g. stop() or start()) assume the node is still up, because pid still holds
+        # the PID. Especially Node.__update_status() relies on the state of pid.
+        node.pid = None
+        node.mark_log_for_errors()
+
+    @since("3.0")
+    def rebuild_reset_refetch_test(self):
+        """
+        @jira_ticket APOLLO-581
+        Add rebuild-mode option: normal, reset, refetch & add white-/blacklisting filtering for DCs, racks and nodes.
+        """
+
+        dse6 = self.cluster.version() >= '4.0'
+
+        keys = 10
+
+        # prepare a cluster with 2 DCs and two nodes in each DC, using vnodes
+
+        cluster = self.cluster
+        cluster.set_configuration_options(values={'endpoint_snitch': 'org.apache.cassandra.locator.PropertyFileSnitch',
+                                                  'auto_bootstrap': 'true',
+                                                  # don't want hints - to make the tests work
+                                                  'hinted_handoff_enabled': 'false'})
+
+        cluster.populate([2, 1])
+        nodes = cluster.nodelist()
+
+        cluster.start()
+
+        sessions = list(map(lambda node: self.patient_exclusive_cql_connection(node), nodes))
+
+        # check that an invalid rebuild mode is not accepted
+        assert_nodetool_error(self, nodes[0],
+                              'rebuild -m use_ai_mode',
+                              '.*Unknown mode used for rebuild: use_ai_mode.*')
+
+        if dse6:
+            # Must error out if no sources have been specified
+            assert_nodetool_error(self, nodes[0],
+                                  'rebuild',
+                                  '.*At least one of the specific_sources, exclude_sources, source_dc_names, exclude_dc_names '
+                                  '(or src-dc-name) arguments must be specified for rebuild.*')
+
+        # just check a single error - remaining error situations checked in StreamingOptionsTest.java
+        assert_nodetool_error(self, nodes[0],
+                              'rebuild --dcs dc1,dc1:Rack-1',
+                              '.*The source_dc_names argument contains both a rack restriction and a datacenter '
+                              'restriction for the dc1 datacenter.*')
+
+        # create table + populate
+
+        create_ks(sessions[0], 'ks1', {'dc1': 2, 'dc2': 1})
+        # note: RR+SR options are mandatory for the test !
+        create_cf(sessions[0], 'cf', columns={'c1': 'text', 'c2': 'text'}, read_repair=0, speculative_retry='NONE')
+
+        for ks in ['system_auth', 'system_traces', 'system_distributed']:
+            sessions[0].execute("ALTER KEYSPACE {} WITH REPLICATION = {{'class': 'NetworkTopologyStrategy', 'dc1':1, 'dc2':1}};".format(ks))
+        for session in sessions:
+            session.execute('USE ks1')
+
+        # bootstrap a 2nd node in DC2
+
+        rebuild_node = cluster.create_node(name='node4',
+                                           auto_bootstrap=True,
+                                           thrift_interface=('127.0.0.4', 9160),
+                                           storage_interface=('127.0.0.4', 7000),
+                                           binary_interface=('127.0.0.4', 9042),
+                                           jmx_port='7400', remote_debug_port='2004',
+                                           initial_token=None)
+
+        cluster.add(rebuild_node, False, data_center='dc2')
+
+        # bootstrap system property error test
+        self._expect_bootstrap_error(rebuild_node, ['-Dcassandra.bootstrap.excludeDCs=dc1,dc1:Rack-1',
+                                                    '-Dcassandra.ring_delay_ms=5000'],
+                                     'org.apache.cassandra.exceptions.ConfigurationException: '
+                                     'The cassandra.bootstrap.excludeDCs system property contains both a '
+                                     'rack restriction and a datacenter restriction for the dc1 datacenter')
+
+        # Specifying a non-existing source must not succeed.
+        self._expect_bootstrap_error(rebuild_node, ['-Dcassandra.bootstrap.includeDCs=dc-moon',
+                                                    '-Dcassandra.ring_delay_ms=5000'],
+                                     "org.apache.cassandra.exceptions.ConfigurationException: DC 'dc-moon' is not a "
+                                     "known DC in this cluster")
+
+        # Specifying a non-existing source must not succeed.
+        self._expect_bootstrap_error(rebuild_node, ['-Dcassandra.bootstrap.includeSources=123.123.123.123',
+                                                    '-Dcassandra.ring_delay_ms=5000'],
+                                     "org.apache.cassandra.exceptions.ConfigurationException: Source '/123.123.123.123' "
+                                     "is not a known node in this cluster")
+
+        # This cannot succeed either (consistent range movement doesn't work with "advanced" source filtering).
+        # Consistent range movement requires to stream pending ranges from the node losing that range.
+        self._expect_bootstrap_error(rebuild_node, ['-Dcassandra.bootstrap.includeDCs=dc1',
+                                                    '-Dcassandra.ring_delay_ms=5000'],
+                                     'java.lang.IllegalStateException: Unable to find sufficient sources for streaming range')
+
+        # finally, this works - now without consistent range movement
+        rebuild_node.start(wait_other_notice=True, wait_for_binary_proto=True,
+                           jvm_args=['-Dcassandra.bootstrap.includeDCs=dc1',
+                                     '-Dcassandra.ring_delay_ms=5000',
+                                     '-Dcassandra.consistent.rangemovement=false'])
+
+        # change replication settings
+        sessions[0].execute("ALTER KEYSPACE ks1 WITH REPLICATION = {'class':'NetworkTopologyStrategy', 'dc1':2, 'dc2':2};")
+        rebuild_node.nodetool('repair ks1 cf')
+
+        if dse6:
+            # Specifying no rebuild source must not succeed.
+            assert_nodetool_error(self, nodes[2],
+                                  'rebuild -m refetch',
+                                  'At least one of the specific_sources, exclude_sources, source_dc_names, exclude_dc_names '
+                                  '(or src-dc-name) arguments must be specified for rebuild.')
+
+        # Specifying a non-existing source must not succeed.
+        assert_nodetool_error(self, nodes[2],
+                              'rebuild -m refetch -dc dc-moon',
+                              "DC 'dc-moon' is not a known DC in this cluster")
+
+        # Specifying a non-existing source must not succeed.
+        assert_nodetool_error(self, nodes[2],
+                              'rebuild -m refetch -s 123.123.123.123',
+                              "Source '/123.123.123.123' is not a known node in this cluster")
+
+        # refetch, include DC
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -dc dc1')
+
+        # refetch, exclude DC
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -xdc dc2')
+
+        # reset, include DC
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -dc dc1')
+
+        # reset, exclude DC
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -xdc dc2')
+
+        # refetch, include source
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -s 127.0.0.1,127.0.0.2')
+
+        # refetch, exclude source
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -x 127.0.0.3,127.0.0.4')
+
+        # reset, include source
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -s 127.0.0.1,127.0.0.2')
+
+        # reset, exclude source
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -x 127.0.0.3,127.0.0.4')
