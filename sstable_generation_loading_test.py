@@ -8,7 +8,7 @@ from ccmlib import common as ccmcommon
 from dtest import Tester, debug
 from tools.assertions import assert_all, assert_none, assert_one
 from tools.data import create_cf, create_ks
-
+from tools.decorators import since
 
 # WARNING: sstableloader tests should be added to TestSSTableGenerationAndLoading (below),
 # and not to BaseSStableLoaderTest (which is shared with upgrade tests)
