@@ -374,7 +374,7 @@ class TestTopology(Tester):
         node1, node2, node3 = self.cluster.nodelist()
 
         debug('decommissioning...')
-        node3.decommission(force=self.cluster.version() >= '4.0')
+        node3.decommission(force=self.cluster.version() >= '3.11')
         debug('stopping...')
         node3.stop()
         debug('attempting restart...')
@@ -437,7 +437,7 @@ class TestTopology(Tester):
         out = self.show_status(node2)
         self.assertFalse(null_status_pattern.search(out))
 
-    @since('3.12')
+    @since('3.11')
     @attr('resource-intensive')
     def stop_decommission_too_few_replicas_multi_dc_test(self):
         """
@@ -453,14 +453,14 @@ class TestTopology(Tester):
         session.execute("ALTER KEYSPACE system_distributed WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':'2'};")
         create_ks(session, 'ks', {'dc1': 2, 'dc2': 2})
         with self.assertRaises(ToolError):
-            node4.nodetool('decommission')
+            node4.decommission()
 
         session.execute('DROP KEYSPACE ks')
         create_ks(session, 'ks2', 4)
         with self.assertRaises(ToolError):
-            node4.nodetool('decommission')
+            node4.decommission()
 
-        node4.nodetool('decommission --force')
+        node4.decommission(force=True)
         decommissioned = node4.watch_log_for("DECOMMISSIONED", timeout=120)
         self.assertTrue(decommissioned, "Node failed to decommission when passed --force")
 

@@ -191,7 +191,7 @@ class TestHintedHandoff(Tester):
         node1.decommission()
         node4.start(wait_for_binary_proto=True)
 
-        force = True if self.cluster.version() >= '3.12' else False
+        force = True if self.cluster.version() >= '3.11' else False
         node2.decommission(force=force)
         node3.decommission(force=force)
 
