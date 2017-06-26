@@ -173,7 +173,7 @@ class TestNodetool(Tester):
         self.assertTrue(any(re.match('.*Native Transport active.*', line) for line in lines),
                         'Missing output for "info" output from "nodetool sequence"')
         # a line from 'ring'
-        self.assertTrue(any(re.match('.*Warning: "nodetool ring" is used to output all the tokens of a node.*', line) for line in lines),
+        self.assertTrue(any(re.match('.*Address.*Rack.*Status.*State.*Load.*Owns.*Token', line) for line in lines),
                         'Missing output for "ring" output from "nodetool sequence"')
         # a line from 'toppartitions 2000'
         self.assertTrue(any(re.match('.*Nothing recorded during sampling period.*', line) for line in lines),
