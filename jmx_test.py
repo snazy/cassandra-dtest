@@ -192,6 +192,41 @@ class TestJMX(Tester):
         self.assertGreater(endpoint2Phi, 0.0)
         self.assertLess(endpoint2Phi, max_phi)
 
+    @since('3.0')
+    def test_metrics_reporter(self):
+        cluster = self.cluster
+        cluster.populate(1)
+
+        node = cluster.nodelist()[0]
+
+        debug("Writing metrics yaml file")
+        metrics_out = os.path.join(node.get_path(), 'logs', 'metrics.out')
+        with open(os.path.join(node.get_conf_dir(), 'metrics.yaml'), 'w') as metrics_config:
+                yaml_content = """
+                console:
+                  -
+                    outfile: '{}'
+                    period: 100
+                    timeunit: 'MILLISECONDS'
+                    predicate:
+                      color: "white"
+                      useQualifiedName: true
+                      patterns:
+                        - ".+"
+                """.format(metrics_out)
+                metrics_config.write(yaml_content)
+                metrics_config.flush()
+
+        debug("Starting cluster")
+        cluster.start(jvm_args=["-Dcassandra.metricsReporterConfigFile=metrics.yaml"])
+
+        self.assertTrue(node.grep_log('Trying to load metrics-reporter-config from file: metrics.yaml'))
+        self.assertTrue(node.grep_log('Timers', filename='metrics.out'))
+        self.assertTrue(node.grep_log('Counters', filename='metrics.out'))
+        self.assertTrue(node.grep_log('Histograms', filename='metrics.out'))
+        self.assertTrue(node.grep_log('Meters', filename='metrics.out'))
+        self.assertTrue(node.grep_log('Timers', filename='metrics.out'))
+
     @since('3.11')
     def test_continuous_paging(self):
         """
