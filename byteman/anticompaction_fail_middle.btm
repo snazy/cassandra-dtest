@@ -1,0 +1,9 @@
+RULE Fail anti-compaction on middle
+CLASS org.apache.cassandra.db.ColumnFamilyStore
+METHOD mutateRepairedAt
+AT ENTRY
+# set flag to only run this rule once.
+IF callerEquals("run")
+DO
+   throw new RuntimeException("Dummy failure");
+ENDRULE

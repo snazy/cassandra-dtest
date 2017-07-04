@@ -10,5 +10,5 @@ BIND cfs = $1;
 IF NOT flagged("done")
 DO
    flag("done");
-   cfs.forceMajorCompaction();
+   cfs.enableAutoCompaction(true); cfs.disableAutoCompaction();
 ENDRULE

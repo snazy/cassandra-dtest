@@ -1202,7 +1202,7 @@ class TestRepair(BaseRepairTest):
             debug("Will abort all repairs via StorageServiceMbean.forceTerminateAllRepairSessions")
             with JolokiaAgent(node1) as jmx:
                 result = jmx.execute_method("org.apache.cassandra.db:type=StorageService", "forceTerminateAllRepairSessions")
-                debug("result is {}".format(result))   
+                debug("result is {}".format(result))
 
         debug("Waiting for node {} to die.".format(node_to_fail.name))
         t.join(timeout=60)
