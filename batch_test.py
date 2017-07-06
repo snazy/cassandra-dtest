@@ -5,7 +5,7 @@ from unittest import skipIf
 from dse import ConsistencyLevel, Timeout, Unavailable
 from dse.query import SimpleStatement
 
-from dtest import APOLLO_DIR, Tester, debug
+from dtest import Tester, debug
 from tools.assertions import (assert_all, assert_invalid, assert_one,
                               assert_unavailable)
 from tools.data import create_ks
