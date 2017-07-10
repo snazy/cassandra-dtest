@@ -295,11 +295,12 @@ class TestJMX(Tester):
         cluster.start(jvm_args=["-Dcassandra.metricsReporterConfigFile=metrics.yaml"])
 
         self.assertTrue(node.grep_log('Trying to load metrics-reporter-config from file: metrics.yaml'))
-        self.assertTrue(node.grep_log('Timers', filename='metrics.out'))
-        self.assertTrue(node.grep_log('Counters', filename='metrics.out'))
-        self.assertTrue(node.grep_log('Histograms', filename='metrics.out'))
-        self.assertTrue(node.grep_log('Meters', filename='metrics.out'))
-        self.assertTrue(node.grep_log('Timers', filename='metrics.out'))
+        # This will throw TimeoutException if the metrics log is not populated within 5 seconds
+        node.watch_log_for('Timers', filename='metrics.out', timeout=5)
+        node.watch_log_for('Counters', filename='metrics.out', timeout=5)
+        node.watch_log_for('Histograms', filename='metrics.out', timeout=5)
+        node.watch_log_for('Meters', filename='metrics.out', timeout=5)
+        node.watch_log_for('Timers', filename='metrics.out', timeout=5)
 
     @since('3.11')
     def test_continuous_paging(self):
