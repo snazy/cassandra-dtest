@@ -15,28 +15,29 @@ def create_c1c2_table(tester, session, read_repair=None):
     create_cf(session, 'cf', columns={'c1': 'text', 'c2': 'text'}, read_repair=read_repair)
 
 
-def insert_c1c2(session, keys=None, n=None, consistency=ConsistencyLevel.QUORUM):
+def insert_c1c2(session, keys=None, n=None, consistency=ConsistencyLevel.QUORUM, c1value='value1', c2value='value2'):
     if (keys is None and n is None) or (keys is not None and n is not None):
         raise ValueError("Expected exactly one of 'keys' or 'n' arguments to not be None; "
                          "got keys={keys}, n={n}".format(keys=keys, n=n))
     if n:
         keys = list(range(n))
 
-    statement = session.prepare("INSERT INTO cf (key, c1, c2) VALUES (?, 'value1', 'value2')")
+    statement = session.prepare("INSERT INTO cf (key, c1, c2) VALUES (?, ?, ?)")
     statement.consistency_level = consistency
 
-    execute_concurrent_with_args(session, statement, [['k{}'.format(k)] for k in keys])
+    execute_concurrent_with_args(session, statement, [['k{}'.format(k), c1value, c2value] for k in keys])
 
 
-def query_c1c2(session, key, consistency=ConsistencyLevel.QUORUM, tolerate_missing=False, must_be_missing=False):
+def query_c1c2(session, key, consistency=ConsistencyLevel.QUORUM, tolerate_missing=False, must_be_missing=False,
+               c1value='value1', c2value='value2', additional_error_text=None):
     query = SimpleStatement('SELECT c1, c2 FROM cf WHERE key=\'k%d\'' % key, consistency_level=consistency)
     rows = list(session.execute(query))
     if not tolerate_missing:
-        assertions.assert_length_equal(rows, 1)
+        assertions.assert_length_equal(rows, 1, additional_error_text=additional_error_text)
         res = rows[0]
-        assert_true(len(res) == 2 and res[0] == 'value1' and res[1] == 'value2', res)
+        assert_true(len(res) == 2 and res[0] == c1value and res[1] == c2value, res if not additional_error_text else "{}, {}".format(res, additional_error_text))
     if must_be_missing:
-        assertions.assert_length_equal(rows, 0)
+        assertions.assert_length_equal(rows, 0, additional_error_text=additional_error_text)
 
 
 def insert_columns(tester, session, key, columns_count, consistency=ConsistencyLevel.QUORUM, offset=0):
@@ -179,9 +180,9 @@ def create_cf(session, name, key_type="varchar", speculative_retry=None, read_re
             additional_columns = "{}, {} {}".format(additional_columns, k, v)
 
     if additional_columns == "":
-        query = 'CREATE COLUMNFAMILY %s (key %s, c varchar, v varchar, PRIMARY KEY(key, c)) WITH comment=\'test cf\'' % (name, key_type)
+        query = 'CREATE TABLE %s (key %s, c varchar, v varchar, PRIMARY KEY(key, c)) WITH comment=\'test cf\'' % (name, key_type)
     else:
-        query = 'CREATE COLUMNFAMILY %s (key %s PRIMARY KEY%s) WITH comment=\'test cf\'' % (name, key_type, additional_columns)
+        query = 'CREATE TABLE %s (key %s PRIMARY KEY%s) WITH comment=\'test cf\'' % (name, key_type, additional_columns)
 
     if compression is not None:
         query = '%s AND compression = { \'sstable_compression\': \'%sCompressor\' }' % (query, compression)

@@ -1,7 +1,9 @@
 
+import os
 import re
 from time import sleep
 
+from ccmlib.node import ToolError
 from dse import (InvalidRequest, ReadFailure, ReadTimeout, Unauthorized,
                  Unavailable, WriteFailure, WriteTimeout)
 from dse.cluster import _NOT_SET
@@ -242,7 +244,7 @@ def assert_crc_check_chance_equal(session, table, expected, ks="ks", view=False,
                    execution_profile=execution_profile)
 
 
-def assert_length_equal(object_with_length, expected_length):
+def assert_length_equal(object_with_length, expected_length, additional_error_text=None):
     """
     Assert an object has a specific length.
     @param object_with_length The object whose length will be checked
@@ -252,8 +254,10 @@ def assert_length_equal(object_with_length, expected_length):
     assert_length_equal(res, nb_counter)
     """
     assert_equal(len(object_with_length), expected_length,
-                 "Expected {} to have length {}, but instead is of length {}".format(object_with_length,
-                                                                                     expected_length, len(object_with_length)))
+                 "Expected {} to have length {}, but instead is of length {} {}".format(object_with_length,
+                                                                                        expected_length,
+                                                                                        len(object_with_length),
+                                                                                        additional_error_text if additional_error_text else ''))
 
 
 def assert_not_running(node):
@@ -305,3 +309,13 @@ def assert_bootstrap_state(tester, node, expected_bootstrap_state, execution_pro
     session = tester.patient_exclusive_cql_connection(node)
     assert_one(session, "SELECT bootstrapped FROM system.local WHERE key='local'",
                [expected_bootstrap_state], execution_profile=execution_profile)
+
+
+def assert_nodetool_error(testCase, node, cmd, regex):
+    with testCase.assertRaises(ToolError) as tec:
+        node.nodetool(cmd)
+    te = tec.exception
+    assert_equal(te.exit_status, 1, "Expect exit code 1 on nodetool errors")
+    assert_true(any(re.match(".*{}.*".format(regex), line) for line in te.stdout.split(os.linesep)),
+                    "Expected regex '{}' not in nodetool error message '{}'".format(regex, te.stdout))
+    node.mark_log_for_errors()

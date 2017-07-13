@@ -242,6 +242,9 @@ class TestBootstrap(BaseBootstrapTest):
     def _bootstrap_test_with_replica_down(self, consistent_range_movement, rf=2):
         """
         Test to check consistent bootstrap will not succeed when there are insufficient replicas
+
+        A port of the range streamer logic is in the utest org.apache.cassandra.dht.RangeStreamerBootstrapTest
+
         @jira_ticket CASSANDRA-11848
         """
         cluster = self.cluster
@@ -283,15 +286,12 @@ class TestBootstrap(BaseBootstrapTest):
 
         if successful_bootstrap_expected:
             # with rf=1 and cassandra.consistent.rangemovement=false, missing sources are ignored
-            if not consistent_range_movement and rf == 1:
+            if rf == 1:
                 node3.watch_log_for("Unable to find sufficient sources for streaming range")
             self.assertTrue(node3.is_running())
             assert_bootstrap_state(self, node3, 'COMPLETED')
         else:
-            if consistent_range_movement:
-                node3.watch_log_for("A node required to move the data consistently is down")
-            else:
-                node3.watch_log_for("Unable to find sufficient sources for streaming range")
+            node3.watch_log_for("A node required to move the data consistently is down")
             assert_not_running(node3)
 
     @since('2.2')
