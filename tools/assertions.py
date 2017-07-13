@@ -317,5 +317,5 @@ def assert_nodetool_error(testCase, node, cmd, regex):
     te = tec.exception
     assert_equal(te.exit_status, 1, "Expect exit code 1 on nodetool errors")
     assert_true(any(re.match(".*{}.*".format(regex), line) for line in te.stdout.split(os.linesep)),
-                    "Expected regex '{}' not in nodetool error message '{}'".format(regex, te.stdout))
+                "Expected regex '{}' not in nodetool error message '{}'".format(regex, te.stdout))
     node.mark_log_for_errors()
