@@ -566,7 +566,7 @@ class TestRebuild(Tester):
             assert_nodetool_error(self, nodes[0],
                                   'rebuild',
                                   '.*At least one of the specific_sources, exclude_sources, source_dc_names, exclude_dc_names '
-                                  '(or src-dc-name) arguments must be specified for rebuild.*')
+                                  '\(or src-dc-name\) arguments must be specified for rebuild.*')
 
         # just check a single error - remaining error situations checked in StreamingOptionsTest.java
         assert_nodetool_error(self, nodes[0],
@@ -637,7 +637,7 @@ class TestRebuild(Tester):
             assert_nodetool_error(self, nodes[2],
                                   'rebuild -m refetch',
                                   'At least one of the specific_sources, exclude_sources, source_dc_names, exclude_dc_names '
-                                  '(or src-dc-name) arguments must be specified for rebuild.')
+                                  '\(or src-dc-name\) arguments must be specified for rebuild.')
 
         # Specifying a non-existing source must not succeed.
         assert_nodetool_error(self, nodes[2],
