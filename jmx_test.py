@@ -280,8 +280,8 @@ class TestJMX(Tester):
                 console:
                   -
                     outfile: '{}'
-                    period: 100
-                    timeunit: 'MILLISECONDS'
+                    period: 1
+                    timeunit: 'SECONDS'
                     predicate:
                       color: "white"
                       useQualifiedName: true
