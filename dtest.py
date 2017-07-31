@@ -98,7 +98,7 @@ logging.basicConfig(filename=os.path.join(LOG_SAVED_DIR, "dtest.log"),
 
 LOG = logging.getLogger('dtest')
 # set python-driver log level to INFO by default for dtest
-logging.getLogger('cassandra').setLevel(logging.INFO)
+logging.getLogger('dse').setLevel(logging.INFO)
 
 
 def get_sha(repo_dir):
