@@ -33,6 +33,8 @@ EXEC_PROFILE_CONTINUOUS_PAGING = object()
 class BasePagingTester(ReusableClusterTester):
     # Set to True when a sub-class is annotated with @with_continuous_paging
     use_continuous_paging = False
+    # set either by sub-classes or in prepare()
+    protocol_version = None
 
     default_config = ImmutableMapping({})
 
@@ -73,7 +75,8 @@ class BasePagingTester(ReusableClusterTester):
             debug('shutting down old session')
             self.session.cluster.shutdown()
 
-        protocol_version = self.get_protocol_version()
+        protocol_version = self.protocol_version or self.get_protocol_version()
+        debug('Using protocol version {}'.format(protocol_version))
         cluster = self.cluster
         node1 = cluster.nodelist()[0]
 
@@ -97,7 +100,10 @@ class BasePagingTester(ReusableClusterTester):
     def get_protocol_version(self):
         supports_v5 = supports_v5_protocol(self.cluster.version())
         supports_dse_v1_protocol = self.cluster.version() >= LooseVersion('3.11')
-        if supports_dse_v1_protocol:
+        supports_dse_v2_protocol = self.cluster.version() >= LooseVersion('4.0')
+        if supports_dse_v2_protocol:
+            return 66
+        elif supports_dse_v1_protocol:
             return 65
         elif supports_v5:
             return 5
@@ -3873,9 +3879,8 @@ class TestPagingWithDeletionsWithContinuousPaging(TestPagingWithDeletions):
     pass
 
 
-@since('3.11')
-@with_continuous_paging
 class TestContinuousPageDelivery(BasePagingTester, PageAssertionMixin):
+    __test__ = False  # Set by sub-classes
     """
     Tests concerned with continuous page delivery, such as page rate and max number of pages.
 
@@ -4047,3 +4052,19 @@ class TestContinuousPageDelivery(BasePagingTester, PageAssertionMixin):
 
         if failures:
             raise failures[0]
+
+
+@since('3.11')
+@with_continuous_paging
+class TestContinuousPageDeliveryDSEV1(TestContinuousPageDelivery):
+    __test__ = True
+    protocol_version = 65
+    pass
+
+
+@since('4.0')
+@with_continuous_paging
+class TestContinuousPageDeliveryDSEV2(TestContinuousPageDelivery):
+    __test__ = True
+    protocol_version = 66
+    pass
