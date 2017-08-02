@@ -343,10 +343,12 @@ class TestJMX(Tester):
                                                         continuous_paging_options=paging_options)
         }
 
-        # execute a small CP query so that the mbeans are initialized
+        # execute two small CP queries, one local and one not, so that the mbeans are initialized and so that
+        # the latency histograms have at least 1 operation registered for both the slow and optimized path
         session = self.patient_exclusive_cql_connection(node1, protocol_version=65, execution_profiles=profiles)
         session.default_fetch_size = 1000
         session.execute("SELECT * from keyspace1.standard1 LIMIT 1000", execution_profile=EXEC_PROFILE_CP_ONE)
+        session.execute("SELECT * from keyspace1.standard1 LIMIT 1000", execution_profile=EXEC_PROFILE_CP_ALL)
 
         # create the metrics mbeans
         optimized_path_latency = make_mbean('metrics', type='ContinuousPaging', scope='OptimizedPathLatency', name='Latency')
@@ -365,23 +367,34 @@ class TestJMX(Tester):
         collecting = True
         collected_values = defaultdict(list)
 
+        def read_metrics_values(jmx):
+            collected_values[optimized_path_latency].append(jmx.read_attribute(optimized_path_latency, "Count"))
+            collected_values[slow_path_latency].append(jmx.read_attribute(slow_path_latency, "Count"))
+            collected_values[live_sessions].append(jmx.read_attribute(live_sessions, "Value"))
+            collected_values[pending_pages].append(jmx.read_attribute(pending_pages, "Value"))
+            collected_values[requests].append(jmx.read_attribute(requests, "Count"))
+            collected_values[creation_failures].append(jmx.read_attribute(creation_failures, "Count"))
+            collected_values[too_many_sessions].append(jmx.read_attribute(too_many_sessions, "Count"))
+            collected_values[client_write_exceptions].append(jmx.read_attribute(client_write_exceptions, "Count"))
+            collected_values[failures].append(jmx.read_attribute(failures, "Count"))
+            collected_values[waiting_time].append(jmx.read_attribute(waiting_time, "Count"))
+            collected_values[server_blocked].append(jmx.read_attribute(server_blocked, "Count"))
+            collected_values[server_blocked_latency].append(jmx.read_attribute(server_blocked_latency, "Count"))
+
+        # histograms snapshots are created every metrics_histogram_update_interval_millis or 1 sec by default
+        hist_update_interval_millis = node1.get_conf_option('metrics_histogram_update_interval_millis') or 1000
+        debug('Metrics histogram snapshots updated every {} millis'.format(hist_update_interval_millis))
+
         # start real time monitoring of some metrics
         def check_real_time_metrics():
             with JolokiaAgent(node1) as jmx:
                 while collecting:
-                    collected_values[optimized_path_latency].append(jmx.read_attribute(optimized_path_latency, "Count"))
-                    collected_values[slow_path_latency].append(jmx.read_attribute(slow_path_latency, "Count"))
-                    collected_values[live_sessions].append(jmx.read_attribute(live_sessions, "Value"))
-                    collected_values[pending_pages].append(jmx.read_attribute(pending_pages, "Value"))
-                    collected_values[requests].append(jmx.read_attribute(requests, "Count"))
-                    collected_values[creation_failures].append(jmx.read_attribute(creation_failures, "Count"))
-                    collected_values[too_many_sessions].append(jmx.read_attribute(too_many_sessions, "Count"))
-                    collected_values[client_write_exceptions].append(jmx.read_attribute(client_write_exceptions, "Count"))
-                    collected_values[failures].append(jmx.read_attribute(failures, "Count"))
-                    collected_values[waiting_time].append(jmx.read_attribute(waiting_time, "Count"))
-                    collected_values[server_blocked].append(jmx.read_attribute(server_blocked, "Count"))
-                    collected_values[server_blocked_latency].append(jmx.read_attribute(server_blocked_latency, "Count"))
+                    read_metrics_values(jmx)
                     time.sleep(0.05)
+                debug("Sleeping for {} seconds to ensure histogram's snapshots are updated"
+                      .format(1 + hist_update_interval_millis / 1000.))
+                time.sleep(1 + hist_update_interval_millis / 1000.)
+                read_metrics_values(jmx)
 
         monitoring_thread = Thread(target=check_real_time_metrics)
         monitoring_thread.start()
@@ -411,7 +424,7 @@ class TestJMX(Tester):
         self.assertGreater(max(collected_values[slow_path_latency]), 0)
         self.assertGreater(max(collected_values[live_sessions]), 0)
         self.assertGreater(max(collected_values[pending_pages]), 0)
-        self.assertEquals(11, max(collected_values[requests]))
+        self.assertEquals(12, max(collected_values[requests]))
         self.assertEquals(0, max(collected_values[creation_failures]))
         self.assertEquals(0, max(collected_values[too_many_sessions]))
         self.assertEquals(0, max(collected_values[client_write_exceptions]))
