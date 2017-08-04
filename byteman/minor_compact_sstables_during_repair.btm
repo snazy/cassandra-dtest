@@ -1,0 +1,14 @@
+#
+# Compact sstables during repair validation
+#
+RULE compact sstables during repair validation
+CLASS org.apache.cassandra.db.compaction.CompactionManager
+METHOD doValidationCompaction
+AT INVOKE createMerkleTrees
+BIND cfs = $1;
+# set flag to only run this rule once.
+IF NOT flagged("done")
+DO
+   flag("done");
+   cfs.enableAutoCompaction(true); cfs.disableAutoCompaction();
+ENDRULE

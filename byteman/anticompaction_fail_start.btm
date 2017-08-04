@@ -1,0 +1,9 @@
+RULE Fail anti-compaction on start
+CLASS org.apache.cassandra.dht.Range
+METHOD normalize
+AT ENTRY
+# set flag to only run this rule once.
+IF callerEquals("run")
+DO
+   throw new RuntimeException("Dummy failure");
+ENDRULE

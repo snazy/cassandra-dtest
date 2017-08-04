@@ -1156,11 +1156,11 @@ class TestRepair(BaseRepairTest):
         cluster.populate(3)
         node1, node2, node3 = cluster.nodelist()
 
-        node_to_kill = node2 if (phase == 'sync' and initiator) else node3
-        debug("Setting up byteman on {}".format(node_to_kill.name))
-        # set up byteman
-        node_to_kill.byteman_port = '8100'
-        node_to_kill.import_config_files()
+        node_to_fail = node2 if (phase == 'sync' and initiator) else node3
+        debug("Setting up byteman on {}".format(node_to_fail.name))
+        # set up byteman and jolokia
+        node_to_fail.byteman_port = '8100'
+        node_to_fail.import_config_files()
         remove_perf_disable_shared_mem(node1)
 
         debug("Starting cluster..")
@@ -1179,10 +1179,9 @@ class TestRepair(BaseRepairTest):
         debug("bring back node3")
         node3.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        script = 'stream_sleep.btm' if phase == 'sync' else 'repair_{}_sleep.btm'.format(phase)
-        debug("Submitting byteman script to {}".format(node_to_kill.name))
-        # Sleep on anticompaction/stream so there will be time for node to be killed
-        node_to_kill.byteman_submit(['./byteman/{}'.format(script)])
+        script = 'repair_die_during_{}.btm'.format(phase) if kill_node else 'repair_validation_sleep.btm'
+        debug("Submitting byteman script to {}".format(node_to_fail.name))
+        node_to_fail.byteman_submit(['./byteman/{}'.format(script)])
 
         def node1_repair():
             global nodetool_error
@@ -1196,37 +1195,27 @@ class TestRepair(BaseRepairTest):
         t = Thread(target=node1_repair)
         t.start()
 
-        msg_to_wait = 'streaming plan for Repair'
-        if phase == 'anticompaction':
-            msg_to_wait = 'Got anticompaction request'
-        elif phase == 'validation':
-            msg_to_wait = 'Validating'
-        node_to_kill.watch_log_for(msg_to_wait, filename='debug.log')
-
         if kill_node:
-            debug("Will kill {} in middle of {}".format(node_to_kill.name, phase))
-            node_to_kill.stop(gently=False, wait_other_notice=True)
+            node1.watch_log_for('InetAddress /{} is now DOWN'.format(node_to_fail.address()), timeout=60)
         else:
+            node_to_fail.watch_log_for("Validating", filename='debug.log')
             debug("Will abort all repairs via StorageServiceMbean.forceTerminateAllRepairSessions")
             with JolokiaAgent(node1) as jmx:
                 result = jmx.execute_method("org.apache.cassandra.db:type=StorageService", "forceTerminateAllRepairSessions")
                 debug("result is {}".format(result))
 
-        debug("Killed {}, now waiting repair to finish".format(node_to_kill.name))
-        t.join(timeout=30)
-        self.assertFalse(t.isAlive(), 'Repair still running after {} {} was killed'
-                                      .format(phase, "initiator" if initiator else "participant"))
+        debug("Waiting for node {} to die.".format(node_to_fail.name))
+        t.join(timeout=60)
+        self.assertFalse(t.isAlive(), 'Repair still running after node {} ({}) died during {}'
+                                      .format(node_to_fail.name, "initiator" if initiator else "participant",
+                                              phase))
 
         if cluster.version() >= '3.0':
             with JolokiaAgent(node1) as jmx:
                 thread_dump = jmx.execute_method("java.lang:type=Threading", "dumpAllThreads", arguments=[True, True])
                 self.assertFalse("RepairJob" in str(thread_dump), "Found RepairJob thread after job was finished.")
 
-        if kill_node and (cluster.version() < '4.0' or phase != 'sync'):
-            # the log entry we're watching for in the sync task came from the
-            # anti compaction at the end of the repair, which has been removed in 4.0
-            node1.watch_log_for('Endpoint .* died', timeout=30)
-        node1.watch_log_for('Repair command .* finished', timeout=30)
+        node1.watch_log_for('Repair command .* finished', timeout=60)
 
 
 RepairTableContents = namedtuple('RepairTableContents',

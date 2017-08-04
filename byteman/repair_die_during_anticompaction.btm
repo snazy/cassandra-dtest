@@ -1,0 +1,10 @@
+RULE Kill node during anti-compaction
+CLASS org.apache.cassandra.db.compaction.CompactionManager
+METHOD performAnticompaction
+AT ENTRY
+# set flag to only run this rule once.
+IF NOT flagged("done")
+DO
+   flag("done");
+   System.exit(1);
+ENDRULE
