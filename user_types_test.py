@@ -30,7 +30,9 @@ class TestUserTypes(Tester):
 
     def assertNoTypes(self, session):
         for keyspace in session.cluster.metadata.keyspaces.values():
-            self.assertEqual(0, len(keyspace.user_types))
+            # skip system_distributed because of the nodesync UDT
+            if not keyspace.name == 'system_distributed':
+                self.assertEqual(0, len(keyspace.user_types))
 
     def test_type_dropping(self):
         """
