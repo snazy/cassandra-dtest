@@ -304,6 +304,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
 
         debug("Waiting for replace to fail")
         self.replacement_node.watch_log_for("java.lang.UnsupportedOperationException: Cannot replace a live node...")
+        self.replacement_node.mark_log_for_errors()
         assert_not_running(self.replacement_node)
 
     @attr('resource-intensive')
