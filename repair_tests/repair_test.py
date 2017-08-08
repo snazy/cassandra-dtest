@@ -213,7 +213,7 @@ class TestRepair(BaseRepairTest):
         t.join(timeout=60)
         self.assertFalse(t.isAlive(), 'Repair thread on inexistent table is still running')
 
-        if self.cluster.version() >= '2.2':
+        if self.cluster.version() >= '2.2' and self.cluster.version() < '4.0':
             node1.watch_log_for("Unknown keyspace/cf pair", timeout=60)
         # Repair only finishes with error status after CASSANDRA-12508 on 3.0+
         if self.cluster.version() >= '3.0':
