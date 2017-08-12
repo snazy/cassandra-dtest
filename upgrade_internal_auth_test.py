@@ -15,12 +15,19 @@ from tools.misc import ImmutableMapping
 class TestAuthUpgrade(Tester):
     cluster_options = ImmutableMapping({'authenticator': 'PasswordAuthenticator',
                                         'authorizer': 'CassandraAuthorizer'})
-    ignore_log_patterns = (
+
+    _ignore_log_patterns = (
         # This one occurs if we do a non-rolling upgrade, the node
         # it's trying to send the migration to hasn't started yet,
         # and when it does, it gets replayed and everything is fine.
         r'Can\'t send migration request: node.*is down',
     )
+    _ignore_log_patterns_21 = _ignore_log_patterns + (
+        # 2.1 may complain about unknown column familiy
+        r'org\.apache\.cassandra\.db\.UnknownColumnFamilyException'
+    )
+
+    ignore_log_patterns = _ignore_log_patterns
 
     def upgrade_to_22_test(self):
         self.do_upgrade_with_internal_auth("github:apache/cassandra-2.2")
@@ -126,7 +133,12 @@ class TestAuthUpgrade(Tester):
 
         self.check_permissions(node1, False)
         session.cluster.shutdown()
-        # upgrade node1 to 2.2
+
+        # check logs for errors, with UnknownColumnFamilyException excluded
+        self.ignore_log_patterns = self._ignore_log_patterns_21
+
+        self._check_and_mark_errors_in_log()
+        # upgrade node1 to 2.2/3.0
         self.upgrade_to_version(target_version, node1)
         # run the permissions checking queries on the upgraded node
         # this will be using the legacy tables as the conversion didn't complete
@@ -140,6 +152,11 @@ class TestAuthUpgrade(Tester):
         self.upgrade_to_version(target_version, node2)
         self.upgrade_to_version(target_version, node3)
 
+        self._check_and_mark_errors_in_log()
+
+        # reset 'ignore_log_patterns'
+        self.ignore_log_patterns = self._ignore_log_patterns
+
         self.check_permissions(node2, True)
         self.check_permissions(node3, True)
 
@@ -151,6 +168,12 @@ class TestAuthUpgrade(Tester):
         # and we should still be able to authenticate and check authorization
         self.check_permissions(node1, True)
         debug('Test completed successfully')
+
+    def _check_and_mark_errors_in_log(self):
+        if not self.allow_log_errors and self.check_logs_for_errors():
+            raise AssertionError('Unexpected error in log before upgrade, see stdout')
+        for node in self.cluster.nodelist():
+            node.mark_log_for_errors()
 
     def check_permissions(self, node, upgraded):
         # use an exclusive connection to ensure we only talk to the specified node
