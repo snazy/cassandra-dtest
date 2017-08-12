@@ -449,9 +449,9 @@ class TestRebuild(Tester):
         nodes = rebuild_node.cluster.nodelist()
         assert_length_equal(nodes, 4, "Expecting exactly 4 nodes in the cluster")
         self.assertEqual(nodes[0].data_center, 'dc1', "1st node must be in dc1")
-        self.assertEqual(nodes[1].data_center, 'dc1', "1st node must be in dc1")
-        self.assertEqual(nodes[2].data_center, 'dc2', "1st node must be in dc2")
-        self.assertEqual(nodes[3].data_center, 'dc2', "1st node must be in dc2")
+        self.assertEqual(nodes[1].data_center, 'dc1', "2nd node must be in dc1")
+        self.assertEqual(nodes[2].data_center, 'dc2', "3rd node must be in dc2")
+        self.assertEqual(nodes[3].data_center, 'dc2', "4th node must be in dc2")
 
         # ensure the test table is clean
         sessions[0].execute('TRUNCATE TABLE ks1.cf')
@@ -459,32 +459,33 @@ class TestRebuild(Tester):
         keysInitial = xrange(0, 100)
         keysDown = xrange(100, 200)
 
-        # insert initial values while all all nodes up
-        insert_c1c2(sessions[0], keys=keysInitial, consistency=ConsistencyLevel.LOCAL_QUORUM, c1value='initial')
+        # insert initial values while all are nodes up
+        insert_c1c2(sessions[0], keys=keysInitial, consistency=ConsistencyLevel.ALL, c1value='initial')
 
         # verify nodes 1, 2, 3 and 4 have the initial data
         for key in keysInitial:
             for session in sessions:
                 query_c1c2(session, key, ConsistencyLevel.LOCAL_ONE, c1value='initial',
-                           additional_error_text="initial, key={}, session={}".format(key, sessions.index(session)))
+                           additional_error_text="all nodes must have initial data, key={}, session={}".format(key, sessions.index(session)))
         rebuild_node_session = self.patient_exclusive_cql_connection(rebuild_node, keyspace='ks1')
         for key in keysInitial:
             query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='initial',
-                       additional_error_text="initial, key={}, rebuild-node".format(key))
+                       additional_error_text="all nodes must have initial data, key={}, rebuild-node".format(key))
         rebuild_node_session.shutdown()
+        rebuild_node_session.cluster.shutdown()
 
         rebuild_node.stop(wait_other_notice=True)
 
         # update initial data
-        insert_c1c2(sessions[0], keys=keysInitial, consistency=ConsistencyLevel.LOCAL_QUORUM, c1value='updated')
+        insert_c1c2(sessions[0], keys=keysInitial, consistency=ConsistencyLevel.THREE, c1value='updated')
         # insert new values with 4th node down (so it doesn't get these mutations)
-        insert_c1c2(sessions[0], keys=keysDown, consistency=ConsistencyLevel.LOCAL_QUORUM, c1value='down')
+        insert_c1c2(sessions[0], keys=keysDown, consistency=ConsistencyLevel.THREE, c1value='down')
 
         # verify nodes 1, 2, 3 have the new data
         for key in keysInitial:
             for session in sessions:
                 query_c1c2(session, key, ConsistencyLevel.LOCAL_ONE, c1value='updated',
-                           additional_error_text="updated, key={}, session={}".format(key, sessions.index(session)))
+                           additional_error_text="remaining nodes must have updated rows, key={}, session={}".format(key, sessions.index(session)))
 
         # start 4th node - no hints will be replayed since hints are disabled
         rebuild_node.start(wait_other_notice=True, wait_for_binary_proto=True)
@@ -493,11 +494,11 @@ class TestRebuild(Tester):
         # down node must have the old state of the initial data (before it went down)
         for key in keysInitial:
             query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='initial',
-                       additional_error_text="initial, key={}".format(key))
+                       additional_error_text="down node must not have updated rows, key={}".format(key))
         # down node must not have the added data while it was down
         for key in keysDown:
             query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, tolerate_missing=True, must_be_missing=True,
-                       additional_error_text="initial, key={}, rebuild-node".format(key))
+                       additional_error_text="down node must not have new rows, key={}, rebuild-node".format(key))
 
         # rebuild refetch/reset
         rebuild_node.mark_log()
@@ -511,13 +512,14 @@ class TestRebuild(Tester):
         # down node must now have updated data
         for key in keysInitial:
             query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='updated',
-                       additional_error_text="updated, key={}".format(key))
+                       additional_error_text="down node must have updated rows after rebuild/reset/refetch, key={}".format(key))
         # down node must now have new data
         for key in keysDown:
             query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, c1value='down',
-                       additional_error_text="down, key={}".format(key))
+                       additional_error_text="down node must have new rows after rebuild/reset/refetch, key={}".format(key))
 
         rebuild_node_session.shutdown()
+        rebuild_node_session.cluster.shutdown()
 
     def _expect_bootstrap_error(self, node, jvm_args, expected_error):
         node.start(wait_other_notice=False, wait_for_binary_proto=False, jvm_args=jvm_args)
@@ -539,15 +541,15 @@ class TestRebuild(Tester):
 
         dse6 = self.cluster.version() >= '4.0'
 
-        keys = 10
-
         # prepare a cluster with 2 DCs and two nodes in each DC, using vnodes
 
         cluster = self.cluster
         cluster.set_configuration_options(values={'endpoint_snitch': 'org.apache.cassandra.locator.PropertyFileSnitch',
                                                   'auto_bootstrap': 'true',
                                                   # don't want hints - to make the tests work
-                                                  'hinted_handoff_enabled': 'false'})
+                                                  'hinted_handoff_enabled': 'false',
+                                                  # need a deterministic behavior for CL LOCAL_ONE reads (i.e. local node first)
+                                                  'dynamic_snitch': 'false'})
 
         cluster.populate([2, 1])
         nodes = cluster.nodelist()
@@ -574,16 +576,8 @@ class TestRebuild(Tester):
                               '.*The source_dc_names argument contains both a rack restriction and a datacenter '
                               'restriction for the dc1 datacenter.*')
 
-        # create table + populate
-
-        create_ks(sessions[0], 'ks1', {'dc1': 2, 'dc2': 1})
-        # note: RR+SR options are mandatory for the test !
-        create_cf(sessions[0], 'cf', columns={'c1': 'text', 'c2': 'text'}, read_repair=0, speculative_retry='NONE')
-
         for ks in ['system_auth', 'system_traces', 'system_distributed']:
             sessions[0].execute("ALTER KEYSPACE {} WITH REPLICATION = {{'class': 'NetworkTopologyStrategy', 'dc1':1, 'dc2':1}};".format(ks))
-        for session in sessions:
-            session.execute('USE ks1')
 
         # bootstrap a 2nd node in DC2
 
@@ -628,9 +622,12 @@ class TestRebuild(Tester):
                                      '-Dcassandra.ring_delay_ms=5000',
                                      '-Dcassandra.consistent.rangemovement=false'])
 
-        # change replication settings
-        sessions[0].execute("ALTER KEYSPACE ks1 WITH REPLICATION = {'class':'NetworkTopologyStrategy', 'dc1':2, 'dc2':2};")
-        rebuild_node.nodetool('repair ks1 cf')
+        # create table + populate
+        create_ks(sessions[0], 'ks1', {'dc1': 2, 'dc2': 2})
+        # note: RR+SR options are mandatory for the test !
+        create_cf(sessions[0], 'cf', columns={'c1': 'text', 'c2': 'text'}, read_repair=0, speculative_retry='NONE')
+        for session in sessions:
+            session.execute('USE ks1')
 
         if dse6:
             # Specifying no rebuild source must not succeed.
