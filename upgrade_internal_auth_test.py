@@ -24,7 +24,7 @@ class TestAuthUpgrade(Tester):
     )
     _ignore_log_patterns_21 = _ignore_log_patterns + (
         # 2.1 may complain about unknown column familiy
-        r'org\.apache\.cassandra\.db\.UnknownColumnFamilyException'
+        r'org\.apache\.cassandra\.db\.UnknownColumnFamilyException',
     )
 
     ignore_log_patterns = _ignore_log_patterns
