@@ -1,4 +1,5 @@
 import time
+import re
 
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
@@ -151,6 +152,73 @@ class TestReadRepair(Tester):
             self.assertNotIn("Appending to commitlog", activity)
             self.assertNotIn("Adding to cf memtable", activity)
             self.assertNotIn("Acquiring switchLock read lock", activity)
+
+    @since('4.0')
+    def test_read_repair_chance_in_single_partition_read(self):
+        """
+        @jira_ticket APOLLO-998
+
+        Single Partition Read Command was not using read_repair_chance
+        """
+        # hinted_handoff_enabled is False
+        node1, node2, node3 = self.cluster.nodelist()
+        session1 = self.patient_exclusive_cql_connection(node1)
+
+        create_ks(session1, 'rr_chance_ks', 3)
+        query = """
+            CREATE TABLE rr_chance_ks.cf1 (
+                key text,
+                c1 text,
+                PRIMARY KEY (key, c1)
+            )
+            with read_repair_chance = 1.0
+            and dclocal_read_repair_chance = 1.0;
+        """
+        session1.execute(query)
+
+        debug('Shutdown node2')
+        node2.stop(wait_other_notice=True)
+
+        # create row tombstone
+        query = SimpleStatement("INSERT INTO rr_chance_ks.cf1(key, c1) VALUES('a', 'v')", consistency_level=ConsistencyLevel.QUORUM)
+        session1.execute(query)
+
+        debug('Startig node2')
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+
+        # there should be read_repair messages
+        query = SimpleStatement("SELECT * FROM rr_chance_ks.cf1 WHERE key = 'a'", consistency_level=ConsistencyLevel.ONE)
+        future = session1.execute_async(query, trace=True)
+        future.result()
+        trace = future.get_query_trace(max_wait=120)
+        self.check_trace_events(trace, True)
+
+        debug('Shutdown node1 and node3')
+        node1.stop()
+        node3.stop(wait_other_notice=True)
+        session2 = self.patient_exclusive_cql_connection(node2)
+
+        # node2 should have the read_repaired data
+        assert_one(
+            session2,
+            "SELECT * FROM rr_chance_ks.cf1 WHERE key = 'a'",
+            ['a', 'v'],
+            cl=ConsistencyLevel.ONE
+        )
+
+    def check_trace_events(self, trace, expect_rr):
+        regex = r"Read-repair"
+        for event in trace.events:
+            desc = event.description
+            match = re.match(regex, desc)
+            if match:
+                if expect_rr:
+                    break
+                else:
+                    self.fail("Encountered read repair when we shouldn't")
+        else:
+            if expect_rr:
+                self.fail("Didn't find read repair")
 
     @since('3.0')
     def test_gcable_tombstone_resurrection_on_range_slice_query(self):
