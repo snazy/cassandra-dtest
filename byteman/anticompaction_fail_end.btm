@@ -1,5 +1,5 @@
 RULE Fail anti-compaction on end
-CLASS org.apache.cassandra.db.lifecycle.LifeCycleTransaction
+CLASS org.apache.cassandra.db.lifecycle.LifecycleTransaction
 METHOD cancel
 AT ENTRY
 # set flag to only run this rule once.

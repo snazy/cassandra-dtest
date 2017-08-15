@@ -823,7 +823,7 @@ class TestIncRepair(Tester):
         cluster.set_batch_commitlog(enabled=True)
 
         if fail_during_anticompaction:
-            self.ignore_log_patterns = ["Error during anti-compaction"]
+            self.ignore_log_patterns = ["Dummy failure"]
 
         debug("Setting up byteman on {}".format(node2.name))
         # set up byteman
@@ -904,7 +904,7 @@ class TestIncRepair(Tester):
         node1.nodetool('repair ks cf1')
 
         if fail_during_anticompaction:
-            self.assertTrue(node2.grep_log("Error during anti-compaction.", from_mark=mark))
+            self.assertTrue(node2.grep_log("Dummy failure", from_mark=mark))
         elif self.cluster.version() < "4.0":
             # Message is only print on 3.X
             self.assertTrue(node2.grep_log("could not be marked as repaired because they potentially shadow rows compacted during repair",
