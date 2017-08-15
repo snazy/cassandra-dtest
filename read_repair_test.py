@@ -153,7 +153,7 @@ class TestReadRepair(Tester):
             self.assertNotIn("Adding to cf memtable", activity)
             self.assertNotIn("Acquiring switchLock read lock", activity)
 
-    @since('4.0')
+    @since('3.0')
     def test_read_repair_chance_in_single_partition_read(self):
         """
         @jira_ticket APOLLO-998
@@ -167,8 +167,8 @@ class TestReadRepair(Tester):
         create_ks(session1, 'rr_chance_ks', 3)
         query = """
             CREATE TABLE rr_chance_ks.cf1 (
-                key text,
-                c1 text,
+                key int,
+                c1 int,
                 PRIMARY KEY (key, c1)
             )
             with read_repair_chance = 1.0
@@ -179,15 +179,22 @@ class TestReadRepair(Tester):
         debug('Shutdown node2')
         node2.stop(wait_other_notice=True)
 
-        # create row tombstone
-        query = SimpleStatement("INSERT INTO rr_chance_ks.cf1(key, c1) VALUES('a', 'v')", consistency_level=ConsistencyLevel.QUORUM)
-        session1.execute(query)
+        # create new row
+        for n in range(1, 5):
+            session1.execute("INSERT INTO rr_chance_ks.cf1 (key, c1) VALUES (%d, %d)" % (n, n))
 
         debug('Startig node2')
         node2.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        # there should be read_repair messages
-        query = SimpleStatement("SELECT * FROM rr_chance_ks.cf1 WHERE key = 'a'", consistency_level=ConsistencyLevel.ONE)
+        # there should be read_repair messages for single partition query
+        query = SimpleStatement("SELECT * FROM rr_chance_ks.cf1 WHERE key = 1", consistency_level=ConsistencyLevel.ONE)
+        future = session1.execute_async(query, trace=True)
+        future.result()
+        trace = future.get_query_trace(max_wait=120)
+        self.check_trace_events(trace, True)
+
+        # there should be read_repair messages for single partition query with IN
+        query = SimpleStatement("SELECT * FROM rr_chance_ks.cf1 WHERE key in (2, 3, 4, 5)", consistency_level=ConsistencyLevel.ONE)
         future = session1.execute_async(query, trace=True)
         future.result()
         trace = future.get_query_trace(max_wait=120)
@@ -199,12 +206,13 @@ class TestReadRepair(Tester):
         session2 = self.patient_exclusive_cql_connection(node2)
 
         # node2 should have the read_repaired data
-        assert_one(
-            session2,
-            "SELECT * FROM rr_chance_ks.cf1 WHERE key = 'a'",
-            ['a', 'v'],
-            cl=ConsistencyLevel.ONE
-        )
+        for n in range(1, 5):
+            assert_one(
+                session2,
+                "SELECT * FROM rr_chance_ks.cf1 WHERE key = %d" % n,
+                [n, n],
+                cl=ConsistencyLevel.ONE
+            )
 
     def check_trace_events(self, trace, expect_rr):
         regex = r"Read-repair"
