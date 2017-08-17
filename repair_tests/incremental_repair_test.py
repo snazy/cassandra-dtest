@@ -1,4 +1,5 @@
 import time
+import re
 from datetime import datetime
 from collections import Counter, namedtuple
 from re import findall, compile
@@ -12,7 +13,7 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
-from tools.assertions import assert_none, assert_almost_equal, assert_one, assert_all
+from tools.assertions import assert_none, assert_almost_equal, assert_one, assert_all, assert_unavailable
 from tools.data import create_cf, create_ks, insert_c1c2
 from tools.decorators import since, no_vnodes
 from tools.misc import new_node
@@ -25,6 +26,20 @@ class ConsistentState(object):
     FINALIZE_PROMISED = 3
     FINALIZED = 4
     FAILED = 5
+
+
+def get_repair_options(version, incremental, force_anti_compaction=False):
+    args = []
+    if version < "4.0":
+        if force_anti_compaction:
+            args += ["--run-anticompaction"]
+        if incremental:
+            args += ["-inc"] if version >= "2.2" else [" -par -inc"]
+        elif version >= "2.2":
+            args += ["-full"]
+    elif not incremental:
+            args += ["-full"]  # Incremental repair is default on 4.0+
+    return args
 
 
 class TestIncRepair(Tester):
@@ -118,7 +133,7 @@ class TestIncRepair(Tester):
         for node in cluster.nodelist():
             node.nodetool('disableautocompaction ks tbl')
 
-        node1.repair(options=['ks'])
+        self.repair(node1, options=['ks'])
 
         # check that all participating nodes have the repair recorded in their system
         # table, that all nodes are listed as participants, and that all sstables are
@@ -319,10 +334,7 @@ class TestIncRepair(Tester):
         node3.watch_log_for("Initializing keyspace1.standard1", filename=log_file)
         # wait for things to settle before starting repair
         time.sleep(1)
-        if cluster.version() >= "2.2":
-            node3.repair()
-        else:
-            node3.nodetool("repair -par -inc")
+        self.repair(node3)
 
         if cluster.version() >= '4.0':
             # sstables are compacted out of pending repair by a compaction
@@ -375,10 +387,7 @@ class TestIncRepair(Tester):
         debug("restarting and repairing node 3")
         node3.start(wait_for_binary_proto=True)
 
-        if cluster.version() >= "2.2":
-            node3.repair()
-        else:
-            node3.nodetool("repair -par -inc")
+        self.repair(node3)
 
         # wait stream handlers to be closed on windows
         # after session is finished (See CASSANDRA-10644)
@@ -396,10 +405,7 @@ class TestIncRepair(Tester):
         debug("start and repair node 2")
         node2.start(wait_for_binary_proto=True)
 
-        if cluster.version() >= "2.2":
-            node2.repair()
-        else:
-            node2.nodetool("repair -par -inc")
+        self.repair(node2)
 
         debug("replace node and check data integrity")
         node3.stop(gently=False)
@@ -459,10 +465,7 @@ class TestIncRepair(Tester):
         node2.flush()
         node1.start(wait_for_binary_proto=True)
 
-        if cluster.version() >= "2.2":
-            node1.repair()
-        else:
-            node1.nodetool("repair -par -inc")
+        self.repair(node1)
 
         if cluster.version() >= '4.0':
             # sstables are compacted out of pending repair by a compaction
@@ -516,10 +519,7 @@ class TestIncRepair(Tester):
 
         node3.start(wait_for_binary_proto=True)
 
-        if cluster.version() >= "2.2":
-            node3.repair()
-        else:
-            node3.nodetool("repair -par -inc")
+        self.repair(node3)
         for x in range(0, 150):
             session.execute("insert into tab(key,val) values(" + str(x) + ",1)")
 
@@ -538,11 +538,15 @@ class TestIncRepair(Tester):
         cluster = self.cluster
         cluster.populate(2).start()
         node1, node2 = cluster.nodelist()
-        for x in xrange(0, 10):
+        for x in xrange(0, 2):
             node1.stress(['write', 'n=100k', 'no-warmup', '-rate', 'threads=10', '-schema', 'compaction(strategy=LeveledCompactionStrategy,sstable_size_in_mb=10)', 'replication(factor=2)'])
             cluster.flush()
             cluster.wait_for_compactions()
-            node1.nodetool("repair -full keyspace1 standard1")
+            self.repair(node1, options=["keyspace1 standard1"], incremental=False, force_anti_compaction=True)
+
+        # Make sure anti-compaction was executed during test
+        if self.cluster.version() < "4.0":
+            self.assertTrue(node1.grep_log("Starting anticompaction"))
 
     @attr('long')
     @skip('hangs CI')
@@ -573,20 +577,12 @@ class TestIncRepair(Tester):
         debug("Waiting compactions to finish")
         cluster.wait_for_compactions()
 
-        if self.cluster.version() >= '2.2':
-            debug("Repairing node1")
-            node1.nodetool("repair")
-            debug("Repairing node2")
-            node2.nodetool("repair")
-            debug("Repairing node3")
-            node3.nodetool("repair")
-        else:
-            debug("Repairing node1")
-            node1.nodetool("repair -par -inc")
-            debug("Repairing node2")
-            node2.nodetool("repair -par -inc")
-            debug("Repairing node3")
-            node3.nodetool("repair -par -inc")
+        debug("Repairing node1")
+        self.repair(node1)
+        debug("Repairing node2")
+        self.repair(node2)
+        debug("Repairing node3")
+        self.repair(node3)
 
         # Using "print" instead of debug() here is on purpose.  The compactions
         # take a long time and don't print anything by default, which can result
@@ -630,16 +626,14 @@ class TestIncRepair(Tester):
         debug("Flushing nodes")
         cluster.flush()
 
-        repair_options = '' if self.cluster.version() >= '2.2' else '-inc -par'
-
         debug("Repairing node 1")
-        node1.nodetool("repair {}".format(repair_options))
+        self.repair(node1)
         debug("Repairing node 2")
-        node2.nodetool("repair {}".format(repair_options))
+        self.repair(node2)
         debug("Repairing node 3")
-        node3.nodetool("repair {}".format(repair_options))
+        self.repair(node3)
         debug("Repairing node 4")
-        node4.nodetool("repair {}".format(repair_options))
+        self.repair(node4)
 
         if cluster.version() >= '4.0':
             # sstables are compacted out of pending repair by a compaction
@@ -667,7 +661,7 @@ class TestIncRepair(Tester):
         for i in range(1000):
             session.execute(stmt, (i, i))
 
-        node1.repair(options=['ks'])
+        self.repair(node1, options=['ks'])
 
         for i in range(1000):
             v = i + 1000
@@ -675,14 +669,14 @@ class TestIncRepair(Tester):
 
         # everything should be in sync
         for node in cluster.nodelist():
-            result = node.repair(options=['ks', '--validate'])
+            result = self.repair(node, options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
 
         node2.nodetool('move {}'.format(2**16))
 
         # everything should still be in sync
         for node in cluster.nodelist():
-            result = node.repair(options=['ks', '--validate'])
+            result = self.repair(node, options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
 
     @no_vnodes()
@@ -703,7 +697,7 @@ class TestIncRepair(Tester):
         for i in range(1000):
             session.execute(stmt, (i, i))
 
-        node1.repair(options=['ks'])
+        self.repair(node1, options=['ks'])
 
         for i in range(1000):
             v = i + 1000
@@ -711,14 +705,14 @@ class TestIncRepair(Tester):
 
         # everything should be in sync
         for node in cluster.nodelist():
-            result = node.repair(options=['ks', '--validate'])
+            result = self.repair(node, options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
 
         node2.nodetool('decommission')
 
         # everything should still be in sync
         for node in [node1, node3, node4]:
-            result = node.repair(options=['ks', '--validate'])
+            result = self.repair(node, options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
 
     @no_vnodes()
@@ -739,7 +733,7 @@ class TestIncRepair(Tester):
         for i in range(1000):
             session.execute(stmt, (i, i))
 
-        node1.repair(options=['ks'])
+        self.repair(node1, options=['ks'])
 
         for i in range(1000):
             v = i + 1000
@@ -747,7 +741,7 @@ class TestIncRepair(Tester):
 
         # everything should be in sync
         for node in [node1, node2, node3]:
-            result = node.repair(options=['ks', '--validate'])
+            result = self.repair(node, options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
 
         node4 = new_node(self.cluster)
@@ -756,7 +750,7 @@ class TestIncRepair(Tester):
         self.assertEqual(len(self.cluster.nodelist()), 4)
         # everything should still be in sync
         for node in self.cluster.nodelist():
-            result = node.repair(options=['ks', '--validate'])
+            result = self.repair(node, options=['ks', '--validate'])
             self.assertIn("Repaired data is in sync", result.stdout)
 
     @since('3.0')
@@ -901,7 +895,7 @@ class TestIncRepair(Tester):
         mark = node2.mark_log()
 
         debug("Run repair on node1")
-        node1.nodetool('repair ks cf1')
+        self.repair(node1, options=['ks cf1'])
 
         if fail_during_anticompaction:
             self.assertTrue(node2.grep_log("Dummy failure", from_mark=mark))
@@ -913,9 +907,9 @@ class TestIncRepair(Tester):
         # When testing anti-compaction failure, the RF is higher (3), so we need to repair node3
         # to ensure all dataset will be repaired
         if fail_during_anticompaction:
-            debug("Run repair on node2")
+            debug("Run repair on node3")
             node3 = cluster.nodelist()[2]
-            node3.nodetool('repair ks cf1')
+            self.repair(node3, options=['ks cf1'])
 
         repair_time = time.time()
 
@@ -943,10 +937,12 @@ class TestIncRepair(Tester):
                            [['k{}'.format(i), 'v{}'.format(j), 'value']], cl=ConsistencyLevel.ALL)
 
         debug("Run repair again")
-        node1.nodetool('repair ks cf1')
+        self.repair(node1, options=['ks cf1'])
+        # When testing anti-compaction failure, the RF is higher (3), so we need to repair node3
+        # to ensure all dataset will be repaired
         if fail_during_anticompaction:
             node3 = cluster.nodelist()[2]
-            node3.nodetool('repair ks cf1')
+            self.repair(node3, options=['ks cf1'])
 
         node1.compact()
         node2.compact()
@@ -962,3 +958,132 @@ class TestIncRepair(Tester):
             for j in xrange(0, 100):
                 assert_all(session, "SELECT * FROM cf1 WHERE key = 'k{}' and c1 = 'v{}'".format(i, j),
                            [['k{}'.format(i), 'v{}'.format(j), 'value']], cl=ConsistencyLevel.ALL)
+
+    def mv_or_cdc_inc_repair_should_fallback_to_full_repair_test(self):
+        """
+        Test that incremental repair on MV tables will run full repair and log a warning
+        """
+        cluster = self.cluster
+        cluster.populate(3)
+        opts = {'hinted_handoff_enabled': False}
+
+        # cdc is only available on 3.10+
+        if cluster.version() >= '3.10':
+            opts['cdc_enabled'] = True
+
+        cluster.set_configuration_options(values=opts)
+        cluster.start()
+        node1 = cluster.nodelist()[0]
+
+        session = self.patient_cql_connection(node1)
+
+        debug("Creating keyspaces")
+        session.execute("CREATE KEYSPACE mv_only_ks WITH replication={'class':'SimpleStrategy', 'replication_factor':3}")
+        session.execute("CREATE KEYSPACE mixed_ks WITH replication={'class':'SimpleStrategy', 'replication_factor':3}")
+        session.execute("CREATE KEYSPACE non_mv_ks WITH replication={'class':'SimpleStrategy', 'replication_factor':3}")
+
+        debug("Creating tables and views")
+        session.execute("CREATE TABLE mv_only_ks.t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
+        session.execute(("CREATE MATERIALIZED VIEW mv_only_ks.t_by_v AS SELECT * FROM t "
+                         "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
+
+        session.execute("CREATE TABLE mixed_ks.t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
+        session.execute("CREATE TABLE mixed_ks.u (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
+        session.execute(("CREATE MATERIALIZED VIEW mixed_ks.t_by_v AS SELECT * FROM t "
+                         "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
+        # cdc is only available on 3.10+
+        if cluster.version() >= "3.10":
+            session.execute("CREATE TABLE mixed_ks.cdc (id int PRIMARY KEY, v int, v2 text, v3 decimal) WITH cdc = true")
+
+        session.execute("CREATE TABLE non_mv_ks.t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
+
+        node1, node2, node3 = self.cluster.nodelist()
+
+        debug('Shutdown node2')
+        node2.stop(wait_other_notice=True)
+
+        debug('Inserting data')
+
+        base_tables = ["mv_only_ks.t", "mixed_ks.t", "mixed_ks.u", "non_mv_ks.t"]
+        mvs = ["mv_only_ks.t_by_v", "mixed_ks.t_by_v"]
+
+        for i in xrange(1000):
+            for base_table in base_tables:
+                session.execute("INSERT INTO {base} (id, v, v2, v3) VALUES ({v}, {v}, 'a', 3.0)".format(base=base_table, v=i))
+
+        debug('Waiting for views to be inserted')
+        self._replay_batchlogs()
+
+        debug('Verify the data in the views with CL=ONE')
+        for i in xrange(1000):
+            for view in mvs:
+                assert_one(
+                    session,
+                    "SELECT * FROM {} WHERE v = {}".format(view, i),
+                    [i, i, 'a', 3.0]
+                )
+
+        debug('Verify the data in the views with CL=ALL. All should be unavailable.')
+        for i in xrange(1000):
+            for view in mvs:
+                statement = SimpleStatement(
+                    "SELECT * FROM {} WHERE v = {}".format(view, i),
+                    consistency_level=ConsistencyLevel.ALL
+                )
+
+                assert_unavailable(
+                    session.execute,
+                    statement
+                )
+
+        debug('Start node2, and repair')
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+        stdout, stderr, rc = self.repair(node1)
+
+        # cdc is only available on 3.10+
+        mixed_ks_tables = '\[t\_by\_v, cdc, t\]' if cluster.version() >= '3.10' else '\[t\_by\_v, t\]'
+
+        to_search = 'WARN: Incremental repair is not supported on tables with Materialized Views.* ' \
+                    'Running full repairs on table\(s\) mixed_ks.{}.'.format(mixed_ks_tables)
+
+        debug("Version: " + str(cluster.version()))
+        debug("to search: " + str(to_search))
+
+        debug(stdout)
+        self.assertTrue(re.compile('WARN: Incremental repair is not supported on '
+                                   'tables with Materialized Views.* Running full '
+                                   'repairs on table\(s\) mv_only_ks.\[t\_by\_v, t\].').search(stdout))
+        self.assertTrue(re.compile(to_search).search(stdout))
+
+        debug('Verify the data in the MV with CL=ONE. All should be available now.')
+        for i in xrange(1000):
+            for view in mvs:
+                assert_one(
+                    session,
+                    "SELECT * FROM {} WHERE v = {}".format(view, i),
+                    [i, i, 'a', 3.0],
+                    cl=ConsistencyLevel.ONE
+                )
+
+        self.assertTrue(node1.grep_log('repairing keyspace non_mv_ks .* incremental: true'), "Should have incrementally repaired non_mv_ks.")
+        self.assertTrue(node1.grep_log('repairing keyspace mv_only_ks .* incremental: false'), "Should not have incrementally repaired mv_only_ks.")
+        self.assertTrue(node1.grep_log('repairing keyspace mixed_ks .* incremental: false.*{}'.format(mixed_ks_tables)), "Should have split mixed_ks repair in full and incremental components.")
+        self.assertTrue(node1.grep_log('repairing keyspace mixed_ks .* incremental: true.*\[u\]'), "Should have split mixed_ks repair in full and incremental components.")
+
+    def repair(self, node, options=None, incremental=True, force_anti_compaction=False):
+        if options is None:
+            options = []
+
+        args = ["repair"]
+        args += get_repair_options(self.cluster.version(), incremental, force_anti_compaction)
+
+        args = args + options
+        cmd = ' '.join(args)
+        debug("will run " + cmd)
+        return node.nodetool(cmd)
+
+    def _replay_batchlogs(self):
+        debug("Replaying batchlog on all nodes")
+        for node in self.cluster.nodelist():
+            if node.is_running():
+                node.nodetool("replaybatchlog")

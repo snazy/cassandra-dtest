@@ -141,6 +141,7 @@ class TestDeprecatedRepairAPI(Tester):
         remove_perf_disable_shared_mem(node1)
         cluster.start()
         supports_pull_repair = cluster.version() >= LooseVersion('3.10')
+        supports_run_anticompaction = cluster.version() >= LooseVersion('3.0')
 
         session = self.patient_cql_connection(node1)
         create_ks(session, 'ks', 2)
@@ -155,17 +156,21 @@ class TestDeprecatedRepairAPI(Tester):
             self.assertEqual(jmx.execute_method(mbean, method, arguments), 1)
         # wait for log to start
         node1.watch_log_for("Starting repair command")
+
         # get repair parameters from the log
         l = node1.grep_log(("Starting repair command #1" + (" \([^\)]+\)" if cluster.version() >= LooseVersion("3.10") else "") +
                             ", repairing keyspace ks with repair options \(parallelism: (?P<parallelism>\w+), primary range: (?P<pr>\w+), "
-                            "incremental: (?P<incremental>\w+), job threads: (?P<jobs>\d+), ColumnFamilies: (?P<cfs>.+), dataCenters: (?P<dc>.+), "
-                            "hosts: (?P<hosts>.+), # of ranges: (?P<ranges>\d+)(, pull repair: (?P<pullrepair>true|false))?\)"))
+                            "incremental: (?P<incremental>\w+), job threads: (?P<jobs>\d+), ColumnFamilies: (?P<cfs>.+), dataCenters: (?P<dc>.+)"
+                            ", hosts: (?P<hosts>.+), (runAntiCompaction: (?P<runAntiCompaction>true|false))?, # of ranges: (?P<ranges>\d+)(, pull repair: (?P<pullrepair>true|false))?\)"))
 
         assert_length_equal(l, 1)
         line, m = l[0]
 
         if supports_pull_repair:
             self.assertEqual(m.group("pullrepair"), "false", "Pull repair cannot be enabled through the deprecated API so the pull repair option should always be false.")
+
+        if supports_run_anticompaction:
+            self.assertEqual(m.group("runAntiCompaction"), "false", "Run-anticompaction cannot be enabled through the deprecated API so this option should always be false.")
 
         return {"parallelism": m.group("parallelism"),
                 "primary_range": m.group("pr"),
