@@ -2,6 +2,7 @@ import os
 import sys
 import time
 from abc import ABCMeta
+from distutils.version import LooseVersion
 from unittest import skipIf
 
 from ccmlib.common import get_version_from_build, is_win
@@ -62,6 +63,7 @@ class UpgradeTester(Tester):
         self.ignore_log_patterns = self.ignore_log_patterns[:] + [
             r'RejectedExecutionException.*ThreadPoolExecutor has shut down',  # see  CASSANDRA-12364
         ]
+
         self.enable_for_jolokia = False
         super(UpgradeTester, self).__init__(*args, **kwargs)
 
@@ -146,6 +148,12 @@ class UpgradeTester(Tester):
         if is_win() and self.cluster.version() <= '2.2':
             node1.mark_log_for_errors()
 
+        # This error is harmless and fixed in CASSANDRA-12133, but we want
+        # to detect regressions in newer versions. We should ignore it if
+        # the version matches pre- or post-upgrade
+        if LooseVersion('3.0') <= get_version_from_build(node1.get_install_dir()) < LooseVersion('3.10'):
+            self.ignore_log_patterns.append("Failed to load Java8 implementation ohc-core-j8")
+
         debug('upgrading node1 to {}'.format(self.UPGRADE_PATH.upgrade_version))
         switch_jdks(self.UPGRADE_PATH.upgrade_meta.java_version)
 
@@ -163,6 +171,13 @@ class UpgradeTester(Tester):
         if (new_version_from_build >= '3' and self.protocol_version is not None and self.protocol_version < 3):
             self.skip('Protocol version {} incompatible '
                       'with Cassandra version {}'.format(self.protocol_version, new_version_from_build))
+
+        # This error is harmless and fixed in CASSANDRA-12133, but we want
+        # to detect regressions in newer versions. We should ignore it if
+        # the version matches pre- or post-upgrade
+        if LooseVersion('3.0') <= new_version_from_build < LooseVersion('3.10'):
+            self.ignore_log_patterns.append("Failed to load Java8 implementation ohc-core-j8")
+
         node1.set_log_level("DEBUG" if DEBUG else "TRACE" if TRACE else "INFO")
         node1.set_configuration_options(values={'internode_compression': 'none'})
 

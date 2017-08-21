@@ -1,4 +1,5 @@
 import time
+from distutils.version import LooseVersion
 
 from dse.concurrent import execute_concurrent_with_args
 
@@ -9,7 +10,16 @@ from tools.data import create_ks
 class TestGlobalRowKeyCache(Tester):
 
     def functional_test(self):
+        if not hasattr(self, 'ignore_log_patterns'):
+            self.ignore_log_patterns = []
+
+        expected_error = "Failed to load Java8 implementation ohc-core-j8"
         cluster = self.cluster
+        # This error is harmless and fixed in CASSANDRA-12133, but we want
+        # to detect regressions in newer versions
+        if LooseVersion('3.0') <= cluster.version() < LooseVersion('3.10'):
+            self.ignore_log_patterns.append(expected_error)
+
         cluster.populate(3)
         node1 = cluster.nodelist()[0]
 
