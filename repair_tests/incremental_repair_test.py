@@ -958,6 +958,7 @@ class TestIncRepair(Tester):
                 assert_all(session, "SELECT * FROM cf1 WHERE key = 'k{}' and c1 = 'v{}'".format(i, j),
                            [['k{}'.format(i), 'v{}'.format(j), 'value']], cl=ConsistencyLevel.ALL)
 
+    @since('3.0')
     def mv_or_cdc_inc_repair_should_fallback_to_full_repair_test(self):
         """
         Test that incremental repair on MV tables will run full repair and log a warning
