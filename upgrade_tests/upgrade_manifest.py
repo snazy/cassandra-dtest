@@ -87,10 +87,11 @@ class VersionMeta(namedtuple('_VersionMeta', ('name', 'family', 'variant', 'vers
     def clone_with_local_env_version(self):
         """
         Returns a new object cloned from this one, with the version replaced with the local env version.
-        If the version is specified as an alias, maintain the alias description.
+        If the version is specified as an alias and there's no local repository override,
+        maintain the alias description.
         """
-        if self.version.startswith('alias'):
-            gitref_suffix = CASSANDRA_GITREF.replace("git:", "")
+        gitref_suffix = CASSANDRA_GITREF.replace("git:", "")
+        if self.version.startswith('alias') and not gitref_suffix.startswith("local:"):
             gitref = "alias:apollo/{}".format(gitref_suffix)
         else:
             gitref = CASSANDRA_GITREF
