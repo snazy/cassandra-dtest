@@ -2765,6 +2765,39 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
 
         self.assert_no_permissions(cassandra, "LIST ALL PERMISSIONS OF role1")
 
+    @since("4.0")
+    def grant_revoke_list_multiple_test(self):
+        """
+        @jira_ticket: APOLLO-792
+        """
+
+        cassandra = self.get_session(user='cassandra', password='cassandra')
+        cassandra.execute("CREATE USER lazy WITH PASSWORD '12345'")
+
+        cassandra.execute("""CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}""")
+
+        self.assert_no_permissions(cassandra, "LIST ALL PERMISSIONS OF lazy")
+
+        cassandra.execute('GRANT SELECT, MODIFY ON KEYSPACE ks TO lazy')
+
+        expected_permissions = [('lazy', '<keyspace ks>', 'SELECT'),
+                                ('lazy', '<keyspace ks>', 'MODIFY')]
+        self.assert_permissions_listed(expected_permissions, cassandra, "LIST ALL PERMISSIONS OF lazy")
+
+        cassandra.execute('GRANT ALTER PERMISSION, CREATE ON KEYSPACE ks TO lazy')
+
+        expected_permissions = [('lazy', '<keyspace ks>', 'SELECT'),
+                                ('lazy', '<keyspace ks>', 'MODIFY'),
+                                ('lazy', '<keyspace ks>', 'ALTER'),
+                                ('lazy', '<keyspace ks>', 'CREATE')]
+        self.assert_permissions_listed(expected_permissions, cassandra, "LIST ALL PERMISSIONS OF lazy")
+
+        cassandra.execute('REVOKE MODIFY, ALTER PERMISSION ON KEYSPACE ks FROM lazy')
+
+        expected_permissions = [('lazy', '<keyspace ks>', 'SELECT'),
+                                ('lazy', '<keyspace ks>', 'CREATE')]
+        self.assert_permissions_listed(expected_permissions, cassandra, "LIST ALL PERMISSIONS OF lazy")
+
     def setup_table(self, session):
         session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':1}")
         session.execute("CREATE TABLE ks.t1 (k int PRIMARY KEY, v int)")
