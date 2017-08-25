@@ -150,8 +150,10 @@ class TestBootstrap(BaseBootstrapTest):
         2*streaming_keep_alive_period_in_secs to receive a single sstable
         """
         cluster = self.cluster
-        cluster.set_configuration_options(values={'streaming_socket_timeout_in_ms': 1000,
-                                                  'streaming_keep_alive_period_in_secs': 2})
+        yaml_opts = {'streaming_keep_alive_period_in_secs': 2}
+        if cluster.version() < '4.0':
+            yamp_opts['streaming_socket_timeout_in_ms'] = 1000
+        cluster.set_configuration_options(values=yaml_opts)
 
         # Create a single node cluster
         cluster.populate(1)
@@ -310,7 +312,10 @@ class TestBootstrap(BaseBootstrapTest):
 
         cluster.start()
         # kill stream to node3 in the middle of streaming to let it fail
-        node1.byteman_submit(['./byteman/stream_failure.btm'])
+        if cluster.version() < '4.0':
+            node1.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
+        else:
+            node1.byteman_submit(['./byteman/4.0/stream_failure.btm'])
         node1.stress(['write', 'n=1K', 'no-warmup', 'cl=TWO', '-schema', 'replication(factor=2)', '-rate', 'threads=50'])
         cluster.flush()
 
