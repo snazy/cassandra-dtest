@@ -228,7 +228,7 @@ class TestNodetool(Tester):
                  'truncate', 'misc']
         if cluster.version() < '4.0':
             types.append('streamingsocket')
-    
+
         # read all of the timeouts, make sure we get a sane response
         for timeout_type in types:
             out, err, _ = node.nodetool('gettimeout {}'.format(timeout_type))

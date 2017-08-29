@@ -12,6 +12,7 @@ from tools.decorators import since
 _LOG_ERR_HANDSHAKE = "javax.net.ssl.SSLHandshakeException"
 _LOG_ERR_GENERAL = "javax.net.ssl.SSLException"
 
+
 @since('3.6')
 class TestNodeToNodeSSLEncryption(Tester):
 
