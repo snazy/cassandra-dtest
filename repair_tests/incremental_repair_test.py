@@ -1670,10 +1670,10 @@ class TestIncRepair(Tester):
 
         # repair should fail because node2 is down
         with self.assertRaises(ToolError):
-            node1.repair(options=['ks'])
+            self.repair(node1, options=['ks'])
 
         # run with force flag
-        node1.repair(options=['ks', '--force'])
+        self.repair(node1, options=['ks', '--force'])
 
         # ... and verify nothing was promoted to repaired
         self.assertNoRepairedSSTables(node1, 'ks')
@@ -1699,7 +1699,7 @@ class TestIncRepair(Tester):
             session.execute(stmt, (i, i))
 
         # run with force flag
-        node1.repair(options=['ks', '-hosts', ','.join([node1.address(), node2.address()])])
+        self.repair(node1, options=['ks', '-hosts', ','.join([node1.address(), node2.address()])])
 
         # ... and verify nothing was promoted to repaired
         self.assertNoRepairedSSTables(node1, 'ks')
@@ -1735,7 +1735,7 @@ class TestIncRepair(Tester):
         token = Murmur3Token.from_key(str(bytearray([0, 0, 0, 0])))
         # import ipdb; ipdb.set_trace()
         # run with force flag
-        node1.repair(options=['ks', '-st', str(token.value - 1), '-et', str(token.value)])
+        self.repair(node1, options=['ks', '-st', str(token.value - 1), '-et', str(token.value)])
 
         # verify we have a mix of repaired and unrepaired sstables
         self.assertRepairedAndUnrepaired(node1, 'ks')
