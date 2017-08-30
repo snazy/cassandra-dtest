@@ -6,6 +6,7 @@ import parse
 
 from collections import defaultdict
 from ccmlib.node import ToolError
+from distutils.version import LooseVersion
 from threading import Thread
 
 from dse import ConsistencyLevel as CL
@@ -310,15 +311,17 @@ class TestJMX(Tester):
         cluster = self.cluster
         cluster.populate(3)
 
-        cluster.set_configuration_options({
-            'continuous_paging': {
-                'max_concurrent_sessions': 24,
-                'max_session_pages': 10,
-                'max_page_size_mb': 8,
-                'max_client_wait_time_ms': 30000,
-                'max_local_query_time_ms': 5000
-            }
-        })
+        options = {
+            'max_concurrent_sessions': 24,
+            'max_session_pages': 10,
+            'max_page_size_mb': 8,
+            'max_local_query_time_ms': 5000
+        }
+
+        if self.cluster.version() < LooseVersion('4.0'):
+            options['max_client_wait_time_ms'] = 30000
+
+        cluster.set_configuration_options({'continuous_paging': options})
 
         node1 = cluster.nodelist()[0]
         remove_perf_disable_shared_mem(node1)
