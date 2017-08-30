@@ -61,36 +61,36 @@ class TestHelper(Tester):
         }[cl]
 
     def get_expected_consistency(self, idx, rf_factors, write_cl, read_cl):
+        """
+        Given a node index, identify to which data center we are connecting and return
+        the expected consistency: number of nodes we write to, read from, and whether
+        we should have strong consistency, that is whether R + W > N
+        """
+        nodes = [self.nodes] if isinstance(self.nodes, int) else self.nodes
+
+        def get_data_center():
             """
-            Given a node index, identify to which data center we are connecting and return
-            the expected consistency: number of nodes we write to, read from, and whether
-            we should have strong consistency, that is whether R + W > N
+            :return: the data center corresponding to this node
             """
-            nodes = [self.nodes] if isinstance(self.nodes, int) else self.nodes
+            dc = 0
+            for i in xrange(1, len(nodes)):
+                if idx < sum(nodes[:i]):
+                    break
+                dc += 1
+            return dc
 
-            def get_data_center():
-                """
-                :return: the data center corresponding to this node
-                """
-                dc = 0
-                for i in xrange(1, len(nodes)):
-                    if idx < sum(nodes[:i]):
-                        break
-                    dc += 1
-                return dc
+        data_center = get_data_center()
+        if write_cl == ConsistencyLevel.EACH_QUORUM:
+            write_nodes = sum([self._required_nodes(write_cl, rf_factors, i) for i in range(0, len(nodes))])
+        else:
+            write_nodes = self._required_nodes(write_cl, rf_factors, data_center)
 
-            data_center = get_data_center()
-            if write_cl == ConsistencyLevel.EACH_QUORUM:
-                write_nodes = sum([self._required_nodes(write_cl, rf_factors, i) for i in range(0, len(nodes))])
-            else:
-                write_nodes = self._required_nodes(write_cl, rf_factors, data_center)
+        read_nodes = self._required_nodes(read_cl, rf_factors, data_center)
+        is_strong = read_nodes + write_nodes > sum(rf_factors)
 
-            read_nodes = self._required_nodes(read_cl, rf_factors, data_center)
-            is_strong = read_nodes + write_nodes > sum(rf_factors)
-
-            return ExpectedConsistency(num_write_nodes=write_nodes,
-                                       num_read_nodes=read_nodes,
-                                       is_strong=is_strong)
+        return ExpectedConsistency(num_write_nodes=write_nodes,
+                                   num_read_nodes=read_nodes,
+                                   is_strong=is_strong)
 
     def _should_succeed(self, cl, rf_factors, num_nodes_alive, current):
         """
@@ -538,7 +538,7 @@ class TestAccuracy(TestHelper):
                     valid_fcn(v)
                 except Queue.Empty:
                     pass
-                except:
+                except Exception:
                     exceptions_queue.put(sys.exc_info())
 
         start = 0
@@ -819,7 +819,7 @@ class TestConsistency(Tester):
         # prior to CASSANDRA-13747 this would cause an assertion in short read protection code
         node2.start(wait_other_notice=True)
         stmt = SimpleStatement("SELECT DISTINCT token(id), id FROM test.test;",
-                               consistency_level = ConsistencyLevel.ALL)
+                               consistency_level=ConsistencyLevel.ALL)
         result = list(session.execute(stmt))
         assert_length_equal(result, 5)
 
