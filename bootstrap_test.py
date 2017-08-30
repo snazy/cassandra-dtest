@@ -3,8 +3,9 @@ import random
 import re
 import shutil
 import tempfile
-import threading
 import time
+import threading
+from functools import reduce
 
 from ccmlib.node import NodeError
 from dse import ConsistencyLevel
@@ -673,6 +674,7 @@ class TestBootstrap(BaseBootstrapTest):
         @jira_ticket CASSANDRA-11179
         Make sure we remove processed files during cleanup
         """
+
         cluster = self.cluster
         cluster.set_configuration_options(values={'concurrent_compactors': 4})
         cluster.populate(1)
@@ -683,6 +685,70 @@ class TestBootstrap(BaseBootstrapTest):
             node1.flush()
         node2 = new_node(cluster)
         node2.start(wait_for_binary_proto=True, wait_other_notice=True)
+
+        # Use the old version of the test for C*/Apollo old versions
+        if self.cluster.version < "3.0":
+            self._test_cleanup_pre30(node1)
+            return
+
+        # number of concurrent cleanups
+        jobs = 1
+
+        # Make sure that we do not accidentally consider "tmp" sstable as an artifact of the stress run.
+        # I.e. wait until all flushes have completed.
+        grace_time = 30
+        tWaithUntil = time.time() + grace_time
+        while len(node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="tmp")) > 0:
+            if time.time() >= tWaithUntil:
+                self.fail("Temporary sstables after stress run did not disappear within {} seconds", grace_time)
+
+            # wait a little while and retry the check
+            time.sleep(1)
+
+        # Memoize the "final" sstables before cleanup (there are no "tmp" ones at this point).
+        sstables_before_cleanup = set(node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="final"))
+
+        # Run cleanup
+        node1.nodetool("cleanup -j {} keyspace1 standard1".format(jobs))
+
+        # Even when 'cleanup' has finished, old sstables are probably still present and new
+        # sstables not yet there or still in "tmp" state. It may take a while until old sstables
+        # disappear and new ones are present and "final". Wait up to 2 minutes.
+        grace_time = 120
+        tWaithUntil = time.time() + grace_time
+        while True:
+
+            # Current list of sstables
+            current_sstables = node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="final")
+
+            # Check if any 'old' sstable is still contained in the current list of sstables
+            overlap = reduce((lambda a, b: a | b), [sstable in sstables_before_cleanup for sstable in current_sstables])
+
+            # Grab "tmp" sstables - there should be none after the cleanup at some point in the future
+            tmp_sstables = node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="tmp")
+
+            if not overlap and len(tmp_sstables) == 0:
+                # no old sstables present, check if the number of sstables is equal
+                self.assertEqual(len(sstables_before_cleanup), len(current_sstables),
+                                 "Expected {} sstables, but have {} final sstables".format(len(sstables_before_cleanup), len(current_sstables)))
+                break
+
+            # Assertion shall fail, if (not all) old sstables have disappeared and time to wait (2 minutes) has elapsed
+            if time.time() >= tWaithUntil:
+                self.fail("""Old sstables were not cleaned up within {} seconds.
+                Old sstables: {}
+                Current sstables: {}
+                Temp sstables: {}
+                """.format(grace_time, sstables_before_cleanup, current_sstables, tmp_sstables))
+
+            # Wait a little while and retry the check
+            time.sleep(1)
+
+    def _test_cleanup_pre30(self, node1):
+        """
+        @jira_ticket CASSANDRA-11179
+        Make sure we remove processed files during cleanup
+        """
         event = threading.Event()
         failed = threading.Event()
         jobs = 1
