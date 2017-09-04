@@ -448,6 +448,8 @@ class TestRebuild(Tester):
         Then start the 4th node, issue the rebuild command and verify the data is on the 4th node.
         """
 
+        debug("nodetool reset/refetch iteration with 'nodetool {}'".format(nodetoolCmd))
+
         # verify topology
         assert_length_equal(sessions, 3, "Expecting 3 driver sessions in param 'sessions'")
         nodes = rebuild_node.cluster.nodelist()
@@ -507,7 +509,20 @@ class TestRebuild(Tester):
         # rebuild refetch/reset
         rebuild_node.mark_log()
         rebuild_node.mark_log_for_errors()
-        rebuild_node.nodetool(nodetoolCmd)
+        out, err, _ = rebuild_node.nodetool("ring")
+        debug("""Output of 'nodetool ring':
+        stdout:
+        {}
+        stderr:
+        {}
+        """.format(out, err))
+        out, err, _ = rebuild_node.nodetool(nodetoolCmd)
+        debug("""Output of 'nodetool {}':
+        stdout:
+        {}
+        stderr:
+        {}
+        """.format(nodetoolCmd, out, err))
         # Expect the nodetool command to _not_ let the node log the "Streaming range ... from 127.0.0.3" message,
         # because that would indicate that it is streaming from that node, which is what don't want.
         with self.assertRaises(TimeoutError):
@@ -526,14 +541,10 @@ class TestRebuild(Tester):
         rebuild_node_session.cluster.shutdown()
 
     def _expect_bootstrap_error(self, node, jvm_args, expected_error):
+        debug("Expect bootstrap error '{}' with {}".format(expected_error, jvm_args))
         node.start(wait_other_notice=False, wait_for_binary_proto=False, jvm_args=jvm_args)
         node.watch_log_for(expected_error, timeout=60)
-        # TL;DR: node didn't start successfully - have to set node.pid=None
-        # Long version: The method expects an error during bootstrap. node.start() starts the process and stores
-        # the PID in pid. However, since bootstrap fails (as expected), the process dies, but pid is still not None.
-        # Following calls against node (e.g. stop() or start()) assume the node is still up, because pid still holds
-        # the PID. Especially Node.__update_status() relies on the state of pid.
-        node.pid = None
+        node.stop()
         node.mark_log_for_errors()
 
     @since("3.0")
@@ -609,9 +620,9 @@ class TestRebuild(Tester):
                                      "known DC in this cluster")
 
         # Specifying a non-existing source must not succeed.
-        self._expect_bootstrap_error(rebuild_node, ['-Dcassandra.bootstrap.includeSources=123.123.123.123',
+        self._expect_bootstrap_error(rebuild_node, ['-Dcassandra.bootstrap.includeSources=127.254.253.252',
                                                     '-Dcassandra.ring_delay_ms=5000'],
-                                     "org.apache.cassandra.exceptions.ConfigurationException: Source '/123.123.123.123' "
+                                     "org.apache.cassandra.exceptions.ConfigurationException: Source '/127.254.253.252' "
                                      "is not a known node in this cluster")
 
         # This cannot succeed either (consistent range movement doesn't work with "advanced" source filtering).
@@ -632,6 +643,8 @@ class TestRebuild(Tester):
         create_cf(sessions[0], 'cf', columns={'c1': 'text', 'c2': 'text'}, read_repair=0, speculative_retry='NONE')
         for session in sessions:
             session.execute('USE ks1')
+
+        debug("Checking 'nodetool rebuild' parameter errors")
 
         if dse6:
             # Specifying no rebuild source must not succeed.
