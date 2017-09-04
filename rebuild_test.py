@@ -194,7 +194,8 @@ class TestRebuild(Tester):
         session.execute("ALTER KEYSPACE system_auth WITH REPLICATION = {'class':'NetworkTopologyStrategy', 'dc1':1, 'dc2':1};")
 
         # Path to byteman script which makes the streaming to node2 throw an exception, making rebuild fail
-        if cluster.version() < '4.0':
+        # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
+        if True or cluster.version() < '4.0':
             script = ['./byteman/pre4.0/inject_failure_streaming_to_node2.btm']
         else:
             script = ['./byteman/4.0/inject_failure_streaming_to_node2.btm']

@@ -152,7 +152,8 @@ class TestBootstrap(BaseBootstrapTest):
         """
         cluster = self.cluster
         yaml_opts = {'streaming_keep_alive_period_in_secs': 2}
-        if cluster.version() < '4.0':
+        # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
+        if True or cluster.version() < '4.0':
             yaml_opts['streaming_socket_timeout_in_ms'] = 1000
         cluster.set_configuration_options(values=yaml_opts)
 
@@ -313,7 +314,8 @@ class TestBootstrap(BaseBootstrapTest):
 
         cluster.start()
         # kill stream to node3 in the middle of streaming to let it fail
-        if cluster.version() < '4.0':
+        # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
+        if True or cluster.version() < '4.0':
             node1.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
         else:
             node1.byteman_submit(['./byteman/4.0/stream_failure.btm'])

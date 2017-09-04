@@ -1196,7 +1196,8 @@ class TestPreJoinCallback(Tester):
             node1.import_config_files()
             node1.start(wait_for_binary_proto=True)
 
-            if cluster.version() < '4.0':
+            # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
+            if True or cluster.version() < '4.0':
                 node1.byteman_submit(['./byteman/pre4.0/inject_failure_streaming_to_node2.btm'])
             else:
                 node1.byteman_submit(['./byteman/4.0/inject_failure_streaming_to_node2.btm'])

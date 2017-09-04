@@ -456,7 +456,8 @@ class TestReplaceAddress(BaseReplaceAddressTest):
 
         debug("Submitting byteman script to make stream fail")
 
-        if self.cluster.version() < '4.0':
+        # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
+        if True or self.cluster.version() < '4.0':
             self.query_node.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
             self._do_replace(jvm_option='replace_address_first_boot',
                              opts={'streaming_socket_timeout_in_ms': 1000})

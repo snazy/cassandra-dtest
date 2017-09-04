@@ -212,7 +212,8 @@ class TestTopology(Tester):
 
         # Execute first rebuild, should fail
         with self.assertRaises(ToolError):
-            if cluster.version() >= '4.0':
+            # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
+            if False and cluster.version() >= '4.0':
                 script = ['./byteman/4.0/decommission_failure_inject.btm']
             else:
                 script = ['./byteman/pre4.0/decommission_failure_inject.btm']
