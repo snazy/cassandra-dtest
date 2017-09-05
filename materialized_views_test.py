@@ -982,11 +982,11 @@ class TestMaterializedViews(Tester):
                 cl=ConsistencyLevel.ALL
             )
 
-    @since('3.0')
+    @since('3.0', max_version='4')
     def test_no_base_column_in_view_pk_complex_timestamp_with_flush(self):
         self._test_no_base_column_in_view_pk_complex_timestamp(flush=True)
 
-    @since('3.0')
+    @since('3.0', max_version='4')
     def test_no_base_column_in_view_pk_complex_timestamp_without_flush(self):
         self._test_no_base_column_in_view_pk_complex_timestamp(flush=False)
 
@@ -1089,11 +1089,11 @@ class TestMaterializedViews(Tester):
         assert_none(session, "SELECT * FROM t")
         assert_none(session, "SELECT * FROM mv")
 
-    @since('3.0')
+    @since('3.0', max_version='4')
     def test_base_column_in_view_pk_complex_timestamp_with_flush(self):
         self._test_base_column_in_view_pk_complex_timestamp(flush=True)
 
-    @since('3.0')
+    @since('3.0', max_version='4')
     def test_base_column_in_view_pk_complex_timestamp_without_flush(self):
         self._test_base_column_in_view_pk_complex_timestamp(flush=False)
 
