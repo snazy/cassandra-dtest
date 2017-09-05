@@ -5,7 +5,7 @@ from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 
 from dtest import PRINT_DEBUG, Tester, debug
-from tools.assertions import assert_one
+from tools.assertions import (assert_one, assert_length_equal)
 from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 
@@ -191,14 +191,14 @@ class TestReadRepair(Tester):
         future = session1.execute_async(query, trace=True)
         future.result()
         trace = future.get_query_trace(max_wait=120)
-        self.check_trace_events(trace, True)
+        self.check_trace_events_read_repair(trace, True)
 
         # there should be read_repair messages for single partition query with IN
         query = SimpleStatement("SELECT * FROM rr_chance_ks.cf1 WHERE key in (2, 3, 4, 5)", consistency_level=ConsistencyLevel.ONE)
         future = session1.execute_async(query, trace=True)
         future.result()
         trace = future.get_query_trace(max_wait=120)
-        self.check_trace_events(trace, True)
+        self.check_trace_events_read_repair(trace, True)
 
         debug('Shutdown node1 and node3')
         node1.stop()
@@ -214,19 +214,87 @@ class TestReadRepair(Tester):
                 cl=ConsistencyLevel.ONE
             )
 
-    def check_trace_events(self, trace, expect_rr):
-        regex = r"Read-repair"
+    def check_trace_events_read_repair(self, trace, expected):
+        self.check_trace_events(trace, expected, regex=r"Read-repair")
+
+    def check_trace_events_digest_mismatch(self, trace, expected):
+        self.check_trace_events(trace, expected, regex=r"Digest mismatch: ([a-zA-Z.]+:\s)?Mismatch for key DecoratedKey")
+
+    def check_trace_events(self, trace, expected, regex):
         for event in trace.events:
             desc = event.description
             match = re.match(regex, desc)
             if match:
-                if expect_rr:
+                if expected:
                     break
                 else:
-                    self.fail("Encountered read repair when we shouldn't")
+                    self.fail("Encountered {} when we shouldn't".format(regex))
         else:
-            if expect_rr:
-                self.fail("Didn't find read repair")
+            if expected:
+                self.fail("Didn't find {}".format(regex))
+
+    @since('3.0')
+    def test_digest_mismatch_in_local_response(self):
+        """
+        APOLLO-1028: there should be no digest mismatch for non-existing data.
+
+        The error was due to LocalResponse: Btree has filtered empty parition, so partition header info is not digested
+        """
+        node1 = self.cluster.nodelist()[0]
+
+        session = self.patient_exclusive_cql_connection(node1)
+        session.max_trace_wait = 120
+
+        create_ks(session, 'ks_no_data', 3)
+        session.execute("CREATE TABLE ks_no_data.t (id int PRIMARY KEY, v int, v2 text, v3 decimal) WITH read_repair_chance=0.0 AND dclocal_read_repair_chance=0.0")
+
+        # for non-existing data
+        for i in range(0, 99):  # wait for localDelivery on coordinator
+            query = SimpleStatement("SELECT * FROM ks_no_data.t WHERE id = {}".format(i), consistency_level=ConsistencyLevel.ALL)
+            result = session.execute(query, trace=True)
+            assert_length_equal(result.current_rows, 0)
+            self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
+
+        for i in range(0, 99):  # wait for localDelivery on coordinator
+            query = SimpleStatement("SELECT id, v FROM ks_no_data.t WHERE id = {}".format(i), consistency_level=ConsistencyLevel.ALL)
+            result = session.execute(query, trace=True)
+            assert_length_equal(result.current_rows, 0)
+            self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
+
+        # for existing data
+        for i in range(100, 200):
+            session.execute(SimpleStatement("INSERT INTO ks_no_data.t (id, v, v2, v3) VALUES (%d, %d, '%s', %f)" % (i, i, 'a', 3.0),
+                                            consistency_level=ConsistencyLevel.ALL))
+
+        for i in range(100, 200):
+            query = SimpleStatement("SELECT id, v FROM ks_no_data.t WHERE id = {}".format(i), consistency_level=ConsistencyLevel.ALL)
+            result = session.execute(query, trace=True)
+            assert_length_equal(result.current_rows, 1)
+            self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
+
+        for i in range(100, 200):
+            query = SimpleStatement("SELECT * FROM ks_no_data.t WHERE id = {}".format(i), consistency_level=ConsistencyLevel.ALL)
+            result = session.execute(query, trace=True)
+            assert_length_equal(result.current_rows, 1)
+            self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
+
+        # test IN with existing key + non-existing key
+        for i in range(100, 150):
+            query = SimpleStatement("SELECT * FROM ks_no_data.t WHERE id in ({},{},{})".format(i, i + 1, 1), consistency_level=ConsistencyLevel.ALL)
+            result = session.execute(query, trace=True)
+            assert_length_equal(result.current_rows, 2)
+            self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
+
+        # test tombstone
+        for i in range(100, 200):
+            session.execute(SimpleStatement("DELETE FROM ks_no_data.t WHERE id = {}".format(i),
+                                            consistency_level=ConsistencyLevel.ALL))
+
+        for i in range(100, 200):
+            query = SimpleStatement("SELECT * FROM ks_no_data.t WHERE id = {}".format(i), consistency_level=ConsistencyLevel.ALL)
+            result = session.execute(query, trace=True)
+            assert_length_equal(result.current_rows, 0)
+            self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
 
     @since('3.0')
     def test_gcable_tombstone_resurrection_on_range_slice_query(self):
