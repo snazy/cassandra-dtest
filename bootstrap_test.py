@@ -689,7 +689,7 @@ class TestBootstrap(BaseBootstrapTest):
         node2.start(wait_for_binary_proto=True, wait_other_notice=True)
 
         # Use the old version of the test for C*/Apollo old versions
-        if self.cluster.version < "3.0":
+        if self.cluster.version() < "3.0":
             self._test_cleanup_pre30(node1)
             return
 
