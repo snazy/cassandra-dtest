@@ -700,7 +700,7 @@ class TestBootstrap(BaseBootstrapTest):
         # I.e. wait until all flushes have completed.
         grace_time = 30
         tWaithUntil = time.time() + grace_time
-        while len(node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="tmp")) > 0:
+        while len(node1.get_sstables_via_sstableutil("keyspace1", "standard1", sstabletype="tmp")) > 0:
             if time.time() >= tWaithUntil:
                 self.fail("Temporary sstables after stress run did not disappear within {} seconds", grace_time)
 
@@ -708,7 +708,7 @@ class TestBootstrap(BaseBootstrapTest):
             time.sleep(1)
 
         # Memoize the "final" sstables before cleanup (there are no "tmp" ones at this point).
-        sstables_before_cleanup = set(node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="final"))
+        sstables_before_cleanup = set(node1.get_sstables_via_sstableutil("keyspace1", "standard1", sstabletype="final"))
 
         # Run cleanup
         node1.nodetool("cleanup -j {} keyspace1 standard1".format(jobs))
@@ -721,13 +721,13 @@ class TestBootstrap(BaseBootstrapTest):
         while True:
 
             # Current list of sstables
-            current_sstables = node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="final")
+            current_sstables = node1.get_sstables_via_sstableutil("keyspace1", "standard1", sstabletype="final")
 
             # Check if any 'old' sstable is still contained in the current list of sstables
             overlap = reduce((lambda a, b: a | b), [sstable in sstables_before_cleanup for sstable in current_sstables])
 
             # Grab "tmp" sstables - there should be none after the cleanup at some point in the future
-            tmp_sstables = node1.get_sstables_via_sstableutil("keyspace1", "standard1", type="tmp")
+            tmp_sstables = node1.get_sstables_via_sstableutil("keyspace1", "standard1", sstabletype="tmp")
 
             if not overlap and len(tmp_sstables) == 0:
                 # no old sstables present, check if the number of sstables is equal
