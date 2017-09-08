@@ -32,15 +32,17 @@ class ConsistentState(object):
 
 def get_repair_options(version, incremental, force_anti_compaction=False):
     args = []
-    if version < "4.0":
+    if incremental:
+        if version >= "2.2":
+            args += ["-inc"]
+        else:
+            args += [" -par -inc"]
+    elif version < "4.0":
+        # on version < "4.0" inc. repair is run on previously repaired table
+        # so we force the '-full' flag to ensure full repair will always run
+        args += ["-full"]
         if force_anti_compaction:
             args += ["--run-anticompaction"]
-        if incremental:
-            args += ["-inc"] if version >= "2.2" else [" -par -inc"]
-        elif version >= "2.2":
-            args += ["-full"]
-    elif not incremental:
-            args += ["-full"]  # Incremental repair is default on 4.0+
     return args
 
 
@@ -326,7 +328,6 @@ class TestIncRepair(Tester):
         node1.stress(['write', 'n=10K', 'no-warmup', '-schema', 'replication(factor=3)'])
         node1.flush()
         node2.flush()
-
         node3.start(wait_other_notice=True)
         if node3.get_cassandra_version() < '2.2':
             log_file = 'system.log'
@@ -531,10 +532,12 @@ class TestIncRepair(Tester):
         for x in range(0, 150):
             assert_one(session, "select val from tab where key =" + str(x), [1])
 
-    @since("2.2")
+    @since("2.2", max_version='4')
     def multiple_full_repairs_lcs_test(self):
         """
         @jira_ticket CASSANDRA-11172 - repeated full repairs should not cause infinite loop in getNextBackgroundTask
+        This test only makes sense when anti-compaction is executed after full repairs, which
+        is not the case on 4.0
         """
         cluster = self.cluster
         cluster.populate(2).start()
@@ -546,8 +549,7 @@ class TestIncRepair(Tester):
             self.repair(node1, options=["keyspace1 standard1"], incremental=False, force_anti_compaction=True)
 
         # Make sure anti-compaction was executed during test
-        if self.cluster.version() < "4.0":
-            self.assertTrue(node1.grep_log("Starting anticompaction"))
+        self.assertTrue(node1.grep_log("Starting anticompaction"), "Did not run anti-compaction with --run-anti-compaction option.")
 
     @attr('long')
     @skip('hangs CI')
@@ -961,9 +963,10 @@ class TestIncRepair(Tester):
                            [['k{}'.format(i), 'v{}'.format(j), 'value']], cl=ConsistencyLevel.ALL)
 
     @since('3.0')
-    def mv_or_cdc_inc_repair_should_fallback_to_full_repair_test(self):
+    def inc_repair_on_mv_or_cdc_tables_test(self):
         """
-        Test that incremental repair on MV tables will run full repair and log a warning
+        On dse5.0 and dse5.1, incremental repair on MV tables should fallback to full repair and log a warning.
+        On dse6.0, incremental repair on MV tables should fail.
         """
         cluster = self.cluster
         cluster.populate(3)
@@ -972,6 +975,8 @@ class TestIncRepair(Tester):
         # cdc is only available on 3.10+
         if cluster.version() >= '3.10':
             opts['cdc_enabled'] = True
+        elif cluster.version() >= '4.0':
+            self.ignore_log_patterns = ["incremental repair is not supported on tables with materialized views or CDC-enabled"]
 
         cluster.set_configuration_options(values=opts)
         cluster.start()
@@ -1040,7 +1045,17 @@ class TestIncRepair(Tester):
 
         debug('Start node2, and repair')
         node2.start(wait_other_notice=True, wait_for_binary_proto=True)
-        stdout, stderr, rc = self.repair(node1)
+
+        try:
+            stdout, stderr, rc = self.repair(node1)
+        except ToolError as e:
+            if self.cluster.version() >= "4.0":
+                self.assertIn("because incremental repair is not supported on tables with materialized views or CDC-enabled",
+                              e.stderr)
+                return  # Nothing else to validate here
+            else:
+                self.fail("Running incremental repair on tables with MVs or CD should fallback "
+                          "to full repairs.")
 
         # cdc is only available on 3.10+
         mixed_ks_tables = '\[t\_by\_v, cdc, t\]' if cluster.version() >= '3.10' else '\[t\_by\_v, t\]'
