@@ -17,12 +17,12 @@ class TestExposePorts(Tester):
         cluster = self.cluster
         cluster.populate(3).start()
         query = """
-           SELECT 
-              native_transport_port, 
-              native_transport_port_ssl, 
-              storage_port, 
-              storage_port_ssl, 
-              jmx_port 
+           SELECT
+              native_transport_port,
+              native_transport_port_ssl,
+              storage_port,
+              storage_port_ssl,
+              jmx_port
            FROM system.local
         """
         for node in cluster.nodelist():
@@ -37,12 +37,12 @@ class TestExposePorts(Tester):
         cluster.populate(3).start()
         nodes = cluster.nodelist()
         query = """
-           SELECT 
-              native_transport_port, 
-              native_transport_port_ssl, 
-              storage_port, 
-              storage_port_ssl, 
-              jmx_port 
+           SELECT
+              native_transport_port,
+              native_transport_port_ssl,
+              storage_port,
+              storage_port_ssl,
+              jmx_port
            FROM system.peers
         """
         for node in nodes:
