@@ -177,6 +177,22 @@ def assert_none(session, query, cl=None, execution_profile=None):
     assert list_res == [], "Expected nothing from {}, but got {}".format(query, list_res)
 
 
+def assert_some(session, query, cl=None, execution_profile=None):
+    """
+    Assert query returns something
+    @param session Session to use
+    @param query Query to run
+    @param cl Optional Consistency Level setting. Default ONE
+
+    Examples:
+    assert_some(self.session1, "SELECT * FROM test where key=2;")
+    assert_some(cursor, "SELECT * FROM test WHERE k=2", cl=ConsistencyLevel.SERIAL)
+    """
+    res = _execute(session, query, cl=cl, execution_profile=execution_profile)
+    list_res = _rows_to_list(res)
+    assert list_res != [], "Expected something from {}, but got {}".format(query, list_res)
+
+
 def assert_all(session, query, expected, cl=None, ignore_order=False, execution_profile=None, timeout=None):
     """
     Assert query returns all expected items optionally in the correct order
