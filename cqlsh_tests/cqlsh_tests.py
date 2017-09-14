@@ -434,6 +434,26 @@ UPDATE varcharmaptable SET varcharvarintmap['Vitrum edere possum, mihi non nocet
 
         self.verify_glass(node1)
 
+    def test_source_nested(self):
+        """
+        Ensure nested SOURCE cmd works
+
+        @jira_ticket: APOLLO-1150
+        """
+        self.cluster.populate(1)
+        self.cluster.start()
+
+        node1, = self.cluster.nodelist()
+
+        test_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test1.cql')
+        self.assertTrue(os.path.exists(test_file))
+        output, err, _ = node1.run_cqlsh(cmds="SOURCE '{f}'".format(f=test_file))
+        self.assertEqual(err, "")
+
+        output, err, _ = node1.run_cqlsh(cmds="select count(*) from source_cmd_test.tbl")
+        self.assertEqual(err, "")
+        self.assertIn("2", output)
+
     def test_unicode_syntax_error(self):
         """
         Ensure that syntax errors involving unicode are handled correctly.
