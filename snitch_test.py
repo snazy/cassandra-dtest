@@ -92,9 +92,9 @@ class TestGossipingPropertyFileSnitch(Tester):
         debug(out)
 
         self.assertIn("/{}".format(NODE1_BROADCAST_ADDRESS), out)
-        self.assertIn("INTERNAL_IP:6:{}".format(NODE1_LISTEN_ADDRESS), out)
+        self.assertRegexpMatches(out, "INTERNAL_IP:\d+:{}".format(NODE1_LISTEN_ADDRESS))
         self.assertIn("/{}".format(NODE2_BROADCAST_ADDRESS), out)
-        self.assertIn("INTERNAL_IP:6:{}".format(NODE2_LISTEN_ADDRESS), out)
+        self.assertRegexpMatches(out, "INTERNAL_IP:\d+:{}".format(NODE2_LISTEN_ADDRESS))
 
 
 class TestDynamicEndpointSnitch(Tester):
