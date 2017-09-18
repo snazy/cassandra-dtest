@@ -1182,9 +1182,9 @@ class TestMaterializedViews(Tester):
         self.update_view(session, query, flush)
 
         debug('Starting node2')
-        node2.start(wait_other_notice=True)
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
         debug('Starting node3')
-        node3.start(wait_other_notice=True)
+        node3.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # For k = 1 & a = 1, We should get a digest mismatch of tombstones and repaired
         query = SimpleStatement("SELECT * FROM mv WHERE k = 1 AND a = 1", consistency_level=ConsistencyLevel.ALL)
@@ -1272,10 +1272,7 @@ class TestMaterializedViews(Tester):
         assert_one(session, "SELECT * FROM t", [1, 1, None, None])  # data deleted by row-tombstone@2 should not resurrect
 
         if flush:
-            for node in self.cluster.nodelist():
-                sstable_files = ' '.join(node.get_sstable_data_files('ks', 't_by_v'))
-                debug('Compacting {}'.format(sstable_files))
-                node.nodetool('compact --user-defined {}'.format(sstable_files))
+            self.cluster.compact()
             assert_one(session, "SELECT * FROM t_by_v", [1, 1, None, None])
             assert_one(session, "SELECT * FROM t", [1, 1, None, None])  # data deleted by row-tombstone@2 should not resurrect
 
