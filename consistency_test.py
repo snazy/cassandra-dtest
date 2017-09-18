@@ -890,7 +890,7 @@ class TestConsistency(Tester):
         assert_all(session,
                    'SELECT ck FROM test.test WHERE pk = 0 LIMIT 2;',
                    [[0], [4]],
-                   cl = ConsistencyLevel.ALL)
+                   cl=ConsistencyLevel.ALL)
 
     def short_read_test(self):
         """
