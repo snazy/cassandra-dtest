@@ -4,7 +4,6 @@ import threading
 import time
 from collections import OrderedDict, namedtuple
 from copy import deepcopy
-from unittest import skip
 
 from dse import ConsistencyLevel, consistency_value_to_name
 from dse.query import SimpleStatement
@@ -825,7 +824,6 @@ class TestConsistency(Tester):
         assert_length_equal(result, 5)
 
     @since('3.0')
-    @skip('Depends on APOLLO-1163')
     def test_12872(self):
         """
         @jira_ticket CASSANDRA-12872
