@@ -1,0 +1,10 @@
+RULE Kill node at commit
+CLASS org.apache.cassandra.repair.consistent.LocalSessions
+METHOD handleFinalizeCommitMessage
+AT ENTRY
+# set flag to only run this rule once.
+IF NOT flagged("done")
+DO
+   flag("done");
+   System.exit(1);
+ENDRULE

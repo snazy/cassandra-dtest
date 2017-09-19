@@ -1,5 +1,6 @@
 import time
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from collections import Counter, namedtuple
 from re import findall, compile
@@ -25,9 +26,8 @@ class ConsistentState(object):
     PREPARING = 0
     PREPARED = 1
     REPAIRING = 2
-    FINALIZE_PROMISED = 3
-    FINALIZED = 4
-    FAILED = 5
+    FINALIZED = 3
+    FAILED = 4
 
 
 def get_repair_options(version, incremental, force_anti_compaction=False):
@@ -44,6 +44,17 @@ def get_repair_options(version, incremental, force_anti_compaction=False):
         if force_anti_compaction:
             args += ["--run-anticompaction"]
     return args
+
+
+def table_metric(node, keyspace, table, name):
+    version = node.get_cassandra_version()
+    typeName = "ColumnFamily" if version <= '2.3' else 'Table'
+    with JolokiaAgent(node) as jmx:
+        mbean = make_mbean('metrics', type=typeName,
+                           name=name, keyspace=keyspace, scope=table)
+        value = jmx.read_attribute(mbean, 'Count')
+
+    return value
 
 
 class TestIncRepair(Tester):
@@ -132,35 +143,21 @@ class TestIncRepair(Tester):
             results = list(session.execute("SELECT * FROM system.repairs"))
             self.assertEqual(len(results), 0, str(results))
 
-        # disable compaction so we can verify sstables are marked pending repair
-        for node in cluster.nodelist():
-            node.nodetool('disableautocompaction ks tbl')
-
+        # repair
         self.repair(node1, options=['ks'])
 
         # check that all participating nodes have the repair recorded in their system
         # table, that all nodes are listed as participants, and that all sstables are
-        # (still) marked pending repair
+        # marked repair
         expected_participants = {n.address() for n in cluster.nodelist()}
-        recorded_pending_ids = set()
         for node in cluster.nodelist():
             session = self.patient_exclusive_cql_connection(node)
             results = list(session.execute("SELECT * FROM system.repairs"))
             self.assertEqual(len(results), 1)
             result = results[0]
             self.assertEqual(set(result.participants), expected_participants)
-            self.assertEqual(result.state, ConsistentState.FINALIZED, "4=FINALIZED")
+            self.assertEqual(result.state, ConsistentState.FINALIZED, "3=FINALIZED")
             pending_id = result.parent_id
-            self.assertAllPendingRepairSSTables(node, 'ks', pending_id)
-            recorded_pending_ids.add(pending_id)
-
-        self.assertEqual(len(recorded_pending_ids), 1)
-
-        # sstables are compacted out of pending repair by a compaction
-        # task, we disabled compaction earlier in the test, so here we
-        # force the compaction and check that all sstables are promoted
-        for node in cluster.nodelist():
-            node.nodetool('compact ks tbl')
             self.assertAllRepairedSSTables(node, 'ks')
 
     def _make_fake_session(self, keyspace, table):
@@ -1191,6 +1188,373 @@ class TestIncRepair(Tester):
                 self.wait_sstables_to_be_marked_repaired(node)
             self.assertAllRepairedSSTables(node, 'keyspace1')
 
+    def test_consistent_repair_failure_at_anticompaction_doesnt_cause_hanging(self):
+        """
+        @jira_ticket APOLLO-814
+        """
+        cluster = self.cluster
+        cluster.populate(2)
+        node1, node2 = cluster.nodelist()
+
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+
+        debug("Setting up byteman on node2")
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        debug("Starting cluster")
+        cluster.start()
+
+        session1 = self.patient_exclusive_cql_connection(node1)
+        create_ks(session1, 'ks', 2)
+
+        debug("Creating table")
+        session1.execute("""
+            CREATE TABLE cf (
+                key text,
+                v text,
+                PRIMARY KEY (key)
+            )
+            WITH compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'false'};
+        """)
+
+        debug("Inserting row")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v1')", consistency_level=ConsistencyLevel.ONE)
+        session1.execute(query)
+        cluster.flush()
+
+        debug("Installing byteman rule on node2 to kill the node")
+        node2.byteman_submit(['./byteman/repair_die_after_anticompaction.btm'])
+
+        debug("Running repair on node1")
+        executor = ThreadPoolExecutor(max_workers=1)
+        f = executor.submit(lambda: self.repair(node1, options=['ks cf']))
+
+        debug("Waiting for repair to abort")
+        self.assertIsNotNone(f.exception(60))
+
+    def test_restarting_after_failure_doesnt_unrepair_sessions(self):
+        """
+        @jira_ticket APOLLO-821
+        """
+        cluster = self.cluster
+        cluster.populate(2)
+        node1, node2 = cluster.nodelist()
+
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+
+        debug("Setting up byteman on node2")
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        debug("Starting cluster")
+        cluster.start()
+
+        session1 = self.patient_exclusive_cql_connection(node1)
+        create_ks(session1, 'ks', 2)
+
+        debug("Creating table")
+        session1.execute("""
+            CREATE TABLE cf (
+                key text,
+                v text,
+                PRIMARY KEY (key)
+            )
+            WITH compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'true'};
+        """)
+
+        debug("Inserting row")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v1')", consistency_level=ConsistencyLevel.ONE)
+        session1.execute(query)
+        cluster.flush()
+
+        preNode2DownMark = node1.mark_log()
+
+        debug("Installing byteman rule on node2 to kill the node")
+        node2.byteman_submit(['./byteman/repair_die_after_anticompaction.btm'])
+
+        debug("Running repair on node1")
+        executor = ThreadPoolExecutor(max_workers=1)
+        executor.submit(lambda: self.repair(node1, options=['ks cf']))
+
+        debug("Waiting for node2 to die")
+        node1.watch_log_for("InetAddress /127.0.0.2 is now DOWN", from_mark=preNode2DownMark, timeout=60)
+        node2.stop(gently=False)
+        debug("Sleeping to avoid picking up repair messages left by node1")
+        time.sleep(30)
+
+        debug("Setting up byteman startup rule on node2")
+        node2.byteman_startup_script = "./byteman/ars_slow_start.btm"
+        node2.import_config_files()
+
+        node2.start()
+
+        debug("Asserting sstables are still marked as pending repair")
+        self.assertAllPendingRepairSSTables(node2, 'ks')
+
+    def test_commit_failure_aborts_repair(self):
+        """
+        @jira_ticket APOLLO-815
+        """
+        cluster = self.cluster
+        cluster.populate(2)
+        node1, node2 = cluster.nodelist()
+
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+
+        debug("Setting up byteman on node2")
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        debug("Starting cluster")
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=['-Dcassandra.finalize_commit_timeout_seconds=10'])
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=['-Dcassandra.finalize_commit_timeout_seconds=10'])
+
+        session1 = self.patient_exclusive_cql_connection(node1)
+        create_ks(session1, 'ks', 2)
+
+        debug("Creating table")
+        session1.execute("""
+            CREATE TABLE cf (
+                key text,
+                v text,
+                PRIMARY KEY (key)
+            )
+            WITH compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'false'};
+        """)
+
+        debug("Inserting row")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v1')", consistency_level=ConsistencyLevel.ONE)
+        session1.execute(query)
+        cluster.flush()
+
+        debug("Installing byteman rule on node2 to kill the node at commit")
+        node2.byteman_submit(['./byteman/repair_die_at_commit.btm'])
+
+        debug("Running repair on node1")
+        executor = ThreadPoolExecutor(max_workers=1)
+        f = executor.submit(lambda: self.repair(node1, options=['ks cf']))
+
+        debug("Waiting for repair to abort")
+        self.assertIsNotNone(f.exception(60))
+
+    def test_consistent_repair_recovers_from_anticompaction_failure(self):
+        self._test_consistent_repair_recovers_from_failure("after_anticompaction",
+                                                           ConsistentState.FAILED, ConsistentState.PREPARING, ConsistentState.FAILED, ConsistentState.FAILED)
+
+    def test_consistent_repair_recovers_from_commit_failure(self):
+        self._test_consistent_repair_recovers_from_failure("at_commit",
+                                                           ConsistentState.FINALIZED, ConsistentState.REPAIRING, ConsistentState.FINALIZED, ConsistentState.FINALIZED)
+
+    def _test_consistent_repair_recovers_from_failure(self, stage, node1FailureState, node2FailureState, node1FinalState, node2FinalState):
+        """
+        @jira_ticket APOLLO-815
+        """
+        cluster = self.cluster
+        cluster.populate(2)
+        node1, node2 = cluster.nodelist()
+
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+
+        debug("Setting up byteman on node2")
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        debug("Starting cluster")
+        cluster.start()
+
+        session1 = self.patient_exclusive_cql_connection(node1)
+        session2 = self.patient_exclusive_cql_connection(node2)
+        create_ks(session1, 'ks', 2)
+
+        debug("Creating table")
+        session1.execute("""
+            CREATE TABLE cf (
+                key text,
+                v text,
+                PRIMARY KEY (key)
+            )
+            WITH compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'true'};
+        """)
+
+        debug("Stopping node2 so first row version is inserted only on node 1")
+        node2.stop(wait_other_notice=True)
+
+        debug("Inserting first row version")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v1')", consistency_level=ConsistencyLevel.ONE)
+        session1.execute(query)
+        cluster.flush()
+
+        debug("Stopping node1 and starting node2 to insert new row version on node2")
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+        session2 = self.patient_exclusive_cql_connection(node2)
+        node1.stop()
+
+        debug("Inserting new row version")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v2')", consistency_level=ConsistencyLevel.ONE)
+        session2.execute(query)
+        cluster.flush()
+
+        debug("Restarting node1")
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+        session1 = self.patient_exclusive_cql_connection(node1)
+
+        debug("Asserting sstables are unrepaired")
+        self.assertNoRepairedSSTables(node1, 'ks')
+        self.assertNoRepairedSSTables(node2, 'ks')
+
+        preNode2DownMark = node1.mark_log()
+
+        rule = './byteman/repair_die_{}.btm'.format(stage)
+        debug("Installing byteman rule {} on node2 to kill the node: this will leave the sstables in the pending bucket".format(rule))
+        node2.byteman_submit([rule])
+
+        debug("Running repair on node1")
+        executor = ThreadPoolExecutor(max_workers=1)
+        executor.submit(lambda: self.repair(node1, options=['ks cf']))
+
+        debug("Waiting for node2 to die")
+        node1.watch_log_for("InetAddress /127.0.0.2 is now DOWN", from_mark=preNode2DownMark, timeout=60)
+        node2.stop(gently=False)
+        debug("Sleeping to avoid picking up repair messages left by node1")
+        time.sleep(30)
+
+        debug("Restarting node2 which was killed during repair")
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+
+        debug("Asserting node2 sstables are marked as pending repair")
+        # node1 sstables might have been marked as unrepaired by background compaction
+        self.assertAllPendingRepairSSTables(node2, 'ks')
+
+        repairSession = self.getLocalSessionId(node1)
+
+        debug("Asserting failure session state for node1 is {} and for node2 is {}".format(node1FailureState, node2FailureState))
+        self.checkLocalSessionState(node1, repairSession, node1FailureState)
+        self.checkLocalSessionState(node2, repairSession, node2FailureState)
+
+        debug("Re-running repair on node1 repairs all sstables")
+        self.repair(node1, options=['ks cf'])
+        self.assertAllRepairedSSTables(node1, 'ks')
+        self.assertAllRepairedSSTables(node2, 'ks')
+
+        debug("Asserting final session state for node1 is {} and for node2 is {}".format(node1FinalState, node2FinalState))
+        self.checkLocalSessionState(node1, repairSession, node1FinalState)
+        self.checkLocalSessionState(node2, repairSession, node2FinalState)
+
+    def test_consistent_repair_cleanup_after_anticompaction_failure(self):
+        self._test_consistent_repair_cleanup("after_anticompaction", False)
+
+    def test_consistent_repair_cleanup_after_streaming_failure(self):
+        self.ignore_log_patterns = (r'Stream failed')
+        self._test_consistent_repair_cleanup("at_streaming", False)
+
+    def test_consistent_repair_cleanup_after_commit_failure(self):
+        self._test_consistent_repair_cleanup("at_commit", True)
+
+    def _test_consistent_repair_cleanup(self, stage, finalized):
+        """
+        @jira_ticket APOLLO-816
+        """
+        cluster = self.cluster
+        cluster.populate(3)
+        node1, node2, node3 = cluster.nodelist()
+
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+
+        debug("Setting up byteman on node2")
+        node2.byteman_port = '8100'
+        node2.import_config_files()
+
+        debug("Starting cluster")
+        cluster.start()
+
+        session1 = self.patient_exclusive_cql_connection(node1)
+        session2 = self.patient_exclusive_cql_connection(node2)
+        create_ks(session1, 'ks', 3)
+
+        debug("Creating table")
+        session1.execute("""
+            CREATE TABLE cf (
+                key text,
+                v text,
+                PRIMARY KEY (key)
+            )
+            WITH compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'false'};
+        """)
+
+        debug("Stopping node2 so first row version is inserted only on node 1")
+        node2.stop(wait_other_notice=True)
+
+        debug("Inserting first row version")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v1')", consistency_level=ConsistencyLevel.ONE)
+        session1.execute(query)
+        cluster.flush()
+
+        debug("Stopping node1 and starting node2 to insert new row version on node2")
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+        session2 = self.patient_exclusive_cql_connection(node2)
+        node1.stop()
+
+        debug("Inserting new row version")
+        query = SimpleStatement("INSERT INTO ks.cf (key, v) VALUES ('1', 'v2')", consistency_level=ConsistencyLevel.ONE)
+        session2.execute(query)
+        cluster.flush()
+
+        debug("Restarting node1")
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+        session1 = self.patient_exclusive_cql_connection(node1)
+
+        preNode2DownMark = node1.mark_log()
+
+        rule = './byteman/repair_die_{}.btm'.format(stage)
+        debug("Installing byteman rule {} on node2 to kill the node".format(rule))
+        node2.byteman_submit([rule])
+
+        debug("Running repair on node1")
+        executor = ThreadPoolExecutor(max_workers=1)
+        executor.submit(lambda: self.repair(node1, options=['ks cf']))
+
+        debug("Waiting for node2 to die")
+        node1.watch_log_for("InetAddress /127.0.0.2 is now DOWN", from_mark=preNode2DownMark, timeout=60)
+        node2.stop(gently=False)
+        debug("Sleeping to avoid picking up repair messages left by node1")
+        time.sleep(30)
+
+        debug("Restarting node2 which was killed during repair")
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=['-Dcassandra.repair_cleanup_interval_seconds=5', '-Dcassandra.repair_status_check_timeout_seconds=5'])
+
+        debug("Waiting for the cleanup thread to run")
+        preNode2CleanupMark = node2.mark_log()
+        node2.watch_log_for("Running LocalSessions.cleanup", from_mark=preNode2CleanupMark, timeout=60, filename='debug.log')
+
+        debug("Checking all nodes have the session marked as {}".format("finalized" if finalized else "failed"))
+        for node in cluster.nodelist():
+            session = self.patient_exclusive_cql_connection(node)
+            results = list(session.execute("SELECT * FROM system.repairs"))
+            self.assertEqual(len(results), 1)
+            result = results[0]
+            self.assertEqual(result.state, ConsistentState.FINALIZED if finalized else ConsistentState.FAILED)
+
+        debug("Checking all nodes have their sstables {}".format("repaired" if finalized else "unrepaired"))
+        for node in cluster.nodelist():
+            node.nodetool('compact ks cf')
+            if (finalized):
+                self.assertAllRepairedSSTables(node, 'ks')
+            else:
+                self.assertNoRepairedSSTables(node, 'ks')
+
+    def getLocalSessionId(self, node):
+        session = self.patient_exclusive_cql_connection(node)
+        results = list(session.execute("SELECT parent_id FROM system.repairs"))
+        self.assertEqual(len(results), 1)
+        return results[0].parent_id
+
+    def checkLocalSessionState(self, node, id, state):
+        session = self.patient_exclusive_cql_connection(node)
+        results = list(session.execute("SELECT * FROM system.repairs WHERE parent_id=%s", [id]))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].state, state)
+
     @since('3.0', max_version='4')
     def non_anticompacted_metric_test(self):
         """
@@ -1273,14 +1637,3 @@ class TestIncRepair(Tester):
 
         for x in range(40, 100):
             assert_one(session, "select val from tab where key =" + str(x), [1], cl=ConsistencyLevel.ALL)
-
-
-def table_metric(node, keyspace, table, name):
-    version = node.get_cassandra_version()
-    typeName = "ColumnFamily" if version <= '2.3' else 'Table'
-    with JolokiaAgent(node) as jmx:
-        mbean = make_mbean('metrics', type=typeName,
-                           name=name, keyspace=keyspace, scope=table)
-        value = jmx.read_attribute(mbean, 'Count')
-
-    return value
