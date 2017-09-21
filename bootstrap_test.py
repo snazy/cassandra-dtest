@@ -153,7 +153,7 @@ class TestBootstrap(BaseBootstrapTest):
         cluster = self.cluster
         yaml_opts = {'streaming_keep_alive_period_in_secs': 2}
         # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
-        if True or cluster.version() < '4.0':
+        if cluster.version() < '4.0':
             yaml_opts['streaming_socket_timeout_in_ms'] = 1000
         cluster.set_configuration_options(values=yaml_opts)
 

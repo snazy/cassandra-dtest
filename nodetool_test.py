@@ -226,8 +226,7 @@ class TestNodetool(Tester):
 
         types = ['read', 'range', 'write', 'counterwrite', 'cascontention',
                  'truncate', 'misc']
-        # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
-        if True or cluster.version() < '4.0':
+        if cluster.version() < '4.0':
             types.append('streamingsocket')
 
         # read all of the timeouts, make sure we get a sane response

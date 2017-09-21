@@ -2264,10 +2264,11 @@ class TestMaterializedViewsLockcontention(Tester):
         self.supports_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
         self.protocol_version = 5 if self.supports_v5_protocol else 4
 
-        self.cluster.set_configuration_options(values={
-            'concurrent_materialized_view_writes': 1,
-            'concurrent_writes': 1,
-        })
+        if self.cluster.version() < '4.0':
+            self.cluster.set_configuration_options(values={
+                'concurrent_materialized_view_writes': 1,
+                'concurrent_writes': 1,
+            })
         self.nodes = self.cluster.nodes.values()
         for node in self.nodes:
             remove_perf_disable_shared_mem(node)
@@ -2314,9 +2315,11 @@ class TestMaterializedViewsLockcontention(Tester):
 
         assert_one(session, "SELECT count(*) FROM test WHERE int1 = 1", [records2])
 
-        for node in self.nodes:
-            with JolokiaAgent(node) as jmx:
-                mutationStagePending = jmx.read_attribute(
-                    make_mbean('metrics', type="ThreadPools", path='request', scope='MutationStage', name='PendingTasks'), "Value"
-                )
-                assert_equal(0, mutationStagePending, "Pending mutations: {}".format(mutationStagePending))
+        # 4.0 would throw WouldBlockException
+        if self.cluster.version() < '4.0':
+            for node in self.nodes:
+                with JolokiaAgent(node) as jmx:
+                    mutationStagePending = jmx.read_attribute(
+                        make_mbean('metrics', type="ThreadPools", path='request', scope='MutationStage', name='PendingTasks'), "Value"
+                    )
+                    assert_equal(0, mutationStagePending, "Pending mutations: {}".format(mutationStagePending))
