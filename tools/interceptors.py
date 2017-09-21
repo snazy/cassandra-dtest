@@ -20,7 +20,7 @@ import types
 from enum import Enum
 from tools.jmxutils import JolokiaAgent
 
-_PREFIX = "datastax.net.interceptors"
+_PREFIX = "dse.net.interceptors"
 _JMX_TEMPLATE = "com.datastax.net:type=Interceptors,name=%s"
 
 
