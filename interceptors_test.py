@@ -21,6 +21,7 @@ from tools.preparation import get_local_reads_properties, prepare
 # focus writes on a single partition as that makes it a tad easier to reason
 # about (no underlying range queries for instance).
 
+
 def _create_table(session, guarantee_local_reads=False):
     cmd = "CREATE TABLE test (k int, v int, PRIMARY KEY(k, v))"
     if guarantee_local_reads:
