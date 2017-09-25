@@ -2,7 +2,7 @@ from ccmlib.node import TimeoutError
 from dse import ConsistencyLevel
 
 from dtest import Tester, debug
-from tools.data import create_ks, create_cf, insert_c1c2
+from tools.data import create_cf, create_ks, insert_c1c2
 
 
 class TestTriggers(Tester):

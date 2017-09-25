@@ -3,8 +3,8 @@ import random
 import re
 import shutil
 import tempfile
-import time
 import threading
+import time
 from functools import reduce
 
 from ccmlib.node import NodeError

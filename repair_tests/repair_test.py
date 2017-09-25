@@ -1,6 +1,6 @@
+import re
 import threading
 import time
-import re
 from collections import namedtuple
 from threading import Thread
 from unittest import skip, skipIf
@@ -9,9 +9,9 @@ from ccmlib.node import ToolError
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
-from incremental_repair_test import get_repair_options
 
 from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
+from incremental_repair_test import get_repair_options
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
 from tools.jmxutils import JolokiaAgent, remove_perf_disable_shared_mem

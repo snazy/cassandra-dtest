@@ -1,9 +1,9 @@
-import time
 import re
+import time
+from collections import Counter, namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from collections import Counter, namedtuple
-from re import findall, compile
+from re import compile, findall
 from unittest import skip
 from uuid import UUID, uuid1
 
@@ -14,12 +14,13 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
-from tools.assertions import assert_none, assert_almost_equal, assert_one, assert_all, assert_unavailable
+from tools.assertions import (assert_all, assert_almost_equal, assert_none,
+                              assert_one, assert_unavailable)
 from tools.data import create_cf, create_ks, insert_c1c2
-from tools.decorators import since, no_vnodes
-from tools.misc import new_node
+from tools.decorators import no_vnodes, since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
+from tools.misc import new_node
 
 
 class ConsistentState(object):

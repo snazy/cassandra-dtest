@@ -1,6 +1,10 @@
 """
 Home for upgrade-related tests that don't fit in with the core upgrade testing in dtest.upgrade_through_versions
 """
+import glob
+import os
+import re
+import time
 from unittest import skipUnless
 
 from dse import ConsistencyLevel as CL
@@ -8,14 +12,9 @@ from nose.tools import assert_not_in
 
 from dtest import RUN_STATIC_UPGRADE_MATRIX, debug
 from tools.decorators import since
-from tools.jmxutils import (JolokiaAgent, make_mbean)
+from tools.jmxutils import JolokiaAgent, make_mbean
 from upgrade_base import UpgradeTester
 from upgrade_manifest import build_upgrade_pairs
-
-import glob
-import os
-import re
-import time
 
 
 class TestForRegressions(UpgradeTester):

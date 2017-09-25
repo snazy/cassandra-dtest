@@ -1,10 +1,10 @@
 import sys
 import time
 from unittest import skipIf
-from nose.tools import assert_greater_equal
 
 from dse import ConsistencyLevel, Timeout, Unavailable
 from dse.query import SimpleStatement
+from nose.tools import assert_greater_equal
 
 from dtest import Tester, debug
 from tools.assertions import (assert_all, assert_invalid, assert_one,

@@ -1,11 +1,11 @@
-import time
 import re
+import time
 
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 
 from dtest import PRINT_DEBUG, Tester, debug
-from tools.assertions import (assert_one, assert_length_equal)
+from tools.assertions import assert_length_equal, assert_one
 from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 

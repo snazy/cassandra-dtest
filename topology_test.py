@@ -8,7 +8,7 @@ from dse import ConsistencyLevel
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug
-from tools.assertions import assert_almost_equal, assert_all, assert_none
+from tools.assertions import assert_all, assert_almost_equal, assert_none
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
 

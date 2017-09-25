@@ -1,9 +1,9 @@
-import inspect
 import datetime
-import time
+import inspect
 import random
 import string
 import threading
+import time
 import traceback
 import uuid
 from distutils.version import LooseVersion
@@ -11,20 +11,21 @@ from unittest.case import SkipTest
 
 from dse import ConsistencyLevel as CL
 from dse import InvalidRequest, ReadFailure, ReadTimeout
-from dse.util import Date, Time
 from dse.cluster import EXEC_PROFILE_DEFAULT, ContinuousPagingOptions
 from dse.policies import FallthroughRetryPolicy
 from dse.query import (FETCH_SIZE_UNSET, SimpleStatement, dict_factory,
                        named_tuple_factory, tuple_factory)
+from dse.util import Date, Time
 
-from dtest import ReusableClusterTester, debug, make_execution_profile, run_scenarios
+from dtest import (ReusableClusterTester, debug, make_execution_profile,
+                   run_scenarios)
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_one)
 from tools.data import create_ks, rows_to_list
 from tools.datahelp import create_rows, flatten_into_set, parse_data_into_dicts
 from tools.decorators import since
 from tools.misc import ImmutableMapping, restart_cluster_and_update_config
-from tools.paging import PageAssertionMixin, PageFetcher, ContinuousPageFetcher
+from tools.paging import ContinuousPageFetcher, PageAssertionMixin, PageFetcher
 
 EXEC_PROFILE_CONTINUOUS_PAGING = object()
 

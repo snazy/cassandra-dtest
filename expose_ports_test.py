@@ -1,5 +1,5 @@
 from dtest import Tester
-from tools.assertions import assert_one, assert_all
+from tools.assertions import assert_all, assert_one
 from tools.decorators import since
 
 

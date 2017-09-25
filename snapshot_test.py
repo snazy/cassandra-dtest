@@ -11,10 +11,10 @@ from dtest import (Tester, cleanup_cluster, create_ccm_cluster, debug,
                    get_test_path)
 from tools.assertions import assert_one
 from tools.data import create_ks
+from tools.decorators import since
 from tools.files import replace_in_file, safe_mkdtemp
 from tools.hacks import advance_to_next_cl_segment
 from tools.misc import ImmutableMapping
-from tools.decorators import since
 
 
 class SnapshotTester(Tester):

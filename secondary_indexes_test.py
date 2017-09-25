@@ -12,7 +12,8 @@ from dse.query import BatchStatement, SimpleStatement
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES,
                    OFFHEAP_MEMTABLES, Tester, debug)
-from tools.assertions import assert_bootstrap_state, assert_invalid, assert_none, assert_one, assert_row_count
+from tools.assertions import (assert_bootstrap_state, assert_invalid,
+                              assert_none, assert_one, assert_row_count)
 from tools.data import (block_until_index_is_built, create_cf, create_ks,
                         rows_to_list)
 from tools.decorators import since

@@ -4,6 +4,7 @@ import sys
 import time
 import traceback
 from distutils.version import LooseVersion
+from enum import Enum  # Remove when switching to py3
 from functools import partial
 from multiprocessing import Process, Queue
 from unittest import skip, skipIf
@@ -12,7 +13,6 @@ from dse import ConsistencyLevel, WriteFailure
 from dse.cluster import Cluster, NoHostAvailable
 from dse.concurrent import execute_concurrent_with_args
 from dse.query import SimpleStatement
-from enum import Enum  # Remove when switching to py3
 from nose.plugins.attrib import attr
 from nose.tools import assert_equal
 

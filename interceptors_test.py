@@ -12,11 +12,9 @@ from dse.query import SimpleStatement
 from dtest import Tester
 from tools.assertions import assert_all
 from tools.decorators import since
-from tools.preparation import prepare
-from tools.interceptors import (dropping_interceptor, delaying_interceptor,
-                                fake_write_interceptor, Verb, Direction, Type)
-from tools.preparation import get_local_reads_properties
-
+from tools.interceptors import (Direction, Type, Verb, delaying_interceptor,
+                                dropping_interceptor, fake_write_interceptor)
+from tools.preparation import get_local_reads_properties, prepare
 
 # A few methods to insert/read from a table. For those tests, we don't really
 # care about the details of the table and insertions so we keep it simple. We

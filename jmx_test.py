@@ -1,14 +1,12 @@
 import os
 import time
-
-import ccmlib.common
-import parse
-
 from collections import defaultdict
-from ccmlib.node import ToolError
 from distutils.version import LooseVersion
 from threading import Thread
 
+import ccmlib.common
+import parse
+from ccmlib.node import ToolError
 from dse import ConsistencyLevel as CL
 from dse.cluster import ContinuousPagingOptions
 from dse.policies import FallthroughRetryPolicy, WhiteListRoundRobinPolicy

@@ -10,7 +10,8 @@ from dtest import Tester
 from tools.assertions import assert_unavailable
 from tools.data import create_ks
 from tools.decorators import no_vnodes, since
-from tools.interceptors import (delaying_interceptor, dropping_interceptor, Verb, Direction, Type)
+from tools.interceptors import (Direction, Type, Verb, delaying_interceptor,
+                                dropping_interceptor)
 from tools.preparation import prepare as standard_prepare
 
 

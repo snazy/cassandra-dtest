@@ -1,7 +1,8 @@
 import time
+from threading import Thread
+
 from ccmlib.node import TimeoutError, ToolError
 from dse import ConsistencyLevel
-from threading import Thread
 
 from dtest import Tester, debug
 from tools.assertions import assert_length_equal, assert_nodetool_error
