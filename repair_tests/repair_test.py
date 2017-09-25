@@ -265,6 +265,39 @@ class TestRepair(BaseRepairTest):
         for node in cluster.nodelist():
             self.assertFalse(node.grep_log("Starting anticompaction"))
 
+    @since('4.0')
+    def cannot_run_repair_on_nodesync_enabled_table(self):
+        """
+        * Check that ordinary repair cannot be run on NodeSync enabled table
+        @jira_ticket APOLLO-966
+        """
+        self.ignore_log_patterns = ['Cannot run both full and incremental repair, choose either --full or -inc option.']
+        cluster = self.cluster
+        debug("Starting cluster..")
+        cluster.populate(2).start()
+        node1, _ = cluster.nodelist()
+        session = self.patient_cql_connection(node1)
+
+        debug("Creating keyspace and table")
+        create_ks(session, 'ks', 2)
+        create_cf(session, 'table1', columns={'c1': 'text', 'c2': 'text'})
+
+        # Check there is no problem executing repair on ks.table
+        debug("Running repair on ks.table1")
+        node1.nodetool('repair ks table1')
+
+        # Now enable NodeSync - Check cannot run anti-entropy repair on NodeSync enabled table
+        debug("Enabling nodesync on ks.table1 - cannot run repair")
+        session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'true'}")
+        with self.assertRaises(ToolError) as ctx:
+            node1.nodetool('repair ks table1')
+        self.assertIn('Cannot run anti-entropy repair on tables with NodeSync enabled', ctx.exception.stderr)
+
+        # Now disable NodeSync on view_build_status table - no problem in running repair
+        debug("Disabling nodesync on ks.table1 - can run repair again")
+        session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'false'}")
+        node1.nodetool('repair ks table1')
+
     @since('3.0')
     def cannot_run_both_full_and_incremental_repair_test(self):
         """
