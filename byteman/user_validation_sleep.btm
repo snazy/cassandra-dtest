@@ -1,0 +1,11 @@
+#
+# Slow down user validation progress recording to keep it in running status for a while.
+#
+RULE slow down user validation progress recording
+CLASS com.datastax.apollo.nodesync.UserValidationProposer
+METHOD onValidationDone
+AT EXIT
+IF TRUE
+DO
+   Thread.sleep(60000)
+ENDRULE

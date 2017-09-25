@@ -30,11 +30,11 @@ def java_bin():
         return 'java'
 
 
-def make_mbean(package, type, **kwargs):
-    '''
+def make_mbean(package, type, domain='org.apache.cassandra', **kwargs):
+    """
     Builds the name for an mbean.
 
-    `package` is appended to the org.apache.cassandra domain.
+    `package` is appended to the specified `domain`.
 
     `type` is used as the 'type' property.
 
@@ -44,10 +44,12 @@ def make_mbean(package, type, **kwargs):
 
     >>> make_mbean('db', 'IndexSummaries')
     'org.apache.cassandra.db:type=IndexSummaries'
+    >>> make_mbean('nodesync', type='NodeSyncService', domain='com.datastax.apollo')
+    'com.datastax.apollo.nodesync:type=NodeSyncService'
     >>> make_mbean('metrics', type='ColumnFamily', name='MemtableColumnsCount', keyspace='ks', scope='table')
     'org.apache.cassandra.metrics:type=ColumnFamily,keyspace=ks,name=MemtableColumnsCount,scope=table'
-    '''
-    rv = 'org.apache.cassandra.%s:type=%s' % (package, type)
+    """
+    rv = '%s.%s:type=%s' % (domain, package, type)
     if kwargs:
         rv += ',' + ','.join('{k}={v}'.format(k=k, v=v)
                              for k, v in kwargs.iteritems())
