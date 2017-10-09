@@ -1049,7 +1049,7 @@ class TestConsistency(Tester):
 
         cluster.populate(2)
         node1, node2 = cluster.nodelist()
-        remove_perf_disable_shared_mem(node1) # necessary for jmx
+        remove_perf_disable_shared_mem(node1)  # necessary for jmx
         cluster.start(wait_other_notice=True)
 
         session = self.patient_cql_connection(node1)
@@ -1098,7 +1098,7 @@ class TestConsistency(Tester):
         assert_all(session,
                    'SELECT id FROM test.test LIMIT 1;',
                    [[3]],
-                   cl = ConsistencyLevel.ALL)
+                   cl=ConsistencyLevel.ALL)
 
         srp = make_mbean('metrics', type='Table', name='ShortReadProtectionRequests', keyspace='test', scope='test')
         with JolokiaAgent(node1) as jmx:

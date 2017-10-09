@@ -534,7 +534,6 @@ class TestNodeSyncTool(Tester):
 
         # try to cancel a validation residing on a down node
         uuid = submit_validation()
-        node1.stop(wait_other_notice=True)
+        node1.stop(wait_other_notice=True)  # will remove its proposers
         self._nodesync(args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
-                       expected_stderr=['/127.0.0.1: Error while cancelling: JMX connection',
-                                        'error: The cancellation has failed in nodes: [/127.0.0.1]'])
+                       expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
