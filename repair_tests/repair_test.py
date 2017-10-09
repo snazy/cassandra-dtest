@@ -14,7 +14,7 @@ from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
 from incremental_repair_test import get_repair_options
-from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
+from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2, rows_to_list
 from tools.decorators import no_vnodes, since
 from tools.jmxutils import JolokiaAgent, remove_perf_disable_shared_mem
 
@@ -352,6 +352,7 @@ class TestRepair(BaseRepairTest):
             - On dse6.0: should be full repair
 
         @jira_ticket APOLLO-691
+
         """
         cluster = self.cluster
         debug("Starting cluster..")
@@ -1476,3 +1477,45 @@ class TestRepairDataSystemTable(Tester):
         self.node1.repair()
         _, repair_history = self.repair_table_contents(node=self.node1, include_system_keyspaces=False)
         self.assertTrue(len(repair_history))
+
+    def force_test(self):
+        """
+        Test that `system_distributed.repair_history` is not populated with "-force" option
+        if there is any node down, but is populated with "-force" option is no node down.
+        """
+
+        debug("Stopping node2")
+        node2 = self.cluster.nodelist()[2]
+        node2.stop(wait_other_notice=True)
+
+        debug("Repairing with -force")
+        self.node1.repair(["-force"])
+
+        debug("Checking force repair was triggered")
+        self.assertTrue(self.node1.grep_log('repairing keyspace keyspace1 .* force repair: true.*'))
+
+        mark = self.node1.mark_log()
+
+        debug("Starting node2")
+        node2.start(wait_other_notice=True)
+
+        debug("Checking that successful_ranges is not populated")
+        session = self.patient_cql_connection(self.node1)
+        query = SimpleStatement("SELECT successful_ranges from system_distributed.parent_repair_history", consistency_level=ConsistencyLevel.ALL)
+        for row in rows_to_list(session.execute(query)):
+            self.assertFalse(row[0])
+
+        debug("Truncating system_distributed.parent_repair_history table")
+        truncate = SimpleStatement("TRUNCATE system_distributed.parent_repair_history", consistency_level=ConsistencyLevel.ALL)
+        session.execute(truncate)
+
+        debug("Repairing again with -force after node2 is back")
+        self.node1.repair(["-force"])
+
+        debug("Checking force repair was triggered")
+        self.assertTrue(self.node1.grep_log('repairing keyspace keyspace1 .* force repair: true.*', from_mark=mark))
+
+        debug("Checking that successful_ranges is populated")
+        query = SimpleStatement("SELECT successful_ranges from system_distributed.parent_repair_history", consistency_level=ConsistencyLevel.ALL)
+        for row in rows_to_list(session.execute(query)):
+            self.assertTrue(row[0])
