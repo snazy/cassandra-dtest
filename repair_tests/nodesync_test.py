@@ -1,56 +1,125 @@
 # -*- coding: UTF-8 -*-
 import time
 
+from operator import attrgetter
 from ccmlib.node import ToolError
+from dse.query import SimpleStatement
+from nose.tools import assert_true
+
 from dtest import Tester, debug
 from tools.data import create_ks, create_cf
 from tools.decorators import since
 
 
+def read_nodesync_status(session):
+    """
+    Reads in the entire nodesync status table, and returns the rows
+    """
+    return session.execute("SELECT * FROM system_distributed.nodesync_status")
+
+
+def read_nodesync_status_for_table(session, keyspace, table):
+    """
+    Reads in the rows from the nodesync status system table that pertain to a specific data table
+    """
+    query = SimpleStatement("""SELECT * FROM system_distributed.nodesync_status WHERE keyspace_name='{keyspace}'
+                AND table_name='{table}' ALLOW FILTERING""".format(keyspace=keyspace, table=table),
+                            fetch_size=None)
+    return session.execute(query)
+
+
+def last_validation(row):
+    """
+    Takes in a single row from the nodesync status table, and returns the last time it was attempted to be validated,
+    successfully or unsuccessfully. Returns None if validation has never been attempted.
+    """
+    if row.last_unsuccessful_validation is not None:
+        return row.last_unsuccessful_validation.started_at
+    elif row.last_successful_validation is not None:
+        return row.last_successful_validation.started_at
+    else:
+        return None
+
+
+def segment_has_been_repaired_recently(row, timestamp=None):
+    """
+    @param row: A row from the nodesync_status table
+    @param timestamp: The time we want to know if the segment has been repaired since. If `None`, we check
+    if the segment has ever been repaired.
+    @return true if the segment has been repaired since timestamp
+    """
+    if timestamp is None:
+        return not (row.last_unsuccessful_validation is None and row.last_successful_validation is None)
+    else:
+        if row.last_unsuccessful_validation is not None or row.last_successful_validation is not None:
+            return last_validation(row)  # TODO handle the timestamp here
+        else:
+            return True
+
+
+def wait_for_all_segments(session, timeout=30, timestamp=None):
+    """
+    Waits up to :timeout to see if every segment in the nodesync status table has been validated since :timestamp
+    If :timestamp is None, just checks if they've ever been validated
+    """
+    start = time.time()
+    while start + timeout > time.time():
+        nodesync_status = read_nodesync_status(session)
+        unvalidated_rows = [row for row in nodesync_status.current_rows
+                            if not segment_has_been_repaired_recently(row, timestamp)]
+        if len(unvalidated_rows) == 0:
+            return True
+        time.sleep(1)
+    return False
+
+
+def get_oldest_segments(session, keyspace, table, segment_count):
+    """
+    Returns the :segment_count oldest segments from the nodesync status table that pertain to :keyspace.:table
+    """
+    assert_true(wait_for_all_segments(session), "Not all segments repaired in time.")
+
+    def sort_row(row):
+        if row.last_unsuccessful_validation is not None:
+            return row.last_unsuccessful_validation.started_at
+        else:
+            return row.last_successful_validation.started_at
+
+    nodesync_status = read_nodesync_status_for_table(session, keyspace, table)
+    nodesync_status.current_rows.sort(key=sort_row)
+    return nodesync_status[0:segment_count]
+
+
+def get_unsuccessful_validations(session, keyspace, table):
+    """
+    Returns the set of rows in the nodesync status table for :keyspace.:table where the latest validations
+    were unsuccessful
+    """
+    nodesync_status = read_nodesync_status_for_table(session, keyspace, table)
+    return [row for row in nodesync_status.current_rows if row.last_unsuccessful_validation is not None]
+
+
+def equal_rows(row_a, row_b):
+    """
+    Compares two rows from the nodesync status table, and returns true if they have the same primary key
+    """
+
+    def compare_attributes(row_a, row_b, column_name):
+        if not attrgetter(row_a, column_name) == attrgetter(row_b, column_name):
+            return False
+
+    primary_key_columns = ['keyspace_name', 'table_name', 'range_group', 'start_token', 'end_token']
+
+    same_row = True
+    for column in primary_key_columns:
+        same_row = same_row and compare_attributes(row_a, row_b, column)
+
+    return same_row
+
+
 @since('4.0')
 class TestNodeSync(Tester):
-    """
-    Functional Spec Verification:
-    1b-e
-    NodeSync will be performed on a small range of data at a time, in pages of 10s or 100s of KB.
-NodeSync can both group small partitions into a single range, and break up large partitions into multiple ranges.
-Repair progress will be saved in a system table for each completed range.  Current activity will also be available for inspection.
-Segments to be repaired will be prioritized by how close they are to passing the gc_grace_seconds window.  (This means that an operator who notices NodeSync falling behind and increases throughput will have it do the Right Thing automatically.)
 
-    2a-b
-    Enabling it can be done live, without a restart.
-What about disabling? I can think of a chaos monkey scenario where we just enable and disable a bunch of tables using NodeSync randomly
-We will provide a script to enable it on multiple tables, keyspaces, or all tables in the cluster.
-It is then up to the operator to remember to enable it for newly created tables.  We recognize that this is suboptimal, but inventing a new cluster-wide configuration system is out of scope for DSE 6.
-
-    4a
-    NodeSync will be tolerant of transient node failure.
-NodeSync will continue to repair across all active replicas.  Non-participating nodes’ absence will be noted in the saved repair metadata, but repair will continue without them.
-
-    8a-c
-    NodeSync will expose information about its status and health via JMX and/or system tables.
-Is configured throughput being achieved?
-Are token ranges being repaired within gcgs?
-Internal status for troubleshooting if something goes wrong.
-
-    9a-b
-    NodeSync will guard against foot-shooting.
-Prevent launching classic repair against a table that has NodeSync enabled.
-If a classic repair is in progress for a table that has NodeSync enabled, NodeSync will wait for the classic repair to finish before proceeding.
-If a classic repair is launched against a keyspace with NodeSync enabled on some tables but not others, a warning will be logged and repair jobs will be started for the non-NodeSync tables.
-Unreasonable configuration parameters will result in startup failure or warning
-
-    Other Testing:
-    Test that partial activation is impossible [moot if this is a table schema setting]
-    Make sure nodes repair the correct assigned range
-    “in practice, each node only concerns himself with validating/repairing data for the range it is a replica of, and replicas of a given range collaborate to avoid doing duplicate work.”
-    Make sure all [and only] enabled tables are tested
-    Mixed-version cluster testing
-    Test dropping keyspaces + tables that are undergoing CBR
-    Multiple DC’s
-    Test all data types
-
-    """
     def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=[], options=None):
         cluster = self.cluster
         cluster.populate(nodes, install_byteman=byteman)
@@ -64,8 +133,7 @@ Unreasonable configuration parameters will result in startup failure or warning
         return self.session
 
     def test_decommission(self):
-        session = self._prepare_cluster(nodes=4,
-                                        jvm_arguments=["-Ddatastax.nodesync.min_validation_interval_ms={}".format(5000)])
+        session = self._prepare_cluster(nodes=4, jvm_arguments=["-Ddatastax.nodesync.min_validation_interval_ms={}".format(5000)])
         session.execute("""
                 CREATE KEYSPACE IF NOT EXISTS ks
                 WITH replication = { 'class': 'SimpleStrategy', 'replication_factor': '3' }
