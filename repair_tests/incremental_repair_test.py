@@ -17,7 +17,7 @@ from nose.plugins.attrib import attr
 from dtest import Tester, debug
 from tools.assertions import (assert_all, assert_almost_equal, assert_none,
                               assert_one, assert_unavailable)
-from tools.data import create_cf, create_ks, insert_c1c2
+from tools.data import create_cf, create_ks, insert_c1c2, rows_to_list
 from tools.decorators import no_vnodes, since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
@@ -1670,14 +1670,43 @@ class TestIncRepair(Tester):
 
         # repair should fail because node2 is down
         with self.assertRaises(ToolError):
-            node1.repair(options=['ks'])
+            self.repair(node1, options=['ks'])
+
+        debug("Incremental repair with -force with node down (should not be marked as repaired)")
 
         # run with force flag
-        node1.repair(options=['ks', '--force'])
+        self.repair(node1, options=['ks', '--force'])
 
         # ... and verify nothing was promoted to repaired
-        self.assertNoRepairedSSTables(node1, 'ks')
-        self.assertNoRepairedSSTables(node2, 'ks')
+        for node in cluster.nodelist():
+            self.assertNoRepairedSSTables(node, 'ks')
+
+        # bring node2 back up
+        node2.start(wait_other_notice=True)
+
+        debug("Checking that successful_ranges is not populated")
+        session = self.patient_cql_connection(node1)
+        query = SimpleStatement("SELECT successful_ranges from system_distributed.parent_repair_history", consistency_level=ConsistencyLevel.ALL)
+        for row in rows_to_list(session.execute(query)):
+            self.assertFalse(row[0])
+
+        debug("Truncating system_distributed.parent_repair_history table")
+        truncate = SimpleStatement("TRUNCATE system_distributed.parent_repair_history", consistency_level=ConsistencyLevel.ALL)
+        session.execute(truncate)
+
+        debug("Incremental repair with -force without node down (should be marked as repaired)")
+
+        # run with force flag again
+        self.repair(node1, options=['ks', '--force'])
+
+        # ... and verify all was promoted to repaired - since all nodes were up
+        for node in cluster.nodelist():
+            self.assertAllRepairedSSTables(node, 'ks')
+
+        debug("Checking that successful_ranges is populated")
+        query = SimpleStatement("SELECT successful_ranges from system_distributed.parent_repair_history", consistency_level=ConsistencyLevel.ALL)
+        for row in rows_to_list(session.execute(query)):
+            self.assertTrue(row[0])
 
     @since('4.0')
     def hosts_test(self):
@@ -1699,7 +1728,7 @@ class TestIncRepair(Tester):
             session.execute(stmt, (i, i))
 
         # run with force flag
-        node1.repair(options=['ks', '-hosts', ','.join([node1.address(), node2.address()])])
+        self.repair(node1, options=['ks', '-hosts', ','.join([node1.address(), node2.address()])])
 
         # ... and verify nothing was promoted to repaired
         self.assertNoRepairedSSTables(node1, 'ks')
@@ -1735,7 +1764,7 @@ class TestIncRepair(Tester):
         token = Murmur3Token.from_key(str(bytearray([0, 0, 0, 0])))
         # import ipdb; ipdb.set_trace()
         # run with force flag
-        node1.repair(options=['ks', '-st', str(token.value - 1), '-et', str(token.value)])
+        self.repair(node1, options=['ks', '-st', str(token.value - 1), '-et', str(token.value)])
 
         # verify we have a mix of repaired and unrepaired sstables
         self.assertRepairedAndUnrepaired(node1, 'ks')
