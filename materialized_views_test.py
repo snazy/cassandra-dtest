@@ -1511,6 +1511,17 @@ class TestMaterializedViews(Tester):
             self.assertEquals(self._rows_to_list(result.current_rows), [[i, i, 'a', 3.0]])
 
     def base_replica_repair_test(self):
+        self._base_replica_repair_test()
+
+    @since('3.0', max_version='3.x')
+    def base_replica_repair_with_contention_test(self):
+        """
+        Test repair does not fail when there is MV lock contention
+        @jira_ticket CASSANDRA-12905
+        """
+        self._base_replica_repair_test(fail_mv_lock=True)
+
+    def _base_replica_repair_test(self, fail_mv_lock=False):
         """
         Test that a materialized view are consistent after the repair of the base replica.
         """
@@ -1546,8 +1557,15 @@ class TestMaterializedViews(Tester):
         debug('Delete node1 data')
         node1.clear(clear_all=True)
 
-        debug('Restarting node1')
-        node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+        jvm_args = []
+        if fail_mv_lock:
+            jvm_args = ['-Dcassandra.allow_unsafe_replace=true', '-Dcassandra.replace_address={}'.format(node1.address()), '-Dcassandra.test.fail_mv_locks_count=1000']
+            # this should not make Keyspace.apply throw WTE on failure to acquire lock
+            node1.set_configuration_options(values={'write_request_timeout_in_ms': 100})
+
+        debug('Restarting node1 with jvm_args={}'.format(jvm_args))
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=jvm_args)
+
         debug('Shutdown node2 and node3')
         node2.stop(wait_other_notice=True)
         node3.stop(wait_other_notice=True)
@@ -2430,14 +2448,17 @@ class TestMaterializedViewsLockcontention(Tester):
 
         if self.cluster.version() < '4.0':
             self.cluster.set_configuration_options(values={
-                'concurrent_materialized_view_writes': 1,
-                'concurrent_writes': 1,
+                'concurrent_materialized_view_writes': 2,
+                'concurrent_writes': 2,
             })
         self.nodes = self.cluster.nodes.values()
         for node in self.nodes:
             remove_perf_disable_shared_mem(node)
 
-        self.cluster.start(wait_for_binary_proto=True)
+        if self.cluster.version() < '4.0':
+            self.cluster.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.test.fail_mv_locks_count=64"])
+        else:
+            self.cluster.start(wait_for_binary_proto=True)
 
         session = self.patient_exclusive_cql_connection(self.nodes[0], protocol_version=self.protocol_version)
 
