@@ -8,6 +8,7 @@ import uuid
 from collections import namedtuple
 from itertools import izip as zip
 from itertools import repeat
+from unittest import skip
 
 from ccmlib.node import Node
 from dse import WriteFailure
@@ -317,6 +318,7 @@ class TestCDC(Tester):
         """
         self._assert_cdc_data_readable_on_round_trip(start_with_cdc_enabled=False)
 
+    @skip('hangs CI - APOLLO-1245')
     def test_insertion_and_commitlog_behavior_after_reaching_cdc_total_space(self):
         """
         Test that C* behaves correctly when CDC tables have consumed all the
