@@ -1197,6 +1197,7 @@ class TestIncRepair(Tester):
                 self.wait_sstables_to_be_marked_repaired(node)
             self.assertAllRepairedSSTables(node, 'keyspace1')
 
+    @since('4.0')
     def test_consistent_repair_failure_at_anticompaction_doesnt_cause_hanging(self):
         """
         @jira_ticket APOLLO-814
@@ -1242,6 +1243,7 @@ class TestIncRepair(Tester):
         debug("Waiting for repair to abort")
         self.assertIsNotNone(f.exception(60))
 
+    @since('4.0')
     def test_restarting_after_failure_doesnt_unrepair_sessions(self):
         """
         @jira_ticket APOLLO-821
@@ -1301,6 +1303,7 @@ class TestIncRepair(Tester):
         debug("Asserting sstables are still marked as pending repair")
         self.assertAllPendingRepairSSTables(node2, 'ks')
 
+    @since('4.0')
     def test_commit_failure_aborts_repair(self):
         """
         @jira_ticket APOLLO-815
@@ -1347,10 +1350,12 @@ class TestIncRepair(Tester):
         debug("Waiting for repair to abort")
         self.assertIsNotNone(f.exception(60))
 
+    @since('4.0')
     def test_consistent_repair_recovers_from_anticompaction_failure(self):
         self._test_consistent_repair_recovers_from_failure("after_anticompaction",
                                                            ConsistentState.FAILED, ConsistentState.PREPARING, ConsistentState.FAILED, ConsistentState.FAILED)
 
+    @since('4.0')
     def test_consistent_repair_recovers_from_commit_failure(self):
         self._test_consistent_repair_recovers_from_failure("at_commit",
                                                            ConsistentState.FINALIZED, ConsistentState.REPAIRING, ConsistentState.FINALIZED, ConsistentState.FINALIZED)
@@ -1450,13 +1455,16 @@ class TestIncRepair(Tester):
         self.checkLocalSessionState(node1, repairSession, node1FinalState)
         self.checkLocalSessionState(node2, repairSession, node2FinalState)
 
+    @since('4.0')
     def test_consistent_repair_cleanup_after_anticompaction_failure(self):
         self._test_consistent_repair_cleanup("after_anticompaction", False)
 
+    @since('4.0')
     def test_consistent_repair_cleanup_after_streaming_failure(self):
         self.ignore_log_patterns = (r'Stream failed')
         self._test_consistent_repair_cleanup("at_streaming", False)
 
+    @since('4.0')
     def test_consistent_repair_cleanup_after_commit_failure(self):
         self._test_consistent_repair_cleanup("at_commit", True)
 
