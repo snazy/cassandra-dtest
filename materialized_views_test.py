@@ -45,11 +45,13 @@ class TestMaterializedViews(Tester):
         new_list = [list(row) for row in rows]
         return new_list
 
-    def prepare(self, user_table=False, rf=1, options=None, nodes=3, install_byteman=False, **kwargs):
+    def prepare(self, user_table=False, rf=1, options=None, nodes=3, install_byteman=False, enable_batch_commitlog=False, **kwargs):
         cluster = self.cluster
         cluster.populate([nodes, 0], install_byteman=install_byteman)
         if options:
             cluster.set_configuration_options(values=options)
+        if enable_batch_commitlog:
+            cluster.set_batch_commitlog(enabled=True)
         cluster.start()
         node1 = cluster.nodelist()[0]
 
@@ -2069,9 +2071,8 @@ class TestMaterializedViews(Tester):
          @jira_ticket CASSANDRA-13069
         """
 
-        self.cluster.set_batch_commitlog(enabled=True)
-        self.ignore_log_patterns = [r'Dummy failure', r"Failed to force-recycle all segments"]
-        self.prepare(rf=1, install_byteman=True)
+        self.ignore_log_patterns = [r'Dummy failure']
+        self.prepare(rf=1, install_byteman=True, options={'hinted_handoff_enabled': False}, enable_batch_commitlog=True)
         node1, node2, node3 = self.cluster.nodelist()
         session = self.patient_exclusive_cql_connection(node1)
         session.execute('USE ks')
@@ -2115,9 +2116,9 @@ class TestMaterializedViews(Tester):
         debug("Missing entries {}".format(missing_entries))
         self.assertTrue(missing_entries > 0, )
 
-        debug('Restarting node1 to ensure commit log is replayed')
-        node1.stop(wait_other_notice=True)
-        # Set batchlog.replay_timeout_seconds=1 so we can ensure batchlog will be replayed below
+        debug('Stopping node1 to simulate crash')
+        node1.stop(gently=False, wait_other_notice=True)
+        # Set batchlog.replay_timeout_in_ms=1 so we can ensure batchlog will be replayed below
         node1.start(jvm_args=["-Dcassandra.batchlog.replay_timeout_in_ms=1"])
 
         debug('Replay batchlogs')
