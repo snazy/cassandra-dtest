@@ -3,10 +3,12 @@ from dse import ConsistencyLevel
 
 from dtest import Tester, debug
 from tools.data import create_cf, create_ks, insert_c1c2
+from tools.decorators import since
 
 
 class TestTriggers(Tester):
 
+    @since('6.0')
     def triggers_test(self):
         """
         * Loads a test trigger
