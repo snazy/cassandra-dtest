@@ -1,13 +1,19 @@
 import uuid
+import time
 from distutils.version import LooseVersion
 
 from dse import ConsistencyLevel, WriteFailure, WriteTimeout
+from dse.query import SimpleStatement
+from dse.policies import FallthroughRetryPolicy
 from nose.plugins.attrib import attr
 
-from dtest import Tester
 from thrift_bindings.v22 import ttypes as thrift_types
 from thrift_tests import get_thrift_client
+from dtest import Tester, debug
 from tools.decorators import since
+from tools.data import create_ks
+from tools.jmxutils import (JolokiaAgent, make_mbean,
+                            remove_perf_disable_shared_mem)
 
 KEYSPACE = "foo"
 
@@ -245,3 +251,91 @@ class TestWriteFailures(Tester):
                           thrift_types.ConsistencyLevel.ALL)
 
         client.transport.close()
+
+    @since('3.0')
+    def test_cross_dc_rtt(self):
+        """
+        Verify cross_dc_rtt_in_ms is applied and reduces hints
+        @jira_ticket APOLLO-854
+        """
+        debug("prepare cluster")
+        self.cluster.populate(nodes=[2, 2], install_byteman=True)
+        self.cluster.set_configuration_options(
+            values={'hinted_handoff_enabled': True,
+                    'write_request_timeout_in_ms': 1000,
+                    'cross_dc_rtt_in_ms': 6000}
+        )
+        node1, _, node3, _ = self.cluster.nodelist()
+        for node in self.cluster.nodelist():
+            remove_perf_disable_shared_mem(node)  # necessary for jmx
+        self.cluster.start()
+        session = self.patient_exclusive_cql_connection(node1)  # node1 is coordinator with whitelist policy
+
+        debug("prepare schema")
+        create_ks(session, 'ks', {'dc1': 2, 'dc2': 2})
+        session.execute("CREATE TABLE t (id int PRIMARY KEY, v int)  WITH speculative_retry = 'NONE'")
+
+        debug("install byteman to dc2 - node3 to delay write request for 5 seconds")
+        script_version = '4x' if self.cluster.version() >= '4' else '3x'
+        node3.byteman_submit(['./byteman/delay_write_request_{}.btm'.format(script_version)])
+
+        # no hints generated
+        hint_size = self._get_hint_size(node1)
+        debug("hint size {}".format(hint_size))
+        self.assertEquals(0, hint_size)
+
+        debug("test with CL ALL with cross_dc_rtt_in_ms=6000")
+        t_request, hint_size = self._exec_insert(session, node1, cl=ConsistencyLevel.ALL)
+        self.assertTrue(1 <= t_request <= 2)
+        self.assertEquals(0, hint_size)
+
+        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=6000")
+        t_request, hint_size = self._exec_insert(session, node1)
+        self.assertTrue(t_request < 1)
+        self.assertEquals(0, hint_size)
+
+        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=1000")
+        for node in self.cluster.nodelist():
+            self._set_cross_dc_rtt_in_ms(node, 1000)
+        t_request, hint_size = self._exec_insert(session, node1)
+        self.assertTrue(t_request < 1)
+        self.assertNotEquals(0, hint_size)
+
+        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=0")
+        for node in self.cluster.nodelist():
+            self._set_cross_dc_rtt_in_ms(node, 0)
+        t_request, hint_size_2 = self._exec_insert(session, node1)
+        self.assertTrue(t_request < 1)
+        self.assertEquals(hint_size * 2, hint_size_2)
+
+    def _exec_insert(self, session, node, sleep=8, cl=ConsistencyLevel.LOCAL_QUORUM):
+        t_start = time.time()
+        try:
+            session.execute(SimpleStatement("INSERT INTO ks.t(id) VALUES(1)",
+                                            consistency_level=cl,
+                                            retry_policy=FallthroughRetryPolicy()))
+            if cl is ConsistencyLevel.ALL:
+                self.fail("Expect WriteTimeout")
+            t_request = time.time() - t_start
+            debug("duration:{}s".format(t_request))
+        except WriteTimeout as exc:
+            t_request = time.time() - t_start
+            debug("duration:{}s {}".format(t_request, str(exc)))
+
+        # wait for cross dc rtt
+        time.sleep(sleep)
+
+        hint_size = self._get_hint_size(node)
+        debug("hint size {}".format(hint_size))
+
+        return t_request, hint_size
+
+    def _set_cross_dc_rtt_in_ms(self, node, cross_dc_rtt_in_ms):
+        mbean = make_mbean('db', type='StorageProxy', )
+        with JolokiaAgent(node) as jmx:
+            jmx.write_attribute(mbean, attribute='CrossDCRttLatency', value=cross_dc_rtt_in_ms)
+
+    def _get_hint_size(self, node):
+        mbean = make_mbean('metrics', type='Storage', name='TotalHints')
+        with JolokiaAgent(node) as jmx:
+            return jmx.read_attribute(mbean, 'Count')

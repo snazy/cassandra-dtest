@@ -1,0 +1,8 @@
+RULE sleep 5 seconds at MessageDeliveryTask.deserialize()
+CLASS org.apache.cassandra.net.MessageSerializer
+METHOD deserialize
+AT ENTRY
+IF TRUE
+DO
+  Thread.sleep(5000);
+ENDRULE
