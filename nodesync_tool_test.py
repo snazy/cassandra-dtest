@@ -5,6 +5,7 @@ from uuid import UUID
 
 from cassandra.util import sortedset
 from ccmlib import common
+from ccmlib.node import ToolError
 
 from dtest import Tester, debug, DtestTimeoutError
 from tools.assertions import assert_one, assert_all, assert_true
@@ -118,6 +119,21 @@ class TestNodeSyncTool(Tester):
             time.sleep(1)
         else:
             raise DtestTimeoutError('Timeout waiting for the validation to be written to the system table')
+
+    def _wait_for_validation_status(self, uuid, node, status):
+        """
+        Wait until the validation identified by the specified UUID and node appears on the system table with the
+        specified status.
+        """
+        query = "SELECT status FROM system_distributed.nodesync_user_validations " \
+                "WHERE id='{}' AND node='{}'".format(uuid, node.address())
+        start = time.time()
+        while time.time() < start + 20:
+            if rows_to_list(self.session.execute(query))[0][0] != [[status]]:
+                break
+            time.sleep(1)
+        else:
+            raise DtestTimeoutError('Timeout waiting for the validation status to be written to the system table')
 
     def _test_toggle(self, enable=True):
         """
@@ -385,6 +401,74 @@ class TestNodeSyncTool(Tester):
                               '/127.0.0.1:',
                               'has been successfully cancelled',
                               'error: Submission failed'])
+
+    def test_submit_with_rate(self):
+        """
+        Test 'nodesync validation submit' command with '-r/--rate' option.
+        @jira_ticket APOLLO-1271
+        """
+        self._prepare_cluster(nodes=2, rf=2, byteman=True, keyspaces=1, tables_per_keyspace=1)
+        node = self.cluster.nodelist()[0]
+
+        def submit(rate=None, status='running'):
+            args = ['validation', 'submit']
+            if rate:
+                args.extend(['-r', str(rate)])
+            args.append('k1.t1')
+            stdout, stderr = self._nodesync(args)
+            uuid = _parse_validation_id(stdout)
+            self._wait_for_validation_status(uuid, node, status)
+            return uuid
+
+        def get_rate(expected):
+            self.assertIn('{} KB/s'.format(expected), node.nodetool('nodesyncservice getrate').stdout)
+
+        def set_rate(rate, conflicting_validation=None):
+            command = 'nodesyncservice setrate {}'.format(rate)
+            if conflicting_validation:
+                try:
+                    node.nodetool(command)
+                except ToolError as e:
+                    msg = 'Cannot set NodeSync rate because a user triggered validation with custom rate is running: {}'
+                    self.assertIn(msg.format(conflicting_validation), e.message)
+            else:
+                node.nodetool(command)
+                get_rate(expected=rate)
+
+        set_rate(rate=1000)
+
+        # submit with rate and verify that, at termination, the original rate is restored and we can set a new rate
+        submit(rate=1, status='successful')
+        get_rate(expected=1000)
+        set_rate(rate=2000)
+
+        # use byteman to keep the validations running for a while
+        node.byteman_submit(['./byteman/user_validation_sleep.btm'])
+
+        # submit without rate and verify that, while running, the original rate is kept and we can set a new rate
+        uuid1 = submit(rate=None, status='running')
+        get_rate(expected=2000)
+        set_rate(rate=3000)
+
+        # submit with rate and verify that the new rate is not applied and we can still set the rate
+        # because the previous validation hasn't finished yet
+        uuid2 = submit(rate=2, status='running')
+        get_rate(expected=3000)
+        set_rate(rate=4000)
+
+        # cancel the validations
+        self._nodesync(args=['validation', 'cancel', str(uuid1)])
+        self._nodesync(args=['validation', 'cancel', str(uuid2)])
+        get_rate(expected=4000)
+
+        # submit with rate and verify that, while running, the validation rate is applied and we can't set a new rate
+        uuid3 = submit(rate=2, status='running')
+        get_rate(expected=2)
+        set_rate(rate=5000, conflicting_validation=uuid3)
+
+        # cancel the validation and verify that the rate is restored
+        self._nodesync(args=['validation', 'cancel', str(uuid3)])
+        get_rate(expected=4000)
 
     def test_list(self):
         """
