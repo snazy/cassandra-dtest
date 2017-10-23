@@ -10,21 +10,6 @@ from dtest import Tester, debug, DtestTimeoutError
 from tools.assertions import assert_one, assert_all, assert_true
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
-from tools.jmxutils import (JolokiaAgent, make_mbean)
-
-NODESYNC_SERVICE_MBEAN = make_mbean('nodesync', 'NodeSyncService', domain='com.datastax')
-
-
-def _start_nodesync_service(node):
-    debug('Starting NodeSync service in node %s' % node)
-    with JolokiaAgent(node) as jmx:
-        jmx.execute_method(NODESYNC_SERVICE_MBEAN, 'enable()')
-
-
-def _stop_nodesync_service(node):
-    debug('Stopping NodeSync service in node %s' % node)
-    with JolokiaAgent(node) as jmx:
-        jmx.execute_method(NODESYNC_SERVICE_MBEAN, 'disable()')
 
 
 def _parse_validation_id(stdout):
@@ -58,11 +43,11 @@ class TestNodeSyncTool(Tester):
 
     def _start_nodesync_service(self):
         for node in self.cluster.nodelist():
-            _start_nodesync_service(node)
+            node.nodetool('nodesyncservice enable')
 
     def _stop_nodesync_service(self):
         for node in self.cluster.nodelist():
-            _stop_nodesync_service(node)
+            node.nodetool('nodesyncservice disable')
 
     def _nodesync(self, args=list(), expected_stdout=None, expected_stderr=None,
                   ignore_stdout_order=False, ignore_stderr_order=False):
