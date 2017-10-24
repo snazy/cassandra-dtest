@@ -562,7 +562,7 @@ class Tester(TestCase):
         for runner in self.runners:
             try:
                 runner.stop()
-            except:
+            except Exception:
                 pass
 
         failed = did_fail()
