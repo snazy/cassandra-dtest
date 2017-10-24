@@ -159,9 +159,9 @@ class TestDeprecatedRepairAPI(Tester):
 
         # get repair parameters from the log
         line = node1.grep_log(("Starting repair command #1" + (" \([^\)]+\)" if cluster.version() >= LooseVersion("3.10") else "") +
-                            ", repairing keyspace ks with repair options \(parallelism: (?P<parallelism>\w+), primary range: (?P<pr>\w+), "
-                            "incremental: (?P<incremental>\w+), job threads: (?P<jobs>\d+), ColumnFamilies: (?P<cfs>.+), dataCenters: (?P<dc>.+)"
-                            ", hosts: (?P<hosts>.+), (runAntiCompaction: (?P<runAntiCompaction>true|false))?, # of ranges: (?P<ranges>\d+)(, pull repair: (?P<pullrepair>true|false))?\)"))
+                               ", repairing keyspace ks with repair options \(parallelism: (?P<parallelism>\w+), primary range: (?P<pr>\w+), "
+                               "incremental: (?P<incremental>\w+), job threads: (?P<jobs>\d+), ColumnFamilies: (?P<cfs>.+), dataCenters: (?P<dc>.+)"
+                               ", hosts: (?P<hosts>.+), (runAntiCompaction: (?P<runAntiCompaction>true|false))?, # of ranges: (?P<ranges>\d+)(, pull repair: (?P<pullrepair>true|false))?\)"))
 
         assert_length_equal(line, 1)
         _, m = line[0]
