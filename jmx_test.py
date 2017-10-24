@@ -2,6 +2,7 @@ import os
 import time
 from collections import defaultdict
 from distutils.version import LooseVersion
+from nose.tools import assert_equal, assert_not_equal
 from threading import Thread
 
 import ccmlib.common
@@ -23,6 +24,7 @@ EXEC_PROFILE_CP_ALL = object()
 
 
 class TestJMX(Tester):
+
     def netstats_test(self):
         """
         Check functioning of nodetool netstats, especially with restarts.
@@ -275,7 +277,7 @@ class TestJMX(Tester):
         debug("Writing metrics yaml file")
         metrics_out = os.path.join(node.get_path(), 'logs', 'metrics.out')
         with open(os.path.join(node.get_conf_dir(), 'metrics.yaml'), 'w') as metrics_config:
-                yaml_content = """
+            yaml_content = """
                 console:
                   -
                     outfile: '{}'
@@ -287,8 +289,8 @@ class TestJMX(Tester):
                       patterns:
                         - ".+"
                 """.format(metrics_out)
-                metrics_config.write(yaml_content)
-                metrics_config.flush()
+            metrics_config.write(yaml_content)
+            metrics_config.flush()
 
         debug("Starting cluster")
         cluster.start(jvm_args=["-Dcassandra.metricsReporterConfigFile=metrics.yaml"])
@@ -454,6 +456,109 @@ class TestJMX(Tester):
             self.assertTrue(len(node.grep_log('Updating batchlog replay throttle to 4096 KB/s, 2048 KB/s per endpoint',
                                               filename='debug.log')) > 0)
             self.assertEqual(4096, jmx.read_attribute(mbean, 'BatchlogReplayThrottleInKB'))
+
+    @since('3.0')
+    def test_read_coordination_metrics(self):
+        """
+        @jira_ticket APOLLO-637
+
+        Test basic functionality of read coordination metrics.
+
+        Debugging notes: this test relies on some behaviors that may not be maintained if this test
+        is run in a very underpowered environment. In particular, the node1 read delay of 5ms must be
+        sufficient to ensure that it answers read queries slower than node2 in order for the DES to prefer
+        node2.
+        """
+        cluster = self.cluster
+        supports_read_delay = cluster.version() >= '3.2'
+        debug("Supports_read_delay " + str(supports_read_delay))
+        cluster.populate(2)
+        [node1, node2] = cluster.nodelist()
+        remove_perf_disable_shared_mem(node1)
+        node1.start(jvm_args=['-Dcassandra.test.read_iteration_delay_ms=5'])
+        cluster.start(wait_for_binary_proto=True, wait_other_notice=True)
+        session = self.patient_exclusive_cql_connection(node1)
+
+        session.execute("CREATE KEYSPACE readksrf1 WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}")
+        session.execute("CREATE KEYSPACE readksrf2 WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2}")
+        session.execute("CREATE TABLE readksrf1.tbl (key int PRIMARY KEY) WITH speculative_retry = 'NONE' AND dclocal_read_repair_chance = 0.0")
+        session.execute("CREATE TABLE readksrf2.tbl (key int PRIMARY KEY) WITH speculative_retry = 'NONE' AND dclocal_read_repair_chance = 0.0")
+        rf1_read_stmt = session.prepare("SELECT * FROM readksrf1.tbl WHERE key = ?")
+        rf1_read_stmt.consistency_level = CL.ONE
+        rf2_read_stmt = session.prepare("SELECT * FROM readksrf2.tbl WHERE key = ?")
+        rf2_read_stmt.consistency_level = CL.ONE
+        rf1_insert_stmt = session.prepare("INSERT INTO readksrf1.tbl (key) VALUES (?)")
+        rf1_insert_stmt.consistency_level = CL.ALL
+        rf2_insert_stmt = session.prepare("INSERT INTO readksrf2.tbl (key) VALUES (?)")
+        rf2_insert_stmt.consistency_level = CL.ALL
+
+        node1_latency = make_mbean('metrics', type='ReadCoordination',
+                                   scope=node1.address(), name='ReplicaLatency')
+        node2_latency = make_mbean('metrics', type='ReadCoordination',
+                                   scope=node2.address(), name='ReplicaLatency')
+        nonreplica_requests = make_mbean('metrics', type='ReadCoordination', name='LocalNodeNonreplicaRequests')
+        preferred_other_replicas = make_mbean('metrics', type='ReadCoordination', name='PreferredOtherReplicas')
+        des = make_mbean('db', type='DynamicEndpointSnitch')
+
+        # we find keys with node1 and node2 as primary so that we can ensure
+        key_with_node1_primary = None
+        key_with_node2_primary = None
+        key = 0
+        while not key_with_node1_primary or not key_with_node2_primary:
+            out, _, _ = node1.nodetool("getendpoints readksrf1 tbl {}".format(key))
+            address = out.split('\n')[-2]
+            if node1.address() == address:
+                key_with_node1_primary = key
+            elif node2.address() == address:
+                key_with_node2_primary = key
+            key = key + 1
+
+        with JolokiaAgent(node1) as jmx:
+            # node2 is primary replica for key 1, node1 is primary replica for key 3
+            session.execute(rf1_insert_stmt, [key_with_node2_primary])
+            session.execute(rf1_insert_stmt, [key_with_node1_primary])
+            session.execute(rf2_insert_stmt, [key_with_node2_primary])
+            session.execute(rf2_insert_stmt, [key_with_node1_primary])
+            # do some reads to populate snitch - we use degraded reads on node1 to ensure queries
+            # are routed to node2 when both nodes are replicas
+            if supports_read_delay:
+                for x in range(0, 2000):
+                    session.execute(rf1_insert_stmt, [key_with_node1_primary])
+                    session.execute(rf1_read_stmt, [key_with_node1_primary])
+                    session.execute(rf1_insert_stmt, [key_with_node2_primary])
+                    session.execute(rf1_read_stmt, [key_with_node2_primary])
+                time.sleep(0.1)
+
+            # This should increase the nonreplica count, since it goes to node1 and node2 is the primary
+            # replica. This should not increase the preferred other replicas count, since node1 is not a replica.
+            nonreplica_requests_before = jmx.read_attribute(nonreplica_requests, 'Count')
+            preferred_other_replicas_before = jmx.read_attribute(preferred_other_replicas, 'Count')
+            session.execute(rf1_read_stmt, [key_with_node2_primary])
+            assert_equal(nonreplica_requests_before + 1, jmx.read_attribute(nonreplica_requests, 'Count'))
+            assert_equal(preferred_other_replicas_before, jmx.read_attribute(preferred_other_replicas, 'Count'))
+
+            # This shouldn't increase the nonreplica count, since node1 owns this data. It should also
+            # not increase the preferred other replicas count, since we necessarily select node1 due to
+            # the rf1 replication.
+            nonreplica_requests_before = jmx.read_attribute(nonreplica_requests, 'Count')
+            preferred_other_replicas_before = jmx.read_attribute(preferred_other_replicas, 'Count')
+            session.execute(rf1_read_stmt, [key_with_node1_primary])
+            assert_equal(nonreplica_requests_before, jmx.read_attribute(nonreplica_requests, 'Count'))
+            assert_equal(preferred_other_replicas_before, jmx.read_attribute(preferred_other_replicas, 'Count'))
+
+            # We can only conveniently test preferred other replicas when read_delay works. Since node1
+            # is degraded, we should prefer node2 but not see this as a nonreplica request.
+            debug("Scores " + str(jmx.read_attribute(des, 'Scores')))
+            nonreplica_requests_before = jmx.read_attribute(nonreplica_requests, 'Count')
+            preferred_other_replicas_before = jmx.read_attribute(preferred_other_replicas, 'Count')
+            session.execute(rf2_read_stmt, [key_with_node1_primary])
+            assert_equal(nonreplica_requests_before, jmx.read_attribute(nonreplica_requests, 'Count'))
+            if supports_read_delay:
+                assert_equal(preferred_other_replicas_before + 1, jmx.read_attribute(preferred_other_replicas, 'Count'))
+
+            # Above reads should have populated latencies.
+            assert_not_equal(0, jmx.read_attribute(node1_latency, 'Count'))
+            assert_not_equal(0, jmx.read_attribute(node2_latency, 'Count'))
 
 
 @since('3.9')
