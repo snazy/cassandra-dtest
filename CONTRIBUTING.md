@@ -90,6 +90,8 @@ Any and all byteman (.btm) files should be saved in the apollo-dtest/byteman/ di
 
 ## Summary: Review Checklist
 
+- CI
+    - Has CI been run on all supported Apollo branches, and linked on the PR?
 - Correctness
     - Does the test pass? If not, is the failure expected?
     - If the test shells out to other processes,
