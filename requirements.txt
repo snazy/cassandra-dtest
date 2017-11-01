@@ -14,7 +14,7 @@ flaky
 mock
 nose
 parse
-pep8
 psutil
 pycassa
+pycodestyle
 thrift==0.9.3
