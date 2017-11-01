@@ -89,7 +89,8 @@ class BaseBootstrapTest(Tester):
 
         # Reads inserted data all during the bootstrap process. We shouldn't
         # get any error
-        reader = self.go(lambda _: query_c1c2(session, random.randint(0, keys - 1), ConsistencyLevel.ONE))
+        debug("Starting reader thread")
+        reader = self.go(lambda _: query_c1c2(session, random.randint(0, keys - 1), ConsistencyLevel.ONE), endless=True)
 
         # Bootstrapping a new node in the current version
         node2 = bootstrap(cluster, tokens[1])
@@ -110,9 +111,15 @@ class BaseBootstrapTest(Tester):
         assert_almost_equal(size1, size2, error=0.3)
         assert_almost_equal(float(initial_size - empty_size), 2 * (size1 - float(empty_size)))
 
+        debug("Waiting for node2's bootstrap state COMPLETED")
         assert_bootstrap_state(self, node2, 'COMPLETED')
+        debug("bootstrap state for node2 is COMPLETED")
         if bootstrap_from_version:
+            debug("waiting for 'does not support keep-alive' in log")
             self.assertTrue(node2.grep_log('does not support keep-alive', filename='debug.log'))
+        debug("Stopping reader thread")
+        reader.stop()
+        debug("Done")
 
 
 class TestBootstrap(BaseBootstrapTest):

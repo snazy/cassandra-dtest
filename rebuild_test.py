@@ -1,5 +1,5 @@
+import re
 import time
-from threading import Thread
 
 from ccmlib.node import TimeoutError, ToolError
 from dse import ConsistencyLevel
@@ -87,26 +87,7 @@ class TestRebuild(Tester):
                 else:
                     raise e
 
-        class Runner(Thread):
-            def __init__(self, func):
-                Thread.__init__(self)
-                self.func = func
-                self.thread_exc_info = None
-
-            def run(self):
-                """
-                Closes over self to catch any exceptions raised by func and
-                register them at self.thread_exc_info
-                Based on http://stackoverflow.com/a/1854263
-                """
-                try:
-                    self.func()
-                except Exception:
-                    import sys
-                    self.thread_exc_info = sys.exc_info()
-
-        cmd1 = Runner(rebuild)
-        cmd1.start()
+        rebuild_thread = self.go(rebuild)
 
         # concurrent rebuild should not be allowed (CASSANDRA-9119)
         # (following sleep is needed to avoid conflict in 'nodetool()' method setting up env.)
@@ -114,12 +95,7 @@ class TestRebuild(Tester):
         # we don't need to manually raise exeptions here -- already handled
         rebuild()
 
-        cmd1.join()
-
-        # manually raise exception from cmd1 thread
-        # see http://stackoverflow.com/a/1854263
-        if cmd1.thread_exc_info is not None:
-            raise cmd1.thread_exc_info[1], None, cmd1.thread_exc_info[2]
+        rebuild_thread.joinAndCheck()
 
         # exactly 1 of the two nodetool calls should fail
         # usually it will be the one in the main thread,
@@ -131,6 +107,118 @@ class TestRebuild(Tester):
         # check data
         for i in xrange(0, keys):
             query_c1c2(session, i, ConsistencyLevel.LOCAL_ONE)
+
+    @since('3.0')
+    def abort_rebuild_test(self):
+        """
+        @jira_ticket APOLLO-1234
+
+        Test rebuild operation can be aborted.
+
+        This implementation inserts 100k rows with some data and throttles streaming throughput to 1 MBit/s,
+        which should result into an (uninterrupted) rebuild taking about 200 seconds (empirically measured).
+
+        Sequence for this test is (beside the error-out if no rebuild is in progress):
+        - start a rebuild operation
+        - wait until both nodes logged the appropriate messages that rebuild/streaming is in progress
+        - check 'nodetool netstats' output against both nodes
+        - issue 'nodetool abortrebuild'
+        - wait until both nodes logged the appropriate messages that rebuild/streaming is aborted resp. has failed
+        - check 'nodetool netstats' output against rebuilding node (the other node may still stream data)
+        """
+        cluster = self.cluster
+        cluster.set_configuration_options(values={'stream_throughput_outbound_megabits_per_sec': '1'})
+        cluster.populate(2)
+        cluster.start(wait_for_binary_proto=True)
+        node1, node2 = cluster.nodelist()
+
+        # Insert data into node1 and node2
+        session = self.patient_exclusive_cql_connection(node1)
+        create_ks(session, 'ks', {'datacenter1': 2})
+        create_cf(session, 'cf', columns={'c1': 'text', 'c2': 'text'})
+        debug("Writing data...")
+        insert_c1c2(session, n=100000, consistency=ConsistencyLevel.ALL,
+                    c1value='1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890',
+                    c2value='abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz')
+        session.shutdown()
+
+        # 'nodetool abortrebuild' must error out if no rebuild is in progress
+        debug("Issuing 'nodetool abortrebuild' without a running rebuild")
+        assert_nodetool_error(self, node1,
+                              'abortrebuild --reason foo_bar',
+                              '.*No active rebuild.*')
+
+        # rebuild-refetch thread function
+        def rebuild():
+            # the rebuild-refetch operation should take about 200 seconds, which should give us enough time to abort it
+            debug("starting nodetool rebuild refetch")
+            out, err, _ = node1.nodetool("rebuild -m refetch -s 127.0.0.2 -ks ks")
+            debug("nodetool refetch finished")
+            debug(out)
+            debug(err)
+
+        rebuild_thread = self.go(rebuild)
+
+        debug("Waiting for node1 message 'Prepare completed. Receiving'...")
+        node1.watch_log_for('Prepare completed. Receiving', from_mark=True, timeout=30)
+        debug("Waiting for node2 message 'Prepare completed. Receiving'...")
+        node2.watch_log_for('Prepare completed. Receiving', from_mark=True, timeout=30)
+        debug("Both nodes stream a file")
+
+        # verify that there's a rebuild in progress and that some streams are active
+        self._assert_rebuild_netstats(node1, rebuild_active=True, is_receiving=True)
+        self._assert_rebuild_netstats(node2, rebuild_active=True, is_sending=True)
+
+        debug("Issuing 'nodetool abortrebuild'")
+        out, err, _ = node1.nodetool("abortrebuild -r dtest_for_1234")
+        debug(out)
+
+        debug("Waiting for node1 to log the 'Streaming aborted' message with the reason given to the 'nodetool abortrebuild' command")
+        node1.watch_log_for('Streaming aborted: dtest_for_1234')
+        debug("Waiting for node1 to indicate streaming failure")
+        node1.watch_log_for('org.apache.cassandra.streaming.StreamException: Stream aborted', from_mark=True, timeout=30)
+        debug("Waiting for node2 to indicate streaming failure")
+        node2.watch_log_for('Remote peer 127.0.0.1 failed stream session', from_mark=True, timeout=30)
+        node1.mark_log_for_errors()
+        node2.mark_log_for_errors()
+
+        # Verify that the rebuild is no longer running and no streams are active
+        self._assert_rebuild_netstats(node1, rebuild_active=False)
+        # node2 may still be streaming, so do not check.
+        # The "other side" (node2) does not immediately abort current streams and there's in fact no real
+        # guarantee when the stream will end.
+
+        # wait for rebuild thread
+        debug("Waiting for rebuild to finish")
+        with self.assertRaises(ToolError, msg='Error while rebuilding node: Stream aborted'):
+            rebuild_thread.joinAndCheck()
+
+    def _assert_rebuild_netstats(self, node, rebuild_active, is_receiving=False, is_sending=False):
+
+        debug("Issuing 'nodetool netstats' against {}".format(node.name))
+        out, err, _ = node.nodetool("netstats")
+        debug(out)
+
+        if rebuild_active:
+            self._assert_netstats_line_matches(out, "^Rebuild .*$", "Expected rebuild in 'nodetool netstats' output",
+                                               lambda num_matches: num_matches == 1)
+            if is_sending:
+                self._assert_netstats_line_matches(out, "^.*Sending [\d+] files, .*$", "Expected 'Sending x files' in 'nodetool netstats output",
+                                                   lambda num_matches: num_matches > 0)
+            if is_receiving:
+                self._assert_netstats_line_matches(out, "^.*Receiving [\d+] files, .*$", "Expected 'Receiving x files' in 'nodetool netstats output",
+                                                   lambda num_matches: num_matches > 0)
+        else:
+            self._assert_netstats_line_matches(out, "^Rebuild .*$", "'nodetool netstats' output must not report a rebuild",
+                                               lambda num_matches: num_matches == 0)
+        if not is_receiving and not is_sending:
+            self._assert_netstats_line_matches(out, "^Not sending any streams.*$", "Expected 'Not sending any streams' in 'nodetool netstats' output",
+                                               lambda num_matches: num_matches == 1)
+
+    def _assert_netstats_line_matches(self, out, regex, message, test_func):
+        match = re.compile(regex)
+        lines = filter(lambda line: match.match(line) is not None, re.split("\n+", out))
+        self.assertTrue(test_func(len(lines)), message)
 
     @since('2.2')
     def resumable_rebuild_test(self):

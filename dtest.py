@@ -220,30 +220,39 @@ class FlakyRetryPolicy(RetryPolicy):
 
 class Runner(threading.Thread):
 
-    def __init__(self, func):
+    def __init__(self, func, endless=False):
         threading.Thread.__init__(self)
         self.__func = func
         self.__error = None
         self.__stopped = False
+        self.__endless = endless
         self.daemon = True
 
     def run(self):
-        i = 0
-        while True:
-            if self.__stopped:
-                return
+        if not self.__endless:
             try:
-                self.__func(i)
+                self.__func()
             except Exception as e:
                 self.__error = e
-                return
-            i = i + 1
+        else:
+            i = 0
+            while True:
+                if self.__stopped:
+                    return
+                try:
+                    self.__func(i)
+                except Exception as e:
+                    self.__error = e
+                    return
+                i = i + 1
 
     def stop(self):
         self.__stopped = True
+        self.joinAndCheck()
+
+    def joinAndCheck(self):
         self.join()
-        if self.__error is not None:
-            raise self.__error
+        self.check()
 
     def check(self):
         if self.__error is not None:
@@ -590,8 +599,18 @@ class Tester(TestCase):
                     print_("Unexpected error in {node_name} log, error: \n{error}".format(node_name=node.name, error=error))
                 return True
 
-    def go(self, func):
-        runner = Runner(func)
+    def go(self, func, endless=False):
+        """
+        Runs the given function concurrently in a separate thread.
+        The thread is started before the this function returns.
+
+        :param func: the function to be run concurrently in the thread.
+                     For endless execution, the function receives the iteration number as the argument.
+                     For non-endless executions, the function receives no arguments.
+        :param endless: Flag whether the function func shall be executed until explicitly stopped.
+        :return: the Runner class instance
+        """
+        runner = Runner(func, endless=endless)
         self.runners.append(runner)
         runner.start()
         return runner
