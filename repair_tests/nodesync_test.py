@@ -1,5 +1,6 @@
 # -*- coding: UTF-8 -*-
 import time
+import calendar
 
 from operator import attrgetter
 from ccmlib.node import ToolError
@@ -7,8 +8,13 @@ from dse.query import SimpleStatement
 from nose.tools import assert_true
 
 from dtest import Tester, debug
+from tools.assertions import assert_length_equal
 from tools.data import create_ks, create_cf
 from tools.decorators import since
+
+
+def toTimestamp(dt):
+    return (calendar.timegm(dt.timetuple())) * 1000
 
 
 def read_nodesync_status(session):
@@ -34,9 +40,9 @@ def last_validation(row):
     successfully or unsuccessfully. Returns None if validation has never been attempted.
     """
     if row.last_unsuccessful_validation is not None:
-        return row.last_unsuccessful_validation.started_at
+        return toTimestamp(row.last_unsuccessful_validation.started_at)
     elif row.last_successful_validation is not None:
-        return row.last_successful_validation.started_at
+        return toTimestamp(row.last_successful_validation.started_at)
     else:
         return None
 
@@ -49,12 +55,12 @@ def segment_has_been_repaired_recently(row, timestamp=None):
     @return true if the segment has been repaired since timestamp
     """
     if timestamp is None:
-        return not (row.last_unsuccessful_validation is None and row.last_successful_validation is None)
+        return last_validation(row) is not None
     else:
-        if row.last_unsuccessful_validation is not None or row.last_successful_validation is not None:
-            return last_validation(row)  # TODO handle the timestamp here
-        else:
-            return True
+        validation_timestamp = last_validation(row)
+        if validation_timestamp is None:
+            return False
+        return validation_timestamp >= timestamp
 
 
 def wait_for_all_segments(session, timeout=30, timestamp=None):
@@ -67,7 +73,9 @@ def wait_for_all_segments(session, timeout=30, timestamp=None):
         nodesync_status = read_nodesync_status(session)
         unvalidated_rows = [row for row in nodesync_status.current_rows
                             if not segment_has_been_repaired_recently(row, timestamp)]
-        if len(unvalidated_rows) == 0:
+        # We shouldn't return success if nothing has been read.
+        # TODO: we should actually do some token check magic to check that we do cover the whole range
+        if len(unvalidated_rows) == 0 and len(nodesync_status.current_rows) != 0:
             return True
         time.sleep(1)
     return False
@@ -120,11 +128,19 @@ def equal_rows(row_a, row_b):
 @since('4.0')
 class TestNodeSync(Tester):
 
-    def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=[], options=None):
+    def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=[], options=None,
+                         min_validation_interval_ms=1000, segment_lock_timeout_sec=10, segment_size_target_mb=10):
         cluster = self.cluster
         cluster.populate(nodes, install_byteman=byteman)
         if options:
             cluster.set_configuration_options(values=options)
+        if min_validation_interval_ms:
+            jvm_arguments += ["-Ddse.nodesync.min_validation_interval_ms={}".format(min_validation_interval_ms)]
+        if segment_lock_timeout_sec:
+            jvm_arguments += ["-Ddse.nodesync.segment_lock_timeout_sec={}".format(segment_lock_timeout_sec)]
+        if segment_size_target_mb:
+            jvm_arguments += ["-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_mb * 1024 * 1024)]
+        debug("Starting cluster...")
         cluster.start(wait_for_binary_proto=True, jvm_args=jvm_arguments)
         node1 = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node1)
@@ -133,20 +149,15 @@ class TestNodeSync(Tester):
         return self.session
 
     def test_decommission(self):
-        session = self._prepare_cluster(nodes=4, jvm_arguments=["-Ddatastax.nodesync.min_validation_interval_ms={}".format(5000)])
-        session.execute("""
-                CREATE KEYSPACE IF NOT EXISTS ks
-                WITH replication = { 'class': 'SimpleStrategy', 'replication_factor': '3' }
-                """)
-        session.execute('USE ks')
-        session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 int) WITH nodesync = {'enabled': 'true'}")
+        session = self._prepare_cluster(nodes=4)
+        create_ks(session, 'ks', 3)
+        create_cf(session, 't', key_type='int', columns={'v': 'int', 'v2': 'int'}, nodesync=True)
         self.cluster.nodelist()[2].decommission()
 
     def test_no_replication(self):
-        jvm_arguments = ["-Ddatastax.nodesync.min_validation_interval_ms={}".format(2000)]
-        session = self._prepare_cluster(nodes=[2, 2], jvm_arguments=jvm_arguments)
+        session = self._prepare_cluster(nodes=[2, 2])
         create_ks(session, 'ks', {'dc1': 3, 'dc2': 3})
-        session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 int) WITH nodesync = {'enabled': 'true'}")
+        create_cf(session, 't', key_type='int', columns={'v': 'int', 'v2': 'int'}, nodesync=True)
 
         # reset RF at dc1 as 0
         session.execute("ALTER KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 0, 'dc2': 3};")
@@ -154,23 +165,19 @@ class TestNodeSync(Tester):
         # wait 5s for error
         time.sleep(10)
 
-    def cannot_run_repair_on_nodesync_enabled_table_test(self):
+    def test_cannot_run_repair_on_nodesync_enabled_table(self):
         """
         * Check that ordinary repair cannot be run on NodeSync enabled table
         @jira_ticket APOLLO-966
         """
         self.ignore_log_patterns = [
             'Cannot run both full and incremental repair, choose either --full or -inc option.']
-        cluster = self.cluster
-        debug("Starting cluster..")
-        cluster.populate(2).start()
-        node1, _ = cluster.nodelist()
-        session = self.patient_cql_connection(node1)
+        session = self._prepare_cluster(nodes=2)
 
-        debug("Creating keyspace and table")
         create_ks(session, 'ks', 2)
         create_cf(session, 'table1', columns={'c1': 'text', 'c2': 'text'})
 
+        node1 = self.cluster.nodelist()[0]
         # Check there is no problem executing repair on ks.table
         debug("Running repair on ks.table1")
         node1.nodetool('repair ks table1')
@@ -186,3 +193,32 @@ class TestNodeSync(Tester):
         debug("Disabling nodesync on ks.table1 - can run repair again")
         session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'false'}")
         node1.nodetool('repair ks table1')
+
+    def test_basic_nodesync_validation(self):
+        """
+        Validate basic behavior of NodeSync: that a table gets entirely validated and continuously so
+        """
+        session = self._prepare_cluster(nodes=2)
+        create_ks(session, 'ks', 2)
+        create_cf(session, 'table1', key_type='int', columns={'v': 'text'})
+
+        INSERTS = 1000
+        debug("Inserting data...")
+        for i in range(0, INSERTS):
+            session.execute("INSERT INTO ks.table1(key, v) VALUES({}, 'foobar')".format(i))
+
+        # NodeSync is not yet running, so make sure there is no state
+        assert_length_equal(read_nodesync_status_for_table(session, 'ks', 'table').current_rows, 0)
+
+        # Enable NodeSync and make sure everything gets validated
+        debug("Enabling NodeSync and waiting on initial validations...")
+        session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'true'}")
+        wait_for_all_segments(session)
+
+        # Now, test that segments gets continuously validated by repeatedly grabbing a timestamp and make sure
+        # that everything gets validated past this timestamp.
+        RUNS = 5
+        for _ in range(0, RUNS):
+            timestamp = time.time() * 1000
+            debug("Waiting on validations being older than {}".format(timestamp))
+            wait_for_all_segments(session, timestamp=timestamp)

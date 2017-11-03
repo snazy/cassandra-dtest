@@ -171,7 +171,8 @@ def block_until_index_is_built(node, session, keyspace, table_name, idx_name):
 
 
 def create_cf(session, name, key_type="varchar", speculative_retry=None, read_repair=None, compression=None,
-              gc_grace=None, columns=None, validation="UTF8Type", compact_storage=False):
+              gc_grace=None, columns=None, validation="UTF8Type", compact_storage=False,
+              nodesync=False, nodesync_deadline=None):
     # We default to UTF8Type because it's simpler to use in tests
 
     additional_columns = ""
@@ -196,6 +197,8 @@ def create_cf(session, name, key_type="varchar", speculative_retry=None, read_re
         query = '%s AND gc_grace_seconds=%d' % (query, gc_grace)
     if speculative_retry is not None:
         query = '%s AND speculative_retry=\'%s\'' % (query, speculative_retry)
+    if nodesync:
+        query = '%s AND nodesync={ \'enabled\' : \'true\'%s }' % (query, '' if nodesync_deadline is None else '\'deadline_target_sec\': \'%s\'' % nodesync_deadline)
 
     if compact_storage:
         query += ' AND COMPACT STORAGE'
