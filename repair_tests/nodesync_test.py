@@ -1,5 +1,6 @@
 # -*- coding: UTF-8 -*-
-import time, calendar
+import time
+import calendar
 
 from operator import attrgetter
 from ccmlib.node import ToolError
@@ -7,12 +8,14 @@ from dse.query import SimpleStatement
 from nose.tools import assert_true
 
 from dtest import Tester, debug
+from tools.assertions import assert_length_equal
 from tools.data import create_ks, create_cf
 from tools.decorators import since
 
 
 def toTimestamp(dt):
     return (calendar.timegm(dt.timetuple())) * 1000
+
 
 def read_nodesync_status(session):
     """
@@ -52,7 +55,7 @@ def segment_has_been_repaired_recently(row, timestamp=None):
     @return true if the segment has been repaired since timestamp
     """
     if timestamp is None:
-        return not (row.last_unsuccessful_validation is None and row.last_successful_validation is None)
+        return last_validation(row) is not None
     else:
         validation_timestamp = last_validation(row)
         if validation_timestamp is None:
@@ -197,15 +200,15 @@ class TestNodeSync(Tester):
         """
         session = self._prepare_cluster(nodes=2)
         create_ks(session, 'ks', 2)
-        create_cf(session, 'table1', key_type='int', columns={'v' : 'text'})
+        create_cf(session, 'table1', key_type='int', columns={'v': 'text'})
 
         INSERTS = 1000
         debug("Inserting data...")
         for i in range(0, INSERTS):
-            session.execute("INSERT INTO ks.table1(key, v) VALUES(%d, 'foobar')" % (i))
+            session.execute("INSERT INTO ks.table1(key, v) VALUES({}, 'foobar')".format(i))
 
         # NodeSync is not yet running, so make sure there is no state
-        self.assertEqual(0, len(read_nodesync_status_for_table(session, 'ks', 'table').current_rows))
+        assert_length_equal(read_nodesync_status_for_table(session, 'ks', 'table').current_rows, 0)
 
         # Enable NodeSync and make sure everything gets validated
         debug("Enabling NodeSync and waiting on initial validations...")
@@ -217,5 +220,5 @@ class TestNodeSync(Tester):
         RUNS = 5
         for _ in range(0, RUNS):
             timestamp = time.time() * 1000
-            debug("Waiting on validations being older than %d" % (timestamp))
+            debug("Waiting on validations being older than {}".format(timestamp))
             wait_for_all_segments(session, timestamp=timestamp)

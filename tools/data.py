@@ -169,6 +169,7 @@ def block_until_index_is_built(node, session, keyspace, table_name, idx_name):
     else:
         raise DtestTimeoutError()
 
+
 def create_cf(session, name, key_type="varchar", speculative_retry=None, read_repair=None, compression=None,
               gc_grace=None, columns=None, validation="UTF8Type", compact_storage=False,
               nodesync=False, nodesync_deadline=None):
@@ -204,6 +205,7 @@ def create_cf(session, name, key_type="varchar", speculative_retry=None, read_re
 
     session.execute(query)
     time.sleep(0.2)
+
 
 def create_ks(session, name, rf):
     debug('Creating {} with rf {}'.format(name, rf))
