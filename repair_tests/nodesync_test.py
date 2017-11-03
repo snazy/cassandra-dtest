@@ -120,11 +120,19 @@ def equal_rows(row_a, row_b):
 @since('4.0')
 class TestNodeSync(Tester):
 
-    def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=[], options=None):
+    def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=[], options=None,
+                         min_validation_interval_ms=1000, segment_lock_timeout_sec=10, segment_size_target_mb=10):
         cluster = self.cluster
         cluster.populate(nodes, install_byteman=byteman)
         if options:
             cluster.set_configuration_options(values=options)
+        if min_validation_interval_ms:
+            jvm_arguments += ["-Ddse.nodesync.min_validation_interval_ms={}".format(min_validation_interval_ms)]
+        if segment_lock_timeout_sec:
+            jvm_arguments += ["-Ddse.nodesync.segment_lock_timeout_sec={}".format(segment_lock_timeout_sec)]
+        if segment_size_target_mb:
+            jvm_arguments += ["-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_mb * 1024 * 1024)]
+        debug("Starting cluster..")
         cluster.start(wait_for_binary_proto=True, jvm_args=jvm_arguments)
         node1 = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node1)
@@ -133,20 +141,15 @@ class TestNodeSync(Tester):
         return self.session
 
     def test_decommission(self):
-        session = self._prepare_cluster(nodes=4, jvm_arguments=["-Ddatastax.nodesync.min_validation_interval_ms={}".format(5000)])
-        session.execute("""
-                CREATE KEYSPACE IF NOT EXISTS ks
-                WITH replication = { 'class': 'SimpleStrategy', 'replication_factor': '3' }
-                """)
-        session.execute('USE ks')
-        session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 int) WITH nodesync = {'enabled': 'true'}")
+        session = self._prepare_cluster(nodes=4)
+        create_ks(session, 'ks', 3)
+        create_cf(session, 't', key_type='int', columns={'v': 'int', 'v2': 'int'}, nodesync=True)
         self.cluster.nodelist()[2].decommission()
 
     def test_no_replication(self):
-        jvm_arguments = ["-Ddatastax.nodesync.min_validation_interval_ms={}".format(2000)]
-        session = self._prepare_cluster(nodes=[2, 2], jvm_arguments=jvm_arguments)
+        session = self._prepare_cluster(nodes=[2, 2])
         create_ks(session, 'ks', {'dc1': 3, 'dc2': 3})
-        session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 int) WITH nodesync = {'enabled': 'true'}")
+        create_cf(session, 't', key_type='int', columns={'v': 'int', 'v2': 'int'}, nodesync=True)
 
         # reset RF at dc1 as 0
         session.execute("ALTER KEYSPACE ks WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 0, 'dc2': 3};")
@@ -154,23 +157,19 @@ class TestNodeSync(Tester):
         # wait 5s for error
         time.sleep(10)
 
-    def cannot_run_repair_on_nodesync_enabled_table_test(self):
+    def test_cannot_run_repair_on_nodesync_enabled_table(self):
         """
         * Check that ordinary repair cannot be run on NodeSync enabled table
         @jira_ticket APOLLO-966
         """
         self.ignore_log_patterns = [
             'Cannot run both full and incremental repair, choose either --full or -inc option.']
-        cluster = self.cluster
-        debug("Starting cluster..")
-        cluster.populate(2).start()
-        node1, _ = cluster.nodelist()
-        session = self.patient_cql_connection(node1)
+        session = self._prepare_cluster(nodes=2)
 
-        debug("Creating keyspace and table")
         create_ks(session, 'ks', 2)
         create_cf(session, 'table1', columns={'c1': 'text', 'c2': 'text'})
 
+        node1 = self.cluster.nodelist()[0]
         # Check there is no problem executing repair on ks.table
         debug("Running repair on ks.table1")
         node1.nodetool('repair ks table1')
