@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-import time
+import time, calendar
 
 from operator import attrgetter
 from ccmlib.node import ToolError
@@ -10,6 +10,9 @@ from dtest import Tester, debug
 from tools.data import create_ks, create_cf
 from tools.decorators import since
 
+
+def toTimestamp(dt):
+    return (calendar.timegm(dt.timetuple())) * 1000
 
 def read_nodesync_status(session):
     """
@@ -34,9 +37,9 @@ def last_validation(row):
     successfully or unsuccessfully. Returns None if validation has never been attempted.
     """
     if row.last_unsuccessful_validation is not None:
-        return row.last_unsuccessful_validation.started_at
+        return toTimestamp(row.last_unsuccessful_validation.started_at)
     elif row.last_successful_validation is not None:
-        return row.last_successful_validation.started_at
+        return toTimestamp(row.last_successful_validation.started_at)
     else:
         return None
 
@@ -51,10 +54,10 @@ def segment_has_been_repaired_recently(row, timestamp=None):
     if timestamp is None:
         return not (row.last_unsuccessful_validation is None and row.last_successful_validation is None)
     else:
-        if row.last_unsuccessful_validation is not None or row.last_successful_validation is not None:
-            return last_validation(row)  # TODO handle the timestamp here
-        else:
-            return True
+        validation_timestamp = last_validation(row)
+        if validation_timestamp is None:
+            return False
+        return validation_timestamp >= timestamp
 
 
 def wait_for_all_segments(session, timeout=30, timestamp=None):
@@ -67,7 +70,9 @@ def wait_for_all_segments(session, timeout=30, timestamp=None):
         nodesync_status = read_nodesync_status(session)
         unvalidated_rows = [row for row in nodesync_status.current_rows
                             if not segment_has_been_repaired_recently(row, timestamp)]
-        if len(unvalidated_rows) == 0:
+        # We shouldn't return success if nothing has been read.
+        # TODO: we should actually do some token check magic to check that we do cover the whole range
+        if len(unvalidated_rows) == 0 and len(nodesync_status.current_rows) != 0:
             return True
         time.sleep(1)
     return False
@@ -132,7 +137,7 @@ class TestNodeSync(Tester):
             jvm_arguments += ["-Ddse.nodesync.segment_lock_timeout_sec={}".format(segment_lock_timeout_sec)]
         if segment_size_target_mb:
             jvm_arguments += ["-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_mb * 1024 * 1024)]
-        debug("Starting cluster..")
+        debug("Starting cluster...")
         cluster.start(wait_for_binary_proto=True, jvm_args=jvm_arguments)
         node1 = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node1)
@@ -185,3 +190,32 @@ class TestNodeSync(Tester):
         debug("Disabling nodesync on ks.table1 - can run repair again")
         session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'false'}")
         node1.nodetool('repair ks table1')
+
+    def test_basic_nodesync_validation(self):
+        """
+        Validate basic behavior of NodeSync: that a table gets entirely validated and continuously so
+        """
+        session = self._prepare_cluster(nodes=2)
+        create_ks(session, 'ks', 2)
+        create_cf(session, 'table1', key_type='int', columns={'v' : 'text'})
+
+        INSERTS = 1000
+        debug("Inserting data...")
+        for i in range(0, INSERTS):
+            session.execute("INSERT INTO ks.table1(key, v) VALUES(%d, 'foobar')" % (i))
+
+        # NodeSync is not yet running, so make sure there is no state
+        self.assertEqual(0, len(read_nodesync_status_for_table(session, 'ks', 'table').current_rows))
+
+        # Enable NodeSync and make sure everything gets validated
+        debug("Enabling NodeSync and waiting on initial validations...")
+        session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'true'}")
+        wait_for_all_segments(session)
+
+        # Now, test that segments gets continuously validated by repeatedly grabbing a timestamp and make sure
+        # that everything gets validated past this timestamp.
+        RUNS = 5
+        for _ in range(0, RUNS):
+            timestamp = time.time() * 1000
+            debug("Waiting on validations being older than %d" % (timestamp))
+            wait_for_all_segments(session, timestamp=timestamp)
