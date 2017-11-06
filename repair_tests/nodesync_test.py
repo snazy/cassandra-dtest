@@ -1,15 +1,15 @@
 # -*- coding: UTF-8 -*-
-import time
 import calendar
-
+import time
 from operator import attrgetter
+
 from ccmlib.node import ToolError
 from dse.query import SimpleStatement
 from nose.tools import assert_true
 
 from dtest import Tester, debug
 from tools.assertions import assert_length_equal
-from tools.data import create_ks, create_cf
+from tools.data import create_cf, create_ks
 from tools.decorators import since
 
 
