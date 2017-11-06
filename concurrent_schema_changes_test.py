@@ -548,7 +548,9 @@ class TestConcurrentSchemaChanges(Tester):
         wait(2)
         session = self.cql_connection(node1)
 
-        def stress(args=[]):
+        def stress(args=None):
+            if args is None:
+                args = []
             debug("Stressing")
             node1.stress(args)
             debug("Done Stressing")

@@ -48,26 +48,34 @@ def generate_keypair(dir, name, cn, opts):
                                        "cn={}, ou=cassandra, o=apache.org, c=US".format(cn), '-keypass', 'cassandra'] + opts)
 
 
-def generate_cert(dir, name, keystore, opts=[]):
+def generate_cert(dir, name, keystore, opts=None):
+    if opts is None:
+        opts = []
     fn = os.path.join(dir, name + '.pem')
     _exec_keytool(dir, keystore, ['-alias', name, '-exportcert', '-rfc', '-file', fn] + opts)
     return fn
 
 
-def generate_sign_request(dir, name, keystore, opts=[]):
+def generate_sign_request(dir, name, keystore, opts=None):
+    if opts is None:
+        opts = []
     fn = os.path.join(dir, name + '.csr')
     _exec_keytool(dir, keystore, ['-alias', name, '-keypass', 'cassandra', '-certreq', '-file', fn] + opts)
     return fn
 
 
-def sign_request(dir, name, keystore, csr, opts=[]):
+def sign_request(dir, name, keystore, csr, opts=None):
+    if opts is None:
+        opts = []
     fnout = os.path.splitext(csr)[0] + '.pem'
     _exec_keytool(dir, keystore, ['-alias', name, '-keypass', 'cassandra', '-gencert',
                                   '-rfc', '-infile', csr, '-outfile', fnout] + opts)
     return fnout
 
 
-def import_cert(dir, name, cert, keystore, opts=[]):
+def import_cert(dir, name, cert, keystore, opts=None):
+    if opts is None:
+        opts = []
     _exec_keytool(dir, keystore, ['-alias', name, '-keypass', 'cassandra', '-importcert', '-noprompt', '-file', cert] + opts)
     return cert
 
