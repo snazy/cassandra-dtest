@@ -1,6 +1,8 @@
 import fileinput
+import glob
 import os
 import re
+import shutil
 import sys
 import tempfile
 
@@ -39,3 +41,25 @@ def size_of_files_in_dir(dir_name, verbose=True):
     if verbose:
         debug('getting sizes of these files: {}'.format(files))
     return sum(os.path.getsize(f) for f in files)
+
+
+def get_snapshot_dirs(node, ks, cf):
+    snapshot_dirs = []
+    for data_dir in node.data_directories():
+        for pattern in ["{data_dir}/{ks}/{cf}/snapshots/", "{data_dir}/{ks}/{cf}-*/snapshots/"]:
+            snapshot_dirs += glob.glob(pattern.format(data_dir=data_dir, ks=ks, cf=cf))
+    return snapshot_dirs
+
+
+def clear_snapshot_dir(node, ks, cf):
+    for dir in get_snapshot_dirs(node, ks, cf):
+        debug("Removing snapshot dir: {}".format(str(dir)))
+        shutil.rmtree(dir)
+
+
+def has_snapshot_dir(node, ks, cf):
+    for dir in get_snapshot_dirs(node, ks, cf):
+        debug("Found snapshot dir: {}".format(str(dir)))
+        return True
+    debug("No snapshot found")
+    return False

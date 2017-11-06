@@ -8,6 +8,7 @@ from dtest import Tester, debug
 from tools.assertions import assert_length_equal, assert_nodetool_error
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
+from tools.files import clear_snapshot_dir, has_snapshot_dir
 
 
 class TestRebuild(Tester):
@@ -530,7 +531,7 @@ class TestRebuild(Tester):
         for i in xrange(0, keys):
             query_c1c2(session, i, ConsistencyLevel.ONE, tolerate_missing=True, must_be_missing=True)
 
-    def _refetch_reset_iteration(self, rebuild_node, sessions, nodetoolCmd):
+    def _refetch_reset_iteration(self, rebuild_node, sessions, nodetoolCmd, snapshot_exists=False):
         """
         Stop the 4th node and populate _more_ data. Since the 4th node is down and hints are disabled,
         the 4th node won't get the new data when it starts.
@@ -595,6 +596,9 @@ class TestRebuild(Tester):
             query_c1c2(rebuild_node_session, key, ConsistencyLevel.LOCAL_ONE, tolerate_missing=True, must_be_missing=True,
                        additional_error_text="down node must not have new rows, key={}, rebuild-node".format(key))
 
+        # clean up snapshot dir
+        clear_snapshot_dir(rebuild_node, ks="ks1", cf='cf')
+
         # rebuild refetch/reset
         rebuild_node.mark_log()
         rebuild_node.mark_log_for_errors()
@@ -612,6 +616,10 @@ class TestRebuild(Tester):
         stderr:
         {}
         """.format(nodetoolCmd, out, err))
+
+        # Verify snapshot existence
+        self.assertEquals(snapshot_exists, has_snapshot_dir(rebuild_node, ks="ks1", cf="cf"))
+
         # Expect the nodetool command to _not_ let the node log the "Streaming range ... from 127.0.0.3" message,
         # because that would indicate that it is streaming from that node, which is what don't want.
         with self.assertRaises(TimeoutError):
@@ -759,10 +767,10 @@ class TestRebuild(Tester):
         self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -xdc dc2')
 
         # reset, include DC
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -dc dc1')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -dc dc1', snapshot_exists=True)
 
         # reset, exclude DC
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -xdc dc2')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset-no-snapshot -xdc dc2')
 
         # refetch, include source
         self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -s 127.0.0.1,127.0.0.2')
@@ -771,7 +779,7 @@ class TestRebuild(Tester):
         self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -x 127.0.0.3,127.0.0.4')
 
         # reset, include source
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -s 127.0.0.1,127.0.0.2')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -s 127.0.0.1,127.0.0.2', snapshot_exists=True)
 
         # reset, exclude source
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -x 127.0.0.3,127.0.0.4')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset-no-snapshot -x 127.0.0.3,127.0.0.4')
