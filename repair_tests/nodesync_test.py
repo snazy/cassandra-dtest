@@ -128,10 +128,15 @@ def equal_rows(row_a, row_b):
 @since('4.0')
 class TestNodeSync(Tester):
 
-    def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=[], options=None,
+    def _prepare_cluster(self, nodes=1, byteman=False, jvm_arguments=None, options=None,
                          min_validation_interval_ms=1000, segment_lock_timeout_sec=10, segment_size_target_mb=10):
+
+        if jvm_arguments is None:
+            jvm_arguments = []
+
         cluster = self.cluster
         cluster.populate(nodes, install_byteman=byteman)
+
         if options:
             cluster.set_configuration_options(values=options)
         if min_validation_interval_ms:
@@ -140,6 +145,7 @@ class TestNodeSync(Tester):
             jvm_arguments += ["-Ddse.nodesync.segment_lock_timeout_sec={}".format(segment_lock_timeout_sec)]
         if segment_size_target_mb:
             jvm_arguments += ["-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_mb * 1024 * 1024)]
+
         debug("Starting cluster...")
         cluster.start(wait_for_binary_proto=True, jvm_args=jvm_arguments)
         node1 = self.cluster.nodelist()[0]
