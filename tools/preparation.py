@@ -22,7 +22,9 @@ def prepare(tester,
             user=None,
             password=None,
             protocol_version=None,
-            guarantee_local_reads=False):
+            guarantee_local_reads=False,
+            nodesync_options=None,
+            byteman=False):
     """
     Prepare a cluster for a given test. This configure and start the cluster
     with the options provided, as well as create a keyspace, and return a
@@ -51,6 +53,11 @@ def prepare(tester,
                                  necessary if you want to do CL.ONE reads on some
                                  node (that you know is a replica for what is
                                  read) and need to guarantee the read is local.
+    @param nodesync_options startup options that allow to set NodeSync parameters
+                            more suited for testing. This is stictly speaking a
+                            list of JVM parameters, but can be more conveniently
+                            built using the nodesync_opts method from tools/nodesync.py
+    @param byteman if True, setup byteman for the run.
     """
 
     cluster = tester.cluster
@@ -85,11 +92,14 @@ def prepare(tester,
             options['endpoint_snitch'] = 'org.apache.cassandra.locator.PropertyFileSnitch'
         cluster.set_configuration_options(values=options)
 
-    jvm_args = None
+    jvm_args = []
     if interceptors:
-        jvm_args = make_jvm_args(interceptors)
+        jvm_args += make_jvm_args(interceptors)
 
-    cluster.populate(nodes)
+    if nodesync_options:
+        jvm_args += nodesync_options
+
+    cluster.populate(nodes, install_byteman=byteman)
 
     # We'll use JMX to control interceptors, and what requires this apparently
     if interceptors:
