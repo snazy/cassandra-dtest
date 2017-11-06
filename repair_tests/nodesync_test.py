@@ -1,10 +1,14 @@
 # -*- coding: UTF-8 -*-
 import calendar
 import time
+import heapq
+
+from functools import total_ordering
 from operator import attrgetter
 
 from ccmlib.node import ToolError
 from dse.query import SimpleStatement
+from dse.metadata import Murmur3Token
 from nose.tools import assert_true
 
 from dtest import Tester, debug
@@ -13,88 +17,186 @@ from tools.data import create_cf, create_ks
 from tools.decorators import since
 
 
+# TODO: this only work with murmur3, we should make sure the tests force that
+MIN_TOKEN = -(2 ** 63)
+
+
 def toTimestamp(dt):
     return (calendar.timegm(dt.timetuple())) * 1000
 
 
-def read_nodesync_status(session):
-    """
-    Reads in the entire nodesync status table, and returns the rows
-    """
-    return session.execute("SELECT * FROM system_distributed.nodesync_status")
+@total_ordering
+class NodeSyncRecord(object):
+    """ Represents a record from the status table """
+    def __init__(self, keyspace, table, start, end, last_time=None, last_successful_time=None):
+        self.keyspace = keyspace
+        self.table = table
+        self.start = start
+        self.end = end
+        self.last_time = last_time
+        self.last_successful_time = last_successful_time
+        self.last_was_success = last_time is not None and last_successful_time is not None and last_time == last_successful_time
+
+    def __lt__(self, other):
+        if self.start == other.start:
+            return self.end < other.end
+        return self.start < other.start
+
+    def __str__(self):
+        def tk(token):
+            return '<min>' if token == MIN_TOKEN else token
+
+        if self.last_time is None and self.last_successful_time is None:
+            validation = '<none>'
+        else:
+            validation = 'last={} ({}ms ago)'.format(self.last_time, (time.time() * 1000) - self.last_time)
+            if not self.last_was_success:
+                validation += ', last_success={} ({}ms ago)'.format(self.last_successful_time, (time.time() * 1000) - self.last_successful_time)
+        return "{ks}.{tbl}-({start}, {end}]@({val})".format(ks=self.keyspace, tbl=self.table,
+                                                            start=tk(self.start), end=tk(self.end),
+                                                            val=validation)
+
+    def __repr__(self):
+        return str(self)
+
+    def __eq__(self, other):
+        return self.__dict_ == other.__dict__
+
+    def from_new_start(sefl, new_start):
+        return NodeSyncRecord(self.keyspace, self.table, new_start, self.end, self.last_time, self.last_successful_time)
+
+    def to_new_end(sefl, new_end):
+        return NodeSyncRecord(self.keyspace, self.table, self.start, new_end, self.last_time, self.last_successful_time)
 
 
-def read_nodesync_status_for_table(session, keyspace, table):
+def parse_record(row):
+    last_time = None
+    last_successful_time = None
+
+    if row.last_successful_validation is None:
+        if row.last_unsuccessful_validation is not None:
+            last_time = toTimestamp(row.last_unsuccessful_validation.started_at)
+    else:
+        last_successful_time = toTimestamp(row.last_successful_validation.started_at)
+        if row.last_unsuccessful_validation is None or row.last_successful_validation.started_at > row.last_unsuccessful_validation.started_at:
+            last_time = last_successful_time
+        else:
+            last_time = toTimestamp(row.last_unsuccessful_validation.started_at)
+    return NodeSyncRecord(row.keyspace_name, row.table_name, row.start_token, row.end_token, last_time, last_successful_time)
+
+
+def compareStartEnd(start, end):
+    if end == MIN_TOKEN:
+        return -1
+    return -1 if start < end else (0 if start == end else 1)
+
+
+def compareEndEnd(end1, end2):
+    if end1 == MIN_TOKEN and end2 == MIN_TOKEN:
+        return 0
+    if end1 == MIN_TOKEN:
+        return 1
+    if end2 == MIN_TOKEN:
+        return -1
+
+    return -1 if end1 < end2 else (0 if end1 == end2 else 1)
+
+
+def consolidate(keyspace, table, records):
+    if len(records) == 0:
+        return [NodeSyncRecord(keyspace, table, MIN_TOKEN, MIN_TOKEN)]
+
+    heapq.heapify(records)
+
+    result = []
+    curr = heapq.heappop(records)
+
+    # If the first doesn't start at the very beginning of the ring, add what is missing
+    if curr.start != MIN_TOKEN:
+        result.append(NodeSyncRecord(keyspace, table, MIN_TOKEN, curr.start))
+
+    while len(records) > 0:
+        next = heapq.heappop(records)
+
+        startEndCmp = compareStartEnd(next.start, curr.end)
+        if startEndCmp >= 0:
+            # next record starts after the current one. Add current one (and, if there is a gap between curr and next,
+            # add that as well) and move to next.
+            result.append(curr)
+            if startEndCmp > 0:
+                result.append(NodeSyncRecord(keyspace, table, curr.end, next.start))
+            curr = next
+        else:
+            # next record intersects with curr on some part. First add part that comes _before_ the intesection if any
+            if curr < next:
+                result.append(curr.to_new_end(next.start))
+
+            # then, we'll deal with the intersection of curr and next. We'll deal with the part following that intersection
+            # later, so push that first back to the heap
+            endEndCmp = compareEndEnd(next.end, curr.end)
+            if endEndCmp < 0:
+                # next ends before curr, push the rest of curr to be dealt later
+                heapq.heappush(records, curr.from_new_start(next.end))
+            elif endEndCmp > 0:
+                # curr ends before next, push the rest of next to be dealt later
+                heapq.heappush(records, next.from_new_start(curr.end))
+
+            # and then update curr to be the intersection
+            curr = NodeSyncRecord(keyspace, table, next.start, next.end if endEndCmp < 0 else curr.end,
+                                  max(curr.last_time, next.last_time), max(curr.last_successful_time, next.last_successful_time))
+
+    # add the last curr, and if it doesn't cover the end of the ring, adds what's missing
+    result.append(curr)
+    if curr.end != MIN_TOKEN:
+        result.append(NodeSyncRecord(keyspace, table, curr.end, MIN_TOKEN))
+
+    return result
+
+
+def read_nodesync_status(session, keyspace, table):
     """
-    Reads in the rows from the nodesync status system table that pertain to a specific data table
+    Reads in the rows from the nodesync status system table that pertain to a specific data table,
+    returning a list of NodeSyncRecord.
     """
     query = SimpleStatement("""SELECT * FROM system_distributed.nodesync_status WHERE keyspace_name='{keyspace}'
                 AND table_name='{table}' ALLOW FILTERING""".format(keyspace=keyspace, table=table),
                             fetch_size=None)
-    return session.execute(query)
+    raw_records = [ parse_record(row) for row in session.execute(query).current_rows ]
+    records = consolidate(keyspace, table, raw_records)
+    return records
 
 
-def last_validation(row):
+def wait_for_all_segments(session, keyspace, table, timeout=30, predicate=lambda r: r.last_time is not None):
     """
-    Takes in a single row from the nodesync status table, and returns the last time it was attempted to be validated,
-    successfully or unsuccessfully. Returns None if validation has never been attempted.
-    """
-    if row.last_unsuccessful_validation is not None:
-        return toTimestamp(row.last_unsuccessful_validation.started_at)
-    elif row.last_successful_validation is not None:
-        return toTimestamp(row.last_successful_validation.started_at)
-    else:
-        return None
-
-
-def segment_has_been_repaired_recently(row, timestamp=None):
-    """
-    @param row: A row from the nodesync_status table
-    @param timestamp: The time we want to know if the segment has been repaired since. If `None`, we check
-    if the segment has ever been repaired.
-    @return true if the segment has been repaired since timestamp
-    """
-    if timestamp is None:
-        return last_validation(row) is not None
-    else:
-        validation_timestamp = last_validation(row)
-        if validation_timestamp is None:
-            return False
-        return validation_timestamp >= timestamp
-
-
-def wait_for_all_segments(session, timeout=30, timestamp=None):
-    """
-    Waits up to :timeout to see if every segment in the nodesync status table has been validated since :timestamp
-    If :timestamp is None, just checks if they've ever been validated
+    Waits up to :timeout to see if every segment of :keyspace.:table pass the provided :predicate
+    If :predicate is not set, it simply checks if they've ever been validated
     """
     start = time.time()
     while start + timeout > time.time():
-        nodesync_status = read_nodesync_status(session)
-        unvalidated_rows = [row for row in nodesync_status.current_rows
-                            if not segment_has_been_repaired_recently(row, timestamp)]
-        # We shouldn't return success if nothing has been read.
-        # TODO: we should actually do some token check magic to check that we do cover the whole range
-        if len(unvalidated_rows) == 0 and len(nodesync_status.current_rows) != 0:
+        nodesync_status = read_nodesync_status(session, keyspace, table)
+        if all(predicate(record) for record in nodesync_status):
             return True
         time.sleep(1)
     return False
 
+def validated_since(timestamp):
+    return lambda r: r.last_time > timestamp
 
-def get_oldest_segments(session, keyspace, table, segment_count):
+def not_validated():
+    return lambda r: r.last_time is None and r.last_successful_time is None
+
+def get_oldest_segments(session, keyspace, table, segment_count, only_successful=False):
     """
     Returns the :segment_count oldest segments from the nodesync status table that pertain to :keyspace.:table
     """
-    assert_true(wait_for_all_segments(session), "Not all segments repaired in time.")
+    assert_true(wait_for_all_segments(session, keyspace, table), "Not all segments repaired in time.")
 
-    def sort_row(row):
-        if row.last_unsuccessful_validation is not None:
-            return row.last_unsuccessful_validation.started_at
-        else:
-            return row.last_successful_validation.started_at
+    def sort_record(record):
+        time = record.last_successful_time if only_successful else record.last_time
+        return time if time is not None else -1
 
-    nodesync_status = read_nodesync_status_for_table(session, keyspace, table)
-    nodesync_status.current_rows.sort(key=sort_row)
+    nodesync_status = read_nodesync_status(session, keyspace, table)
+    nodesync_status.sort(key=sort_record)
     return nodesync_status[0:segment_count]
 
 
@@ -103,26 +205,8 @@ def get_unsuccessful_validations(session, keyspace, table):
     Returns the set of rows in the nodesync status table for :keyspace.:table where the latest validations
     were unsuccessful
     """
-    nodesync_status = read_nodesync_status_for_table(session, keyspace, table)
-    return [row for row in nodesync_status.current_rows if row.last_unsuccessful_validation is not None]
-
-
-def equal_rows(row_a, row_b):
-    """
-    Compares two rows from the nodesync status table, and returns true if they have the same primary key
-    """
-
-    def compare_attributes(row_a, row_b, column_name):
-        if not attrgetter(row_a, column_name) == attrgetter(row_b, column_name):
-            return False
-
-    primary_key_columns = ['keyspace_name', 'table_name', 'range_group', 'start_token', 'end_token']
-
-    same_row = True
-    for column in primary_key_columns:
-        same_row = same_row and compare_attributes(row_a, row_b, column)
-
-    return same_row
+    nodesync_status = read_nodesync_status(session, keyspace, table)
+    return [record for record in nodesync_status if not record.last_was_success]
 
 
 @since('4.0')
@@ -214,12 +298,12 @@ class TestNodeSync(Tester):
             session.execute("INSERT INTO ks.table1(key, v) VALUES({}, 'foobar')".format(i))
 
         # NodeSync is not yet running, so make sure there is no state
-        assert_length_equal(read_nodesync_status_for_table(session, 'ks', 'table').current_rows, 0)
+        wait_for_all_segments(session, 'ks', 'table1', predicate=not_validated())
 
         # Enable NodeSync and make sure everything gets validated
         debug("Enabling NodeSync and waiting on initial validations...")
         session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'true'}")
-        wait_for_all_segments(session)
+        wait_for_all_segments(session, 'ks', 'table1')
 
         # Now, test that segments gets continuously validated by repeatedly grabbing a timestamp and make sure
         # that everything gets validated past this timestamp.
@@ -227,4 +311,4 @@ class TestNodeSync(Tester):
         for _ in range(0, RUNS):
             timestamp = time.time() * 1000
             debug("Waiting on validations being older than {}".format(timestamp))
-            wait_for_all_segments(session, timestamp=timestamp)
+            wait_for_all_segments(session, 'ks', 'table1', predicate=validated_since(timestamp))
