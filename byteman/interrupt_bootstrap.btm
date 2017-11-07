@@ -1,0 +1,22 @@
+#
+# Kill a node right after it has prepared the bootstrap streaming.
+#
+RULE kill node while preparing streaming (compressed stream writer)
+CLASS org.apache.cassandra.streaming.compress.CompressedStreamWriter
+METHOD write
+AT EXIT
+IF TRUE
+DO
+    java.lang.Thread.sleep(100);
+    java.lang.System.exit(1);
+ENDRULE
+
+RULE kill node while preparing streaming (uncompressed stream writer)
+CLASS org.apache.cassandra.streaming.StreamWriter
+METHOD write
+AT EXIT
+IF TRUE
+DO
+    java.lang.Thread.sleep(100);
+    java.lang.System.exit(1);
+ENDRULE

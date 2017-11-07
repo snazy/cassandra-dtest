@@ -10,6 +10,7 @@ from functools import reduce
 from ccmlib.node import NodeError
 from dse import ConsistencyLevel
 from dse.concurrent import execute_concurrent_with_args
+from dse.cluster import NoHostAvailable
 from nose.plugins.attrib import attr
 
 from dtest import DISABLE_VNODES, Tester, debug
@@ -788,3 +789,80 @@ class TestBootstrap(BaseBootstrapTest):
             debug("Deleting {}".format(data_dir))
             shutil.rmtree(data_dir)
         shutil.rmtree(commitlog_dir)
+
+    def failed_bootstrap_with_auth_test(self):
+        """
+        @jira_ticket DB-1274
+        Test that failed streaming will not cause NPE on auth
+        """
+        cluster = self.cluster
+        cluster.populate(1, install_byteman=True)
+        cluster.set_configuration_options(values={'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                                                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer'})
+        cluster.start()
+        cluster.wait_for_any_log('Created default superuser', 25)
+
+        # write some data, enough for the bootstrap to fail later on
+        debug("Prepare data for streaming")
+        node1 = cluster.nodelist()[0]
+        node1.stress(['write', 'n=100K', 'no-warmup', '-rate', 'threads=8', '-mode native cql3', 'user=cassandra', 'password=cassandra'])
+        node1.flush()
+
+        session = self.patient_cql_connection(node1, user='cassandra', password='cassandra')
+        session.shutdown()
+
+        # kills the node right before it starts sending a file
+        node1.byteman_submit(['./byteman/interrupt_bootstrap.btm'])
+
+        # Add a new node, bootstrap=True ensures that it is not a seed
+        node2 = new_node(cluster, bootstrap=True)
+        node2.start()
+
+        debug("Check node2 failed to receive data")
+        node2.watch_log_for("Some data streaming failed.", timeout=120)
+
+        node1.stop()  # looks strange to stop a killed node, but ccm hasn't realized yet that the node is actually down
+        self.assertFalse(node1.is_running())
+
+        debug("Start node1")
+        node1.start()
+
+        debug("Connect to node1")
+        session = self.patient_cql_connection(node1, user='cassandra', password='cassandra')
+        session.shutdown()
+
+        debug("Connect to node2 and expect no-host-exception because unable to fetch auth data during bootstrapping")
+        with self.assertRaises(NoHostAvailable):
+            self.patient_cql_connection(node2, user='cassandra', password='cassandra')
+
+    def bootstrap_write_survey_with_auth_test(self):
+        """
+        @jira_ticket DB-1274
+        Test bootstrap with auth, write_survey, join_ring
+        """
+        cluster = self.cluster
+        cluster.populate(1)
+        cluster.set_configuration_options(values={'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                                                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer'})
+        cluster.start()
+        cluster.wait_for_any_log('Created default superuser', 25)
+
+        # write some data, enough for the bootstrap to fail later on
+        debug("Prepare data for streaming")
+        node1 = cluster.nodelist()[0]
+        node1.stress(['write', 'n=100K', 'no-warmup', '-rate', 'threads=8', '-mode native cql3', 'user=cassandra', 'password=cassandra'])
+        node1.flush()
+
+        session = self.patient_cql_connection(node1, user='cassandra', password='cassandra')
+        session.shutdown()
+
+        # Add a new node, bootstrap=True ensures that it is not a seed
+        debug("Bootstrap new node with write_survey=true and join_ring=true")
+        node2 = new_node(cluster, bootstrap=True)
+        node2.start(jvm_args=["-Dcassandra.write_survey=true", "-Dcassandra.join_ring=true"], wait_for_binary_proto=True)
+
+        debug("Stream some data to node1 again")
+        node1.stress(['write', 'n=100K', 'no-warmup', '-rate', 'threads=8', '-mode native cql3', 'user=cassandra', 'password=cassandra'])
+
+        session = self.patient_cql_connection(node2, user='cassandra', password='cassandra')
+        session.shutdown()
