@@ -11,7 +11,7 @@ from ccmlib.node import ToolError
 from dtest import Tester, debug
 from tools.data import create_cf
 from tools.decorators import since
-from tools.nodesync import *
+from tools.nodesync import nodesync_opts, assert_all_segments, not_validated, validated_since
 from tools.preparation import prepare
 
 
@@ -113,7 +113,7 @@ class TestNodeSync(Tester):
         timestamp = time.time() * 1000
         # Bumping the timeout a bit because some NodeSync queries might timeout, which will basically block NodeSync progress
         # for a few seconds and we're rather take a safe margin here.
-        assert_all_segments(session, 'ks', 'table1', timeout=60, predicate=lambda r: r.last_time > timestamp and not r.last_was_success and r.missing_nodes=={ self.node(3).address() })
+        assert_all_segments(session, 'ks', 'table1', timeout=60, predicate=lambda r: r.last_time > timestamp and not r.last_was_success and r.missing_nodes == {self.node(3).address()})
 
         debug("Restarting 3rd node...")
         self.node(3).start()

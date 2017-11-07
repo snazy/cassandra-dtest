@@ -10,8 +10,6 @@ import calendar
 import heapq
 
 from dse.query import SimpleStatement
-from dse.metadata import Murmur3Token
-from dtest import debug
 from functools import total_ordering
 
 
@@ -51,6 +49,7 @@ class NodeSyncRecord(object):
           None if we have no such record.
         - last_was_success: if the last validation done was successful.
     """
+
     def __init__(self, keyspace, table, start, end, last_time=None, last_successful_time=None, missing_nodes=None):
         self.keyspace = keyspace
         self.table = table
@@ -59,7 +58,7 @@ class NodeSyncRecord(object):
         self.last_time = last_time
         self.last_successful_time = last_successful_time
         self.last_was_success = last_time is not None and last_successful_time is not None and last_time == last_successful_time
-        self.missing_nodes=None if self.last_was_success else missing_nodes
+        self.missing_nodes = None if self.last_was_success else missing_nodes
 
     def __lt__(self, other):
         if self.start == other.start:
@@ -89,11 +88,11 @@ class NodeSyncRecord(object):
     def __eq__(self, other):
         return self.__dict_ == other.__dict__
 
-    def from_new_start(sefl, new_start):
+    def from_new_start(self, new_start):
         """ Creates a new record, equivalent to this one expect for the start token that will be :new_start.  """
         return NodeSyncRecord(self.keyspace, self.table, new_start, self.end, self.last_time, self.last_successful_time)
 
-    def to_new_end(sefl, new_end):
+    def to_new_end(self, new_end):
         """ Creates a new record, equivalent to this one expect for the end token that will be :new_end."""
         return NodeSyncRecord(self.keyspace, self.table, self.start, new_end, self.last_time, self.last_successful_time)
 
@@ -139,7 +138,7 @@ def __consolidate(keyspace, table, records):
       final result.
 
     The exact algorithm uses is basically similar to the `NodeSyncRecord#consolidateValidations` method server side
-    which does the same job. 
+    which does the same job.
     """
     if len(records) == 0:
         return [NodeSyncRecord(keyspace, table, _MIN_TOKEN, _MIN_TOKEN)]
@@ -222,7 +221,7 @@ def _read_nodesync_status(session, keyspace, table):
                 AND table_name='{table}' ALLOW FILTERING""".format(keyspace=keyspace, table=table),
                             fetch_size=None)
     rows = session.execute(query).current_rows
-    raw_records = [ _parse_record(row) for row in rows ]
+    raw_records = [_parse_record(row) for row in rows]
     records = __consolidate(keyspace, table, raw_records)
     return records
 
@@ -260,6 +259,7 @@ def validated_since(timestamp, only_success=True):
     """
     return lambda r: (r.last_successful_time if only_success else r.last_time) > timestamp
 
+
 def not_validated():
     """ Predicate for use with wait_for_all_segments that checks that segments have _not_ been validated.
 
@@ -276,12 +276,13 @@ def get_oldest_segments(session, keyspace, table, segment_count, only_success=Tr
     will be used.
     """
     def sort_record(record):
-        time = record.last_successful_time if only_successful else record.last_time
+        time = record.last_successful_time if only_success else record.last_time
         return time if time is not None else -1
 
     nodesync_status = _read_nodesync_status(session, keyspace, table)
     nodesync_status.sort(key=sort_record)
     return nodesync_status[0:segment_count]
+
 
 def get_unsuccessful_validations(session, keyspace, table):
     """ Returns the set of rows in the nodesync status table for :keyspace.:table where the latest validations
