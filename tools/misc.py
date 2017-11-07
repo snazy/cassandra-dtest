@@ -1,3 +1,7 @@
+import datetime
+import re
+import time
+
 from collections import Mapping
 
 from dse.auth import PlainTextAuthProvider
@@ -100,3 +104,12 @@ def restart_cluster_and_update_config(cluster, config):
     cluster.stop()
     cluster.set_configuration_options(values=config)
     cluster.start()
+
+
+def get_timestamp(text, timestamp_regex=r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', timestamp_format="%Y-%m-%d %H:%M:%S"):
+    """
+    Extract the timestamp(default in seconds) from text.
+    """
+    date_time = datetime.datetime.strptime(re.findall(timestamp_regex, text)[0], timestamp_format)
+    timestamp = time.mktime(date_time.timetuple())
+    return timestamp

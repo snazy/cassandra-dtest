@@ -4,7 +4,9 @@ import parse
 from dse.concurrent import execute_concurrent_with_args
 
 from dtest import Tester, debug
+from ccmlib.node import TimeoutError
 from tools.data import create_ks
+from tools.misc import get_timestamp
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 
@@ -137,6 +139,34 @@ class TestConfiguration(Tester):
         chunk_length = parse.search("'" + chunk_string + "': '{chunk_length:d}'", result).named['chunk_length']
 
         self.assertEqual(chunk_length, value, "Expected chunk_length: {}.  We got: {}".format(value, chunk_length))
+
+    def native_transport_startup_delay_test(self):
+        """
+        @jira_ticket APOLLO-1315
+        Verify that cassandra.native_transport_startup_delay_second is applied
+        """
+        self.cluster.populate(1)
+        node1 = self.cluster.nodelist()[0]
+
+        # start with no delay
+        self.cluster.start(wait_for_binary_proto=True)
+        with self.assertRaises(TimeoutError):
+            node1.watch_log_for("Delayed startup of native transport for", timeout=0)
+        node1.watch_log_for("Starting listening for CQL clients", timeout=0)
+        mark = node1.mark_log()
+
+        self.cluster.stop()
+
+        # start with 20 seconds delay
+        mark = node1.mark_log()
+        self.cluster.start(jvm_args=["-Dcassandra.native_transport_startup_delay_second=20"], wait_for_binary_proto=True)
+        log1 = node1.watch_log_for("Delayed startup of native transport for 20 seconds", from_mark=mark, timeout=0)
+        log2 = node1.watch_log_for("Starting listening for CQL clients", from_mark=mark, timeout=0)
+
+        # verify time delta is at least 20 seconds
+        timestamp1 = get_timestamp(str(log1))
+        timestamp2 = get_timestamp(str(log2))
+        self.assertTrue(timestamp2 - timestamp1 >= 20)
 
 
 def write_to_trigger_fsync(session, ks, table):
