@@ -1,0 +1,9 @@
+#
+RULE slow down batchlog ack
+CLASS org.apache.cassandra.service.StorageProxy
+METHOD asyncRemoveFromBatchlog
+AT ENTRY
+IF TRUE
+DO
+    return;
+ENDRULE

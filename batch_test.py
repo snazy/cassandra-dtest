@@ -289,6 +289,158 @@ class TestBatch(Tester):
         assert_one(session, "SELECT * FROM users", [0, 'Jack', 'Sparrow'])
         assert_one(session, "SELECT * FROM dogs", [0, 'Pluto'])
 
+    @since('3.0')
+    def batchlog_replay_metrics_test(self):
+        """
+        @jira_ticket DB-1314 introduce batchlog-reply metrics
+
+        New metrics are meters to measure the number of batchlog-replays via the batchlog table (i.e.
+        async, "delayed").
+
+        Test procedude:
+        Prepare:
+        - start a 2 node cluster
+        - instrument node1 to ignore the acks for the batch so that node batch-remove messages are issued
+        - disable periodic batchlog replay on both nodes
+        Test #1:
+        - issue a logged batch against node1
+        - force batchlog replay on node2
+        - expect that node2 replays the batch against node1 and adjusts the new metric
+        Test #2:
+        - issue a logged batch against node1
+        - instrument node1 to not recognize mutation replies (so that those mutations timeout)
+        - expect that node2 creates hints against node1 for the batchlog replay due to the write-timeout and adjusts the new metric
+        Test #2:
+        - issue a logged batch against node1
+        - shutdown node1
+        - force batchlog replay on node2
+        - expect that node2 creates hints against node1 for the batchlog replay and adjusts the new metric
+
+        This is also a basic test of batchlog-replays.
+        """
+        debug("Prepare test")
+        # prepare the cluster and disable automatich batchlog replay
+        session = self.prepare(nodes=2, install_byteman=True,
+                               # disable automatic batchlog replay for this test
+                               jvm_args=["-Ddse.batchlog.replay_interval_in_ms=-1",
+                                         # prevent the (forced) batchlog replay to ignore younger batchlog entries
+                                         "-Dcassandra.batchlog.replay_timeout_in_ms=1"],
+                               config_options={
+                                   # set a loger write-req-timeout to speed up the test a bit
+                                   'write_request_timeout_in_ms': 300,
+                               })
+        session.execute("""
+            CREATE TABLE dogs (
+                dogid int PRIMARY KEY,
+                dogname text,
+             );
+         """)
+
+        node1, node2 = self.cluster.nodelist()
+
+        node1.byteman_submit(['./byteman/batchlog_do_not_remove.btm'])
+
+        with JolokiaAgent(node2) as jmx:
+            jmx.execute_method(make_mbean('db', type='StorageService'), 'setLoggingLevel', ['org.apache.cassandra.batchlog.BatchlogManager', 'TRACE'])
+
+        #
+        # test #1: for "normal" batchlog replay - no write-timeouts and all endpoints alive
+        #
+        debug("Test batchlog-replay with all endpoints alive...")
+
+        debug("Execute logged batch against node1")
+        batch_stmt = SimpleStatement("""
+                                         BEGIN BATCH
+                                         INSERT INTO users (id, firstname, lastname) VALUES (1, 'Ursus', 'v.d. Haflingern')
+                                         INSERT INTO users (id, firstname, lastname) VALUES (2, 'Elani', 'v.d. Schavener Heide')
+                                         INSERT INTO dogs (dogid, dogname) VALUES (1, 'Ursus')
+                                         INSERT INTO dogs (dogid, dogname) VALUES (2, 'Elani')
+                                         APPLY BATCH
+                                     """)
+        session.execute(batch_stmt)
+
+        # run batchlog replay
+        debug("Run batchlog replay")
+        self._run_batchlog_replay(node2)
+
+        debug("Verify metrics")
+        self._verify_batchlog_metrics(node1, 0, 0)  # node1 must not have done any replays
+        self._verify_batchlog_metrics(node2, 1, 0)  # node1 must have performed one non-hinted replay
+
+        debug("Verify log message")
+        node2.watch_log_for("Finished replay of batchlog .* of age .* seconds with 2 mutations", filename="debug.log", timeout=5)
+
+        #
+        # test #2: for write-timeouts during batchlog-replay
+        #
+        debug("Test write-timeouts during batchlog-replay...")
+
+        debug("Execute logged batch against node1")
+        session.execute(batch_stmt)
+
+        if self.cluster.version() < "4.0":
+            # prevent _sending_ of batchlog mutation replies
+            node1.byteman_submit(['./byteman/pre4.0/prevent_batchlog_mutation_reply.btm'])
+        else:
+            # prevent _processing_ of batchlog mutation replies
+            node2.byteman_submit(['./byteman/4.0/prevent_batchlog_mutation_reply.btm'])
+
+        # run batchlog replay
+        debug("Run batchlog replay")
+        self._run_batchlog_replay(node2)
+
+        debug("Verify metrics")
+        self._verify_batchlog_metrics(node2, 1, 1)  # one additional hinted replay of the 2nd batch
+
+        debug("Verify log message")
+        node2.watch_log_for("Failed to replay batchlog .* of age .* seconds with .* mutations, "
+                            "will write hints[.] "
+                            "Reason\/failure: Operation timed out - received only 0 responses[.]", filename="debug.log", timeout=5)
+
+        #
+        # test #3: when no endpoints are alive
+        #
+        debug("Test no endpoints alive during batchlog-replay...")
+
+        debug("Execute logged batch against node1")
+        session.execute(batch_stmt)
+
+        debug("Stopping node1")
+        node1.stop(wait=False, wait_other_notice=True)  # the node is messed up, so wait alone might take a long time
+
+        # run batchlog replay (we effectively disabled it with the runtime option)
+        debug("Run batchlog replay")
+        self._run_batchlog_replay(node2)
+
+        debug("Verify metrics")
+        self._verify_batchlog_metrics(node2, 1, 2)  # one additional hinted replay of the 3rd batch
+
+        debug("Verify log message")
+        node2.watch_log_for("Failed to replay batchlog .* of age .* seconds with .* mutations, "
+                            "will write hints[.] "
+                            "Reason\/failure: remote endpoints not alive", filename="debug.log", timeout=5)
+
+        node1.stop(gently=False)  # don't be gentle - the node is messed up with byteman scripts and might still be running
+
+    def _run_batchlog_replay(self, node):
+        mbean = make_mbean('db', type='BatchlogManager')
+        # the default JMX via HTTP request timeout of 10 seconds might be too low to wait for batchlog replays (that time out)
+        with JolokiaAgent(node, http_timeout=30.0) as jmx:
+            jmx.execute_method(mbean, 'forceBatchlogReplay')
+
+    def _verify_batchlog_metrics(self, node, expected_replays, expected_hinted_replays):
+        with JolokiaAgent(node) as jmx:
+            batchlog_replays_mbean = make_mbean('metrics', type="Storage", name='BatchlogReplays')
+            hinted_batchlog_replays_mbean = make_mbean('metrics', type="Storage", name='HintedBatchlogReplays')
+
+            batchlog_replays = jmx.read_attribute(batchlog_replays_mbean, "Count")
+            hinted_batchlog_replays = jmx.read_attribute(hinted_batchlog_replays_mbean, "Count")
+
+            debug("{}: replays:{} hinted-replays:{}".format(node.name, batchlog_replays, hinted_batchlog_replays))
+
+            self.assertEqual(batchlog_replays, expected_replays, "Expect {} batchlog replays on {}".format(expected_replays, node.name))
+            self.assertEqual(hinted_batchlog_replays, expected_hinted_replays, "Expect {} hinted batchlog replays on {}".format(expected_hinted_replays, node.name))
+
     @since('3.0', max_version='3.x')
     def logged_batch_compatibility_1_test(self):
         """
@@ -432,20 +584,23 @@ class TestBatch(Tester):
         else:
             assert False, "Expecting TimedOutException but no exception was raised"
 
-    def prepare(self, nodes=1, compression=True, version=None, protocol_version=None, install_byteman=False):
+    def prepare(self, nodes=1, compression=True, version=None, protocol_version=None, install_byteman=False, jvm_args=None, config_options=None):
         if version:
             self.cluster.set_install_dir(version=version)
             debug("Set cassandra dir to {}".format(self.cluster.get_install_dir()))
 
         self.cluster.populate(nodes, install_byteman=install_byteman)
+        if config_options is not None:
+            self.cluster.set_configuration_options(values=config_options)
 
         for n in self.cluster.nodelist():
             remove_perf_disable_shared_mem(n)
 
-        self.cluster.start(wait_other_notice=True)
+        self.cluster.start(wait_other_notice=True, jvm_args=jvm_args)
 
         node1 = self.cluster.nodelist()[0]
-        session = self.patient_cql_connection(node1, protocol_version=protocol_version)
+        # some tests require the "exclusive" cql connection (only connect to the given node)
+        session = self.patient_exclusive_cql_connection(node1, protocol_version=protocol_version)
         self.create_schema(session, nodes)
         return session
 

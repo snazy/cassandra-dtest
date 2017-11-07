@@ -1,0 +1,11 @@
+#
+# Prevent processing of mutation-verb responses
+#
+RULE do not send replies for mutations (to cause write-timeouts)
+CLASS org.apache.cassandra.db.MutationVerbHandler
+METHOD reply
+AT ENTRY
+IF TRUE
+DO
+    return;
+ENDRULE

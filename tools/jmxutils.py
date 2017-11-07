@@ -188,9 +188,12 @@ class JolokiaAgent(object):
     """
 
     node = None
+    http_timeout = 10.0
 
-    def __init__(self, node):
+    def __init__(self, node, http_timeout=None):
         self.node = node
+        if http_timeout is not None:
+            self.http_timeout = http_timeout
 
     def start(self):
         """
@@ -230,7 +233,7 @@ class JolokiaAgent(object):
     def _query(self, body, verbose=True):
         request_data = json.dumps(body)
         url = 'http://%s:8778/jolokia/' % (self.node.network_interfaces['binary'][0],)
-        response = urlopen(url, data=request_data, timeout=10.0)
+        response = urlopen(url, data=request_data, timeout=self.http_timeout)
         if response.code != 200:
             raise Exception("Failed to query Jolokia agent; HTTP response code: %d; response: %s" % (response.code, response.readlines()))
 

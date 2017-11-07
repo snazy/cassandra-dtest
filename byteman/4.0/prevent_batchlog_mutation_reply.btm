@@ -1,0 +1,11 @@
+#
+# Prevent processing of mutation-verb responses
+#
+RULE do not process replies for mutations (to cause write-timeouts)
+CLASS org.apache.cassandra.batchlog.BatchlogManager$ReplayingBatch$ReplayWriteHandler
+METHOD onResponse
+AT ENTRY
+IF TRUE
+DO
+    return;
+ENDRULE
