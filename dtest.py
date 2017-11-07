@@ -478,6 +478,9 @@ class Tester(TestCase):
         self.connections.append(session)
         return session
 
+    def node(self, i):
+        return self.cluster.nodelist()[i-1]
+
     def patient_cql_connection(self, node, keyspace=None,
                                user=None, password=None, timeout=30, compression=True,
                                protocol_version=None, port=None, ssl_opts=None, **kwargs):

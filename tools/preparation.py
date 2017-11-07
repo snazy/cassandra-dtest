@@ -117,13 +117,15 @@ def prepare(tester,
     return session
 
 
-def config_opts(use_cache=False, start_thrift=False, **kwargs):
+def config_opts(use_cache=False, start_thrift=False, tokens=None, **kwargs):
     options = copy.deepcopy(kwargs)
 
     if use_cache:
         options['row_cache_size_in_mb'] = 100
     if start_thrift:
         options['start_rpc'] = True
+    if tokens:
+        options['num_tokens'] = tokens
 
     return options
 

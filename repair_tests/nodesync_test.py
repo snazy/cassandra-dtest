@@ -60,7 +60,7 @@ class TestNodeSync(Tester):
         session.execute("ALTER TABLE ks.table1 WITH nodesync = {'enabled': 'false'}")
         node1.nodetool('repair ks table1')
 
-    def test_basic_nodesync_validation(self):
+    def test_basic_validation(self):
         """
         Validate basic behavior of NodeSync: that a table gets entirely validated and continuously so
         """
@@ -87,3 +87,37 @@ class TestNodeSync(Tester):
             timestamp = time.time() * 1000
             debug("Waiting on validations being older than {}".format(timestamp))
             assert_all_segments(session, 'ks', 'table1', predicate=validated_since(timestamp))
+
+    def test_validation_with_node_failure(self):
+        """
+        Validate that when a node dies, we do continue validating but those validation are not mark
+        fully successful. And that when the node comes back, we get that to be fixed.
+        """
+        session = prepare(self, nodes=3, rf=3, nodesync_options=nodesync_opts())
+        create_cf(session, 'table1', key_type='int', columns={'v': 'text'}, nodesync=True)
+
+        INSERTS = 1000
+        debug("Inserting data...")
+        for i in range(0, INSERTS):
+            session.execute("INSERT INTO ks.table1(key, v) VALUES({}, 'foobar')".format(i))
+
+        # Initial sanity check
+        debug("Checking everything validated...")
+        assert_all_segments(session, 'ks', 'table1')
+
+        debug("Stopping 3rd node...")
+        self.node(3).stop()
+
+        debug("Checking all partial validation...")
+        # From that point on, no segment can be fully validated
+        timestamp = time.time() * 1000
+        # Bumping the timeout a bit because some NodeSync queries might timeout, which will basically block NodeSync progress
+        # for a few seconds and we're rather take a safe margin here.
+        assert_all_segments(session, 'ks', 'table1', timeout=60, predicate=lambda r: r.last_time > timestamp and not r.last_was_success and r.missing_nodes=={ self.node(3).address() })
+
+        debug("Restarting 3rd node...")
+        self.node(3).start()
+
+        debug("Checking everything now successfully validated...")
+        timestamp = time.time() * 1000
+        assert_all_segments(session, 'ks', 'table1', timeout=60, predicate=validated_since(timestamp))
