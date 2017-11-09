@@ -290,6 +290,68 @@ class TestBatch(Tester):
         assert_one(session, "SELECT * FROM dogs", [0, 'Pluto'])
 
     @since('3.0')
+    def batchlog_replay_many_replicas_test(self):
+        """
+        @jira_ticket DB-1316 ensure that logged batches against more than 2 nodes actually works
+        """
+        debug("Prepare test")
+        # prepare the cluster and disable automatic batchlog replay
+        session = self.prepare(nodes=5, install_byteman=True,
+                               # disable automatic batchlog replay for this test
+                               jvm_args=["-Ddse.batchlog.replay_interval_in_ms=-1",
+                                         # prevent the (forced) batchlog replay to ignore younger batchlog entries
+                                         "-Dcassandra.batchlog.replay_timeout_in_ms=1"],
+                               config_options={
+                                   # set a longer write-req-timeout to speed up the test a bit
+                                   'write_request_timeout_in_ms': 300,
+                               })
+        session.execute("""
+            CREATE TABLE dogs (
+                dogid int PRIMARY KEY,
+                dogname text,
+             );
+         """)
+
+        session.cluster.refresh_schema_metadata()
+
+        node1, node2 = self.cluster.nodelist()[0:2]
+
+        node1.byteman_submit(['./byteman/batchlog_do_not_remove.btm'])
+
+        for node in self.cluster.nodelist()[1:]:
+            with JolokiaAgent(node) as jmx:
+                jmx.execute_method(make_mbean('db', type='StorageService'), 'setLoggingLevel', ['org.apache.cassandra.batchlog.BatchlogManager', 'TRACE'])
+
+        # "normal" batchlog replay - no write-timeouts and all endpoints alive
+        debug("Test batchlog-replay with all endpoints alive...")
+
+        debug("Execute logged batch against node1")
+        batch_stmt = SimpleStatement("""
+                                         BEGIN BATCH
+                                         INSERT INTO users (id, firstname, lastname) VALUES (1, 'Ursus', 'v.d. Haflingern')
+                                         INSERT INTO users (id, firstname, lastname) VALUES (2, 'Elani', 'v.d. Schavener Heide')
+                                         INSERT INTO dogs (dogid, dogname) VALUES (1, 'Ursus')
+                                         INSERT INTO dogs (dogid, dogname) VALUES (2, 'Elani')
+                                         APPLY BATCH
+                                     """)
+        session.execute(batch_stmt)
+
+        # Run batchlog replay and verify that both nodes having a copy of the batchlog replayed it.
+        debug("Run batchlog replay")
+        total_batchlog_replays = 0
+        total_hinted_batchlog_replays = 0
+        for node in self.cluster.nodelist():
+            self._run_batchlog_replay(node)
+
+            batchlog_replays, hinted_batchlog_replays = self._get_batchlog_metrics(node)
+            total_batchlog_replays += batchlog_replays
+            total_hinted_batchlog_replays += hinted_batchlog_replays
+
+        # 2 is correct - there are exactly 2 copies of the batchlog
+        self.assertEqual(total_batchlog_replays, 2, "Expect 2 batchlog replays")
+        self.assertEqual(total_hinted_batchlog_replays, 0, "Expect 0 hinted batchlog replays")
+
+    @since('3.0')
     def batchlog_replay_metrics_test(self):
         """
         @jira_ticket DB-1314 introduce batchlog-reply metrics
@@ -326,7 +388,7 @@ class TestBatch(Tester):
                                          # prevent the (forced) batchlog replay to ignore younger batchlog entries
                                          "-Dcassandra.batchlog.replay_timeout_in_ms=1"],
                                config_options={
-                                   # set a loger write-req-timeout to speed up the test a bit
+                                   # set a longer write-req-timeout to speed up the test a bit
                                    'write_request_timeout_in_ms': 300,
                                })
         session.execute("""
@@ -335,6 +397,8 @@ class TestBatch(Tester):
                 dogname text,
              );
          """)
+
+        session.cluster.refresh_schema_metadata()
 
         node1, node2 = self.cluster.nodelist()
 
@@ -428,18 +492,21 @@ class TestBatch(Tester):
         with JolokiaAgent(node, http_timeout=30.0) as jmx:
             jmx.execute_method(mbean, 'forceBatchlogReplay')
 
-    def _verify_batchlog_metrics(self, node, expected_replays, expected_hinted_replays):
+    def _get_batchlog_metrics(self, node):
         with JolokiaAgent(node) as jmx:
             batchlog_replays_mbean = make_mbean('metrics', type="Storage", name='BatchlogReplays')
             hinted_batchlog_replays_mbean = make_mbean('metrics', type="Storage", name='HintedBatchlogReplays')
 
             batchlog_replays = jmx.read_attribute(batchlog_replays_mbean, "Count")
             hinted_batchlog_replays = jmx.read_attribute(hinted_batchlog_replays_mbean, "Count")
-
             debug("{}: replays:{} hinted-replays:{}".format(node.name, batchlog_replays, hinted_batchlog_replays))
+            return [batchlog_replays, hinted_batchlog_replays]
 
-            self.assertEqual(batchlog_replays, expected_replays, "Expect {} batchlog replays on {}".format(expected_replays, node.name))
-            self.assertEqual(hinted_batchlog_replays, expected_hinted_replays, "Expect {} hinted batchlog replays on {}".format(expected_hinted_replays, node.name))
+    def _verify_batchlog_metrics(self, node, expected_replays, expected_hinted_replays):
+        batchlog_replays, hinted_batchlog_replays = self._get_batchlog_metrics(node)
+
+        self.assertEqual(batchlog_replays, expected_replays, "Expect {} batchlog replays on {}".format(expected_replays, node.name))
+        self.assertEqual(hinted_batchlog_replays, expected_hinted_replays, "Expect {} hinted batchlog replays on {}".format(expected_hinted_replays, node.name))
 
     @since('3.0', max_version='3.x')
     def logged_batch_compatibility_1_test(self):
@@ -626,7 +693,7 @@ class TestBatch(Tester):
              );
          """)
 
-        time.sleep(.5)
+        session.cluster.refresh_schema_metadata()
 
     def prepare_mixed(self, coordinator_idx, current_nodes, previous_version, previous_nodes, compression=True, protocol_version=None, install_byteman=False):
         debug("Testing with {} node(s) at version '{}', {} node(s) at current version"

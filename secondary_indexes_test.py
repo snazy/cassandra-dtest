@@ -170,7 +170,7 @@ class TestSecondaryIndexes(Tester):
                 stmt = "INSERT INTO ks.cf (key, col1) VALUES ('%s','asdf');" % r
                 session.execute(stmt)
 
-            self.wait_for_schema_agreement(session)
+            session.cluster.refresh_schema_metadata()
 
             rows = session.execute("select count(*) from ks.cf WHERE col1='asdf'")
             count = rows[0][0]
@@ -209,7 +209,7 @@ class TestSecondaryIndexes(Tester):
                 stmt = "INSERT INTO ks.cf (key, col1) VALUES ('%s','asdf');" % r
                 session.execute(stmt)
 
-            self.wait_for_schema_agreement(session)
+            session.cluster.refresh_schema_metadata()
 
             rows = session.execute("select count(*) from ks.cf WHERE col1='asdf'")
             count = rows[0][0]
@@ -278,23 +278,6 @@ class TestSecondaryIndexes(Tester):
             raise e
         except InvalidRequest:
             pass
-
-    def wait_for_schema_agreement(self, session):
-        rows = list(session.execute("SELECT schema_version FROM system.local"))
-        local_version = rows[0]
-
-        all_match = True
-        rows = list(session.execute("SELECT schema_version FROM system.peers"))
-        for peer_version in rows:
-            if peer_version != local_version:
-                all_match = False
-                break
-
-        if all_match:
-            return
-        else:
-            time.sleep(1)
-            self.wait_for_schema_agreement(session)
 
     @since('3.0')
     def test_manual_rebuild_index(self):
