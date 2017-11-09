@@ -3,6 +3,7 @@ from collections import namedtuple
 from datetime import datetime, timedelta
 from distutils.version import LooseVersion
 
+from ccmlib.node import TimeoutError
 from dse import AuthenticationFailed, InvalidRequest, Unauthorized
 from dse.cluster import NoHostAvailable
 from dse.protocol import ServerError, SyntaxException
@@ -174,6 +175,44 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
             self.get_session(user='doesntexist', password='doesntmatter')
         except NoHostAvailable as e:
             self.assertIsInstance(e.errors.values()[0], AuthenticationFailed)
+
+    @since('4.0')
+    def superuser_login_test(self):
+        """
+        @jira_ticket DB-104 Verify that a warning is logged if the default superuser 'cassandra' logs in
+        """
+
+        node = self.cluster.nodelist()[0]
+
+        log_pattern = "User '{}' logged in from /{}:[0-9]+. It is strongly recommended to create and use " \
+                      "another user and grant it superuser capabilities and remove the default one. " \
+                      "See https://docs.datastax.com/en/dse/6.0/dse-admin/datastax_enterprise/security/Auth/secCreateRootAccount.html"
+
+        # verify that the default-superuser warning is issued for 'cassandra'
+
+        log_mark = node.mark_log()
+        session = self.get_session(user='cassandra', password='cassandra')
+        node.watch_log_for(log_pattern.format('cassandra', '127.0.0.1'),
+                           from_mark=log_mark, timeout=2)
+
+        session.execute("CREATE USER mysuper WITH PASSWORD 'secret' SUPERUSER")
+        session.execute("CREATE USER person WITH PASSWORD '12345'")
+
+        # verify that the default-superuser warning is not issued for another superuser
+
+        log_mark = node.mark_log()
+        self.get_session(user='mysuper', password='secret')
+        with self.assertRaises(TimeoutError):
+            node.watch_log_for(log_pattern.format('mysuper', '127.0.0.1'),
+                               from_mark=log_mark, timeout=2)
+
+        # verify that the default-superuser warning is not issued for a non-superuser
+
+        log_mark = node.mark_log()
+        self.get_session(user='person', password='12345')
+        with self.assertRaises(TimeoutError):
+            node.watch_log_for(log_pattern.format('person', '127.0.0.1'),
+                               from_mark=log_mark, timeout=2)
 
     # from 2.2 role creation is granted by CREATE_ROLE permissions, not superuser status
     @since('1.2', max_version='2.1.x')
