@@ -9,11 +9,20 @@ import time
 import calendar
 import heapq
 
+from dtest import debug
 from dse.query import SimpleStatement
 from functools import total_ordering
 
 
-def nodesync_opts(min_validation_interval_ms=1000, segment_lock_timeout_sec=10, segment_size_target_mb=10):
+def enable_nodesync(session, keyspace, table):
+    session.execute("ALTER TABLE {}.{} WITH nodesync = {{'enabled': 'true'}}".format(keyspace, table))
+
+
+def disable_nodesync(session, keyspace, table):
+    session.execute("ALTER TABLE {}.{} WITH nodesync = {{'enabled': 'false'}}".format(keyspace, table))
+
+
+def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, segment_size_target_mb=1):
     """ Creates a list of JVM arguments that sets settings for NodeSync more suitable to testing
 
     This is generally intended to be used for building the nodesync_options argument of the prepare
@@ -74,7 +83,7 @@ class NodeSyncRecord(object):
         else:
             validation = 'last={} ({}s ago)'.format(self.last_time, ((time.time() * 1000) - self.last_time) / 1000)
             if not self.last_was_success:
-                validation += ', last_success={} ({}ms ago)'.format(self.last_successful_time, (time.time() * 1000) - self.last_successful_time)
+                validation += ', last_success={} ({}s ago)'.format(self.last_successful_time, ((time.time() * 1000) - self.last_successful_time) / 1000)
         missing = ''
         if self.missing_nodes:
             missing = ', missing={}'.format(str(self.missing_nodes))
@@ -96,30 +105,30 @@ class NodeSyncRecord(object):
         """ Creates a new record, equivalent to this one expect for the end token that will be :new_end."""
         return NodeSyncRecord(self.keyspace, self.table, self.start, new_end, self.last_time, self.last_successful_time)
 
+    @classmethod
+    def _from_row(cls, row):
+        """ Parse a row from the status table to an equivalent NodeSyncRecord. """
 
-def _parse_record(row):
-    """ Parse a row from the status table to an equivalent NodeSyncRecord. """
+        def toTimestamp(dt):
+            """ Convert a datetime to a milliseconds epoch timestamp """
+            return (calendar.timegm(dt.timetuple())) * 1000
 
-    def toTimestamp(dt):
-        """ Convert a datetime to a milliseconds epoch timestamp """
-        return (calendar.timegm(dt.timetuple())) * 1000
+        last_time = None
+        last_successful_time = None
+        missing_nodes = None
 
-    last_time = None
-    last_successful_time = None
-    missing_nodes = None
-
-    if row.last_successful_validation is None:
-        if row.last_unsuccessful_validation is not None:
-            last_time = toTimestamp(row.last_unsuccessful_validation.started_at)
-            missing_nodes = row.last_unsuccessful_validation.missing_nodes
-    else:
-        last_successful_time = toTimestamp(row.last_successful_validation.started_at)
-        if row.last_unsuccessful_validation is None or row.last_successful_validation.started_at > row.last_unsuccessful_validation.started_at:
-            last_time = last_successful_time
+        if row.last_successful_validation is None:
+            if row.last_unsuccessful_validation is not None:
+                last_time = toTimestamp(row.last_unsuccessful_validation.started_at)
+                missing_nodes = row.last_unsuccessful_validation.missing_nodes
         else:
-            last_time = toTimestamp(row.last_unsuccessful_validation.started_at)
-            missing_nodes = row.last_unsuccessful_validation.missing_nodes
-    return NodeSyncRecord(row.keyspace_name, row.table_name, row.start_token, row.end_token, last_time, last_successful_time, missing_nodes)
+            last_successful_time = toTimestamp(row.last_successful_validation.started_at)
+            if row.last_unsuccessful_validation is None or row.last_successful_validation.started_at > row.last_unsuccessful_validation.started_at:
+                last_time = last_successful_time
+            else:
+                last_time = toTimestamp(row.last_unsuccessful_validation.started_at)
+                missing_nodes = row.last_unsuccessful_validation.missing_nodes
+        return cls(row.keyspace_name, row.table_name, row.start_token, row.end_token, last_time, last_successful_time, missing_nodes)
 
 
 def __consolidate(keyspace, table, records):
@@ -199,7 +208,7 @@ def __consolidate(keyspace, table, records):
                 heapq.heappush(records, next.from_new_start(curr.end))
 
             # and then update curr to be the intersection
-            missing = (set(curr.missing_nodes) if curr.missing_nodes else {}) | (set(next.missing_nodes) if next.missing_nodes else {})
+            missing = (set(curr.missing_nodes) if curr.missing_nodes else set()) | (set(next.missing_nodes) if next.missing_nodes else set())
             curr = NodeSyncRecord(keyspace, table, next.start, next.end if endEndCmp < 0 else curr.end,
                                   last_time=max(curr.last_time, next.last_time),
                                   last_successful_time=max(curr.last_successful_time, next.last_successful_time),
@@ -221,33 +230,9 @@ def _read_nodesync_status(session, keyspace, table):
                 AND table_name='{table}' ALLOW FILTERING""".format(keyspace=keyspace, table=table),
                             fetch_size=None)
     rows = session.execute(query).current_rows
-    raw_records = [_parse_record(row) for row in rows]
+    raw_records = [NodeSyncRecord._from_row(row) for row in rows]
     records = __consolidate(keyspace, table, raw_records)
     return records
-
-
-def assert_all_segments(session, keyspace, table, timeout=30, predicate=lambda r: r.last_successful_time is not None):
-    """ Waits up to :timeout to see if every segment of :keyspace.:table pass the provided :predicate, and fail
-    if that is not the case.
-
-    If :predicate is not set, it defaults to one that checks that all segments have been validated successfully at
-    least once.
-    """
-    start = time.time()
-    while start + timeout > time.time():
-        nodesync_status = _read_nodesync_status(session, keyspace, table)
-        if all(predicate(record) for record in nodesync_status):
-            return
-        time.sleep(1)
-
-    failed_records = [record for record in nodesync_status if not predicate(record)]
-    size = len(failed_records)
-    if size > 3:
-        failed_records = failed_records[0:3]
-    assert False, """Was not able to validate all segments with the {timeout}s timeout:
-                     {count} failed the predicate (for instance: {ex_failed})""".format(timeout=timeout,
-                                                                                        count=len(failed_records),
-                                                                                        ex_failed=failed_records[0])
 
 
 def validated_since(timestamp, only_success=True):
@@ -266,6 +251,34 @@ def not_validated():
     Mostly useful to check NodeSync is not running (or at least not on a specific table).
     """
     return lambda r: r.last_time is None and r.last_successful_time is None
+
+
+def assert_all_segments(session, keyspace, table, timeout=30, predicate=None):
+    """ Waits up to :timeout to see if every segment of :keyspace.:table pass the provided :predicate, and fail
+    if that is not the case.
+
+    If :predicate is not set, it defaults to one that checks that all segments are validated successfully
+    from the point of this method call.
+    """
+    start = time.time()
+    if not predicate:
+        predicate = validated_since(time.time() * 1000)
+    start = time.time()
+    while start + timeout > time.time():
+        nodesync_status = _read_nodesync_status(session, keyspace, table)
+        if all(predicate(record) for record in nodesync_status):
+            debug("All segments matched predicate in {} seconds".format(time.time() - start))
+            return
+        time.sleep(1)
+
+    failed_records = [record for record in nodesync_status if not predicate(record)]
+    size = len(failed_records)
+    if size > 3:
+        failed_records = failed_records[0:3]
+    assert False, """Was not able to validate all segments within the {timeout}s timeout:
+                     {count} failed the predicate (for instance: {ex_failed})""".format(timeout=timeout,
+                                                                                        count=len(failed_records),
+                                                                                        ex_failed=failed_records[0])
 
 
 def get_oldest_segments(session, keyspace, table, segment_count, only_success=True):
