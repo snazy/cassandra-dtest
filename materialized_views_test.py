@@ -3,7 +3,6 @@ import re
 import sys
 import time
 import traceback
-from distutils.version import LooseVersion
 from enum import Enum  # Remove when switching to py3
 from functools import partial
 from multiprocessing import Process, Queue
@@ -16,7 +15,7 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from nose.tools import assert_equal
 
-from dtest import Tester, debug, get_ip_from_node, supports_v5_protocol
+from dtest import Tester, debug, supports_v5_protocol
 from tools.assertions import (assert_all, assert_crc_check_chance_equal,
                               assert_invalid, assert_none, assert_one,
                               assert_unavailable)
