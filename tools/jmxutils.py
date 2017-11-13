@@ -1,12 +1,12 @@
 import json
 import os
 import subprocess
+from distutils.version import LooseVersion
 from urllib2 import urlopen
 
 import ccmlib.common as common
 
 from dtest import warning
-from distutils.version import LooseVersion
 
 JOLOKIA_JAR = os.path.join('lib', 'jolokia-jvm-1.2.3-agent.jar')
 CLASSPATH_SEP = ';' if common.is_win() else ':'
@@ -85,7 +85,7 @@ def enable_jmx_ssl(node,
     if require_client_auth:
         if common.is_win():
             replacement_list.append(('#\$env:JVM_OPTS="\$env:JVM_OPTS -Dcom.sun.management.jmxremote.ssl.need.client.auth=true"',
-                                    '$env:JVM_OPTS="$env:JVM_OPTS -Dcom.sun.management.jmxremote.ssl.need.client.auth=true"'))
+                                     '$env:JVM_OPTS="$env:JVM_OPTS -Dcom.sun.management.jmxremote.ssl.need.client.auth=true"'))
         else:
             replacement_list.append(('#JVM_OPTS="\$JVM_OPTS -Dcom.sun.management.jmxremote.ssl.need.client.auth=true"',
                                      'JVM_OPTS="$JVM_OPTS -Dcom.sun.management.jmxremote.ssl.need.client.auth=true"'))
@@ -93,21 +93,21 @@ def enable_jmx_ssl(node,
     if keystore:
         if common.is_win():
             replacement_list.append(('#\$env:JVM_OPTS="\$env:JVM_OPTS -Djavax.net.ssl.keyStore=C:/keystore"',
-                                    '$env:JVM_OPTS="$env:JVM_OPTS -Djavax.net.ssl.keyStore={path}"'.format(path=keystore)))
+                                     '$env:JVM_OPTS="$env:JVM_OPTS -Djavax.net.ssl.keyStore={path}"'.format(path=keystore)))
         else:
             replacement_list.append(('#JVM_OPTS="\$JVM_OPTS -Djavax.net.ssl.keyStore=/path/to/keystore"',
                                      'JVM_OPTS="$JVM_OPTS -Djavax.net.ssl.keyStore={path}"'.format(path=keystore)))
     if keystore_password:
         if common.is_win():
             replacement_list.append(('#\$env:JVM_OPTS="\$env:JVM_OPTS -Djavax.net.ssl.keyStorePassword=<keystore-password>"',
-                                    '$env:JVM_OPTS="$env:JVM_OPTS -Djavax.net.ssl.keyStorePassword={password}"'.format(password=keystore_password)))
+                                     '$env:JVM_OPTS="$env:JVM_OPTS -Djavax.net.ssl.keyStorePassword={password}"'.format(password=keystore_password)))
         else:
             replacement_list.append(('#JVM_OPTS="\$JVM_OPTS -Djavax.net.ssl.keyStorePassword=<keystore-password>"',
                                      'JVM_OPTS="$JVM_OPTS -Djavax.net.ssl.keyStorePassword={password}"'.format(password=keystore_password)))
     if truststore:
         if common.is_win():
             replacement_list.append(('#\$env:JVM_OPTS="\$env:JVM_OPTS -Djavax.net.ssl.trustStore=C:/truststore"',
-                                    '$env:JVM_OPTS="$env:JVM_OPTS -Djavax.net.ssl.trustStore={path}"'.format(path=truststore)))
+                                     '$env:JVM_OPTS="$env:JVM_OPTS -Djavax.net.ssl.trustStore={path}"'.format(path=truststore)))
         else:
             replacement_list.append(('#JVM_OPTS="\$JVM_OPTS -Djavax.net.ssl.trustStore=/path/to/truststore"',
                                      'JVM_OPTS="$JVM_OPTS -Djavax.net.ssl.trustStore={path}"'.format(path=truststore)))
@@ -247,6 +247,18 @@ class JolokiaAgent(object):
                     print line
             raise Exception("Jolokia agent returned non-200 status: %s" % (response,))
         return response
+
+    def has_mbean(self, mbean, verbose=True):
+        """
+        Check for the existence of an MBean
+
+        `mbean` should be the full name of an mbean.  See the mbean() utility
+        function for an easy way to create this.
+        """
+        body = {'type': 'search',
+                'mbean': mbean}
+        response = self._query(body, verbose=verbose)
+        return len(response['value']) > 0
 
     def read_attribute(self, mbean, attribute, path=None, verbose=True):
         """

@@ -5,11 +5,11 @@ import time
 from collections import OrderedDict, namedtuple
 from copy import deepcopy
 
+from dse import ConsistencyLevel, consistency_value_to_name
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from nose.tools import assert_greater_equal
 
-from dse import ConsistencyLevel, consistency_value_to_name
-from dse.query import SimpleStatement
 from dtest import DISABLE_VNODES, MultiError, Tester, debug
 from tools.assertions import (assert_all, assert_length_equal, assert_none,
                               assert_unavailable)
@@ -172,7 +172,7 @@ class TestHelper(Tester):
                 firstname text,
                 lastname text,
                 age int
-            ) WITH COMPACT STORAGE"""
+            )"""
 
         if requires_local_reads:
             create_cmd += " AND " + get_local_reads_properties()

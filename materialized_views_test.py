@@ -16,7 +16,7 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from nose.tools import assert_equal
 
-from dtest import Tester, debug, get_ip_from_node
+from dtest import Tester, debug, get_ip_from_node, supports_v5_protocol
 from tools.assertions import (assert_all, assert_crc_check_chance_equal,
                               assert_invalid, assert_none, assert_one,
                               assert_unavailable)
@@ -2104,9 +2104,9 @@ class TestMaterializedViews(Tester):
         session.execute('USE ks')
         for i in xrange(1, 1000):
             view_entry = rows_to_list(session.execute(SimpleStatement("SELECT * FROM t_by_v WHERE id = {} AND v = {}".format(i, i),
-                                                      consistency_level=ConsistencyLevel.ONE)))
+                                                                      consistency_level=ConsistencyLevel.ONE)))
             base_entry = rows_to_list(session.execute(SimpleStatement("SELECT * FROM t WHERE id = {}".format(i),
-                                                      consistency_level=ConsistencyLevel.ONE)))
+                                                                      consistency_level=ConsistencyLevel.ONE)))
 
             if not base_entry:
                 missing_entries += 1
@@ -2130,9 +2130,9 @@ class TestMaterializedViews(Tester):
         session.execute('USE ks')
         for i in xrange(1, 1000):
             view_entry = rows_to_list(session.execute(SimpleStatement("SELECT * FROM t_by_v WHERE id = {} AND v = {}".format(i, i),
-                                                      consistency_level=ConsistencyLevel.ONE)))
+                                                                      consistency_level=ConsistencyLevel.ONE)))
             base_entry = rows_to_list(session.execute(SimpleStatement("SELECT * FROM t WHERE id = {}".format(i),
-                                                      consistency_level=ConsistencyLevel.ONE)))
+                                                                      consistency_level=ConsistencyLevel.ONE)))
 
             self.assertTrue(base_entry, "Both base {} and view entry {} should exist.".format(base_entry, view_entry))
             self.assertTrue(view_entry, "Both base {} and view entry {} should exist.".format(base_entry, view_entry))
@@ -2444,7 +2444,7 @@ class TestMaterializedViewsLockcontention(Tester):
 
     def _prepare_cluster(self):
         self.cluster.populate(1)
-        self.supports_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
+        self.supports_v5_protocol = supports_v5_protocol(self.cluster.version())
         self.protocol_version = 5 if self.supports_v5_protocol else 4
 
         if self.cluster.version() < '4.0':

@@ -19,6 +19,7 @@ import time
 import traceback
 import unittest.case
 from collections import OrderedDict
+from distutils.version import LooseVersion
 from subprocess import CalledProcessError
 from unittest import TestCase
 
@@ -1040,3 +1041,7 @@ def run_scenarios(scenarios, handler, deferred_exceptions=tuple()):
 
     if errors:
         raise MultiError(errors, tracebacks)
+
+
+def supports_v5_protocol(cluster_version):
+    return cluster_version >= LooseVersion('4.0')

@@ -1,17 +1,17 @@
-import uuid
 import time
+import uuid
 from distutils.version import LooseVersion
 
 from dse import ConsistencyLevel, WriteFailure, WriteTimeout
-from dse.query import SimpleStatement
 from dse.policies import FallthroughRetryPolicy
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
+from dtest import Tester, debug, supports_v5_protocol
 from thrift_bindings.v22 import ttypes as thrift_types
 from thrift_tests import get_thrift_client
-from dtest import Tester, debug
-from tools.decorators import since
 from tools.data import create_ks
+from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 
@@ -39,7 +39,7 @@ class TestWriteFailures(Tester):
             "MigrationStage"           # This occurs sometimes due to node down (because of restart)
         ]
 
-        self.supports_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
+        self.supports_v5_protocol = supports_v5_protocol(self.cluster.version())
         self.expected_expt = WriteFailure
         self.protocol_version = 5 if self.supports_v5_protocol else 4
         self.replication_factor = 3
@@ -66,7 +66,7 @@ class TestWriteFailures(Tester):
             """ % (KEYSPACE, self.replication_factor))
         session.set_keyspace(KEYSPACE)
 
-        session.execute("CREATE TABLE IF NOT EXISTS mytable (key text PRIMARY KEY, value text) WITH COMPACT STORAGE")
+        session.execute("CREATE TABLE IF NOT EXISTS mytable (key text PRIMARY KEY, value text)")
         session.execute("CREATE TABLE IF NOT EXISTS countertable (key uuid PRIMARY KEY, value counter)")
 
         for idx in self.failing_nodes:

@@ -6,6 +6,7 @@ from nose.plugins.attrib import attr
 from dtest import Tester
 from tools.assertions import assert_all, assert_invalid, assert_one
 from tools.data import create_ks
+from tools.decorators import since
 
 
 class TestSchema(Tester):
@@ -53,6 +54,7 @@ class TestSchema(Tester):
                 self.assertFalse(hasattr(row, 'c0'))
 
     @attr("smoke-test")
+    @since("2.0", max_version="3.X")  # Compact Storage
     def drop_column_compact_test(self):
         session = self.prepare()
 
