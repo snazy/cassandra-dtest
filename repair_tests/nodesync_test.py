@@ -11,10 +11,10 @@ from tools.preparation import prepare, config_opts
 
 class SingleTableNodeSyncTester(Tester):
 
-    def prepare(self, nodes=2, rf=2, tokens=None):
+    def prepare(self, nodes=2, rf=2, num_tokens=None):
         opts = None
-        if tokens:
-            opts = config_opts(tokens=tokens)
+        if num_tokens:
+            opts = config_opts(num_tokens=num_tokens)
         debug('Creating cluster...')
         self.session = prepare(self, nodes=nodes, rf=rf, options=opts, nodesync_options=nodesync_opts())
 
@@ -22,6 +22,9 @@ class SingleTableNodeSyncTester(Tester):
         debug('Creating table t...')
         query = "CREATE TABLE ks.t (k int PRIMARY KEY) WITH nodesync={{ 'enabled' : '{}' }}".format(nodesync)
         self.session.execute(query)
+        # This shouldn't be needed, so there may be some bug driver or service side which should be investigated,
+        # but we seem to sometime gets traces server side with some node not knowing a particular table on reads
+        # following this call without the sleep
         time.sleep(0.2)
 
     def do_inserts(self, inserts=1000):
@@ -155,7 +158,8 @@ class TestNodeSync(SingleTableNodeSyncTester):
         """
         Validate data remains continue to be properly validated after a move.
         """
-        self.prepare(nodes=3, rf=3, tokens=1)
+        # Moving is only allowed with a single token
+        self.prepare(nodes=3, rf=3, num_tokens=1)
         self.create_table()
         self.do_inserts()
 
@@ -163,6 +167,7 @@ class TestNodeSync(SingleTableNodeSyncTester):
         debug("Checking everything validated...")
         self.assert_all_segments()
 
+        debug("Moving 3rd node...")
         self.node(3).nodetool('move {}'.format(2**16))
 
         # Everything should still get eventually validated

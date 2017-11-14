@@ -42,7 +42,8 @@ def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, se
     return args
 
 
-# TODO: this only work with murmur3, we should make sure the tests force that
+# Note: this only work with murmur3, which is the default for test. It would be bad to generalize this a bit
+# to other partitioners, but probably not urgent given murmur3 should definitively be the most used by and large
 _MIN_TOKEN = -(2 ** 63)
 
 
@@ -98,11 +99,11 @@ class NodeSyncRecord(object):
         return self.__dict_ == other.__dict__
 
     def from_new_start(self, new_start):
-        """ Creates a new record, equivalent to this one expect for the start token that will be :new_start.  """
+        """ Creates a new record, equivalent to this one except for the start token that will be :new_start.  """
         return NodeSyncRecord(self.keyspace, self.table, new_start, self.end, self.last_time, self.last_successful_time)
 
     def to_new_end(self, new_end):
-        """ Creates a new record, equivalent to this one expect for the end token that will be :new_end."""
+        """ Creates a new record, equivalent to this one except for the end token that will be :new_end."""
         return NodeSyncRecord(self.keyspace, self.table, self.start, new_end, self.last_time, self.last_successful_time)
 
     @classmethod
@@ -154,7 +155,7 @@ def __consolidate(keyspace, table, records):
 
     # Auxiliary function comparing 2 tokens, assuming the 1st one is a range start and 2nd one a range end
     # The reason we have this and the next one is that the MIN_TOKEN on the right of a range breaks proper
-    # comparisons and this abstrat this issue somewhat
+    # comparisons and this abstract this issue somewhat
     def compareStartEnd(start, end):
         if end == _MIN_TOKEN:
             return -1
@@ -262,8 +263,7 @@ def assert_all_segments(session, keyspace, table, timeout=30, predicate=None):
     """
     start = time.time()
     if not predicate:
-        predicate = validated_since(time.time() * 1000)
-    start = time.time()
+        predicate = validated_since(start * 1000)
     while start + timeout > time.time():
         nodesync_status = _read_nodesync_status(session, keyspace, table)
         if all(predicate(record) for record in nodesync_status):
