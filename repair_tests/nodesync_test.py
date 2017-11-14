@@ -25,7 +25,7 @@ class SingleTableNodeSyncTester(Tester):
         # This shouldn't be needed, so there may be some bug driver or service side which should be investigated,
         # but we seem to sometime gets traces server side with some node not knowing a particular table on reads
         # following this call without the sleep
-        time.sleep(0.2)
+        self.session.cluster.control_connection.wait_for_schema_agreement()
 
     def do_inserts(self, inserts=1000):
         debug("Inserting data...")
