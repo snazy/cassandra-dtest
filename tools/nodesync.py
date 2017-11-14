@@ -11,7 +11,6 @@ import heapq
 
 from dtest import debug
 from dse.query import SimpleStatement
-from functools import total_ordering
 
 
 def enable_nodesync(session, keyspace, table):
@@ -47,7 +46,6 @@ def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, se
 _MIN_TOKEN = -(2 ** 63)
 
 
-@total_ordering
 class NodeSyncRecord(object):
     """ Represents a record from the status table
 
@@ -70,11 +68,6 @@ class NodeSyncRecord(object):
         self.last_was_success = last_time is not None and last_successful_time is not None and last_time == last_successful_time
         self.missing_nodes = None if self.last_was_success else missing_nodes
 
-    def __lt__(self, other):
-        if self.start == other.start:
-            return self.end < other.end
-        return self.start < other.start
-
     def __str__(self):
         def tk(token):
             return '<min>' if token == _MIN_TOKEN else token
@@ -96,7 +89,7 @@ class NodeSyncRecord(object):
         return str(self)
 
     def __eq__(self, other):
-        return self.__dict_ == other.__dict__
+        return self.__dict__ == other.__dict__
 
     def from_new_start(self, new_start):
         """ Creates a new record, equivalent to this one except for the start token that will be :new_start.  """
@@ -156,13 +149,13 @@ def __consolidate(keyspace, table, records):
     # Auxiliary function comparing 2 tokens, assuming the 1st one is a range start and 2nd one a range end
     # The reason we have this and the next one is that the MIN_TOKEN on the right of a range breaks proper
     # comparisons and this abstract this issue somewhat
-    def compareStartEnd(start, end):
+    def compare_start_end(start, end):
         if end == _MIN_TOKEN:
             return -1
         return -1 if start < end else (0 if start == end else 1)
 
     # Same as above, but where the 2 tokens are assumed to be range ends
-    def compareEndEnd(end1, end2):
+    def compare_end_end(end1, end2):
         if end1 == _MIN_TOKEN and end2 == _MIN_TOKEN:
             return 0
         if end1 == _MIN_TOKEN:
@@ -171,21 +164,26 @@ def __consolidate(keyspace, table, records):
             return -1
         return -1 if end1 < end2 else (0 if end1 == end2 else 1)
 
+    def as_sortable(record):
+        return (record.start, record.end, record)
+
     # We use a priority queue that keeps record sorted by their start. We will re-add during the loop below to make
     # things easier, which is why we don't simply sort and call it a day
+
+    records = [as_sortable(record) for record in records]
     heapq.heapify(records)
 
     result = []
-    curr = heapq.heappop(records)
+    _, _, curr = heapq.heappop(records)
 
     # If the first doesn't start at the very beginning of the ring, add what is missing
     if curr.start != _MIN_TOKEN:
         result.append(NodeSyncRecord(keyspace, table, _MIN_TOKEN, curr.start))
 
     while len(records) > 0:
-        next = heapq.heappop(records)
+        _, _, next = heapq.heappop(records)
 
-        startEndCmp = compareStartEnd(next.start, curr.end)
+        startEndCmp = compare_start_end(next.start, curr.end)
         if startEndCmp >= 0:
             # next record starts after the current one. Add current one (and, if there is a gap between curr and next,
             # add that as well) and move to next.
@@ -194,19 +192,19 @@ def __consolidate(keyspace, table, records):
                 result.append(NodeSyncRecord(keyspace, table, curr.end, next.start))
             curr = next
         else:
-            # next record intersects with curr on some part. First add part that comes _before_ the intesection if any
-            if curr < next:
+            # next record intersects with curr on some part. First add part that comes _before_ the intersection if any
+            if curr.start < next.start:
                 result.append(curr.to_new_end(next.start))
 
             # then, we'll deal with the intersection of curr and next. We'll deal with the part following that intersection
             # later, so push that first back to the heap
-            endEndCmp = compareEndEnd(next.end, curr.end)
+            endEndCmp = compare_end_end(next.end, curr.end)
             if endEndCmp < 0:
                 # next ends before curr, push the rest of curr to be dealt later
-                heapq.heappush(records, curr.from_new_start(next.end))
+                heapq.heappush(records, as_sortable(curr.from_new_start(next.end)))
             elif endEndCmp > 0:
                 # curr ends before next, push the rest of next to be dealt later
-                heapq.heappush(records, next.from_new_start(curr.end))
+                heapq.heappush(records, as_sortable(next.from_new_start(curr.end)))
 
             # and then update curr to be the intersection
             missing = (set(curr.missing_nodes) if curr.missing_nodes else set()) | (set(next.missing_nodes) if next.missing_nodes else set())
