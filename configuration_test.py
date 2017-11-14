@@ -143,7 +143,7 @@ class TestConfiguration(Tester):
     def native_transport_startup_delay_test(self):
         """
         @jira_ticket APOLLO-1315
-        Verify that cassandra.native_transport_startup_delay_second is applied
+        Verify that cassandra.native_transport_startup_delay_seconds is applied
         """
         self.cluster.populate(1)
         node1 = self.cluster.nodelist()[0]
@@ -159,7 +159,7 @@ class TestConfiguration(Tester):
 
         # start with 20 seconds delay
         mark = node1.mark_log()
-        self.cluster.start(jvm_args=["-Dcassandra.native_transport_startup_delay_second=20"], wait_for_binary_proto=True)
+        self.cluster.start(jvm_args=["-Dcassandra.native_transport_startup_delay_seconds=20"], wait_for_binary_proto=True)
         log1 = node1.watch_log_for("Delayed startup of native transport for 20 seconds", from_mark=mark, timeout=0)
         log2 = node1.watch_log_for("Starting listening for CQL clients", from_mark=mark, timeout=0)
 
