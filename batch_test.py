@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 from unittest import skipIf
 
@@ -290,6 +291,51 @@ class TestBatch(Tester):
         assert_one(session, "SELECT * FROM dogs", [0, 'Pluto'])
 
     @since('3.0')
+    def batchlog_replay_with_different_broadcast_listen_address(self):
+        """
+        @jira_ticket DB-1350 ensure that batchlog replay works when broadcast address and listen address are different
+        """
+        debug("Config cluster with each node having different broadcast address and listen address")
+        listen_addresses = ['127.0.0.1', '127.0.0.2', '127.0.0.3']
+        broadcast_addresses = ['127.0.0.4', '127.0.0.5', '127.0.0.6']
+        STORAGE_PORT = 7000
+
+        cluster = self.cluster
+        cluster.populate(3, install_byteman=True)
+        node1, _, _ = cluster.nodelist()
+
+        jvm_args = ["-Ddse.batchlog.replay_interval_in_ms=-1", "-Dcassandra.batchlog.replay_timeout_in_ms=1"]
+        cluster.seeds = broadcast_addresses[:1]
+        cluster.set_configuration_options(values={'endpoint_snitch': 'org.apache.cassandra.locator.GossipingPropertyFileSnitch',
+                                                  'listen_on_broadcast_address': 'true'})
+        for idx, node in enumerate(cluster.nodelist()):
+            node.set_configuration_options(values={'broadcast_address': broadcast_addresses[idx],
+                                                   'listen_address': listen_addresses[idx],
+                                                   'write_request_timeout_in_ms': 300})
+            remove_perf_disable_shared_mem(node)
+
+        for node in cluster.nodelist():
+            with open(os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties'), 'w') as snitch_file:
+                snitch_file.write("dc=dc1" + os.linesep)
+                snitch_file.write("rack=rack1" + os.linesep)
+
+        debug("Start cluster and verify broadcast address and listen address")
+        cluster.start(wait_for_binary_proto=True, wait_other_notice=False, jvm_args=jvm_args)  # wait_other_notice=False: because broadcast address is different
+        for idx, node in enumerate(cluster.nodelist()):
+            debug("Verifying {}".format(node.name))
+            for other_idx, other_node in enumerate(cluster.nodelist()):
+                if other_idx is idx:  # current node
+                    node.watch_log_for("Starting Messaging Service on /{}:{}".format(listen_addresses[idx], STORAGE_PORT), timeout=60)
+                else:  # other node
+                    node.watch_log_for("Node /{} is now part of the cluster".format(broadcast_addresses[other_idx]), timeout=60)
+
+        debug("Verify batchlog replay metrics")
+        session = self.patient_exclusive_cql_connection(node1)
+        self.create_schema(session, 3)
+
+        self._batchlog_replay_metrics_test(session)
+
+    @since('3.0')
     def batchlog_replay_many_replicas_test(self):
         """
         @jira_ticket DB-1316 ensure that logged batches against more than 2 nodes actually works
@@ -305,6 +351,10 @@ class TestBatch(Tester):
                                    # set a longer write-req-timeout to speed up the test a bit
                                    'write_request_timeout_in_ms': 300,
                                })
+
+        self._batchlog_replay_metrics_test(session)
+
+    def _batchlog_replay_metrics_test(self, session):
         session.execute("""
             CREATE TABLE dogs (
                 dogid int PRIMARY KEY,
@@ -313,9 +363,7 @@ class TestBatch(Tester):
          """)
 
         session.cluster.refresh_schema_metadata()
-
-        node1, node2 = self.cluster.nodelist()[0:2]
-
+        node1 = self.cluster.nodelist()[0]
         node1.byteman_submit(['./byteman/batchlog_do_not_remove.btm'])
 
         for node in self.cluster.nodelist()[1:]:
@@ -348,8 +396,8 @@ class TestBatch(Tester):
             total_hinted_batchlog_replays += hinted_batchlog_replays
 
         # 2 is correct - there are exactly 2 copies of the batchlog
-        self.assertEqual(total_batchlog_replays, 2, "Expect 2 batchlog replays")
-        self.assertEqual(total_hinted_batchlog_replays, 0, "Expect 0 hinted batchlog replays")
+        self.assertEqual(total_batchlog_replays, 2, "Expect 2 batchlog replays, but got {}".format(total_batchlog_replays))
+        self.assertEqual(total_hinted_batchlog_replays, 0, "Expect 0 hinted batchlog replays, but got {}".format(total_hinted_batchlog_replays))
 
     @since('3.0')
     def batchlog_replay_metrics_test(self):
