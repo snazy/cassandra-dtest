@@ -5,18 +5,21 @@ from ccmlib.node import ToolError
 
 from dtest import Tester, debug
 from tools.decorators import since
+from tools.interceptors import (Direction, Type, Verb, delaying_interceptor,
+                                dropping_interceptor, fake_write_interceptor)
 from tools.nodesync import nodesync_opts, assert_all_segments, not_validated, enable_nodesync, disable_nodesync
 from tools.preparation import prepare, config_opts
 
 
 class SingleTableNodeSyncTester(Tester):
 
-    def prepare(self, nodes=2, rf=2, num_tokens=None):
+    def prepare(self, nodes=2, rf=2, num_tokens=None, interceptors=None):
         opts = None
         if num_tokens:
             opts = config_opts(num_tokens=num_tokens)
         debug('Creating cluster...')
-        self.session = prepare(self, nodes=nodes, rf=rf, options=opts, nodesync_options=nodesync_opts())
+        self.session = prepare(self, nodes=nodes, rf=rf, options=opts,
+                               nodesync_options=nodesync_opts(), interceptors=interceptors)
 
     def create_table(self, nodesync=True):
         debug('Creating table t...')
@@ -39,6 +42,12 @@ class SingleTableNodeSyncTester(Tester):
         disable_nodesync(self.session, 'ks', 't')
 
     def assert_in_sync(self, reenable_nodesync=True):
+        self.assertTrue(self.__check_in_sync(reenable_nodesync=reenable_nodesync))
+
+    def assert_not_in_sync(self, reenable_nodesync=True):
+        self.assertFalse(self.__check_in_sync(reenable_nodesync=reenable_nodesync))
+
+    def __check_in_sync(self, reenable_nodesync=True):
         """ Validate that all the node of the cluster are in sync for the test table (using --validate option to repair)
 
         Because anti-entropy repairs are not allowed on nodes with NodeSync, this method first disable NodeSync, re-enabling it after
@@ -46,11 +55,15 @@ class SingleTableNodeSyncTester(Tester):
         """
         # Need to disable NodeSync or the repairs will error out
         self.disable_nodesync()
+        in_sync = True
         for node in self.cluster.nodelist():
-            result = node.nodetool("repair ks t --validate")
-            self.assertIn("Repaired data is in sync", result.stdout)
+            # Note: we want --preview here as --validate only takes "repaired" data into account.
+            result = node.nodetool("repair ks t --preview")
+            if "Previewed data was in sync" not in result.stdout:
+                in_sync = False
         if reenable_nodesync:
             self.enable_nodesync()
+        return in_sync
 
     def assert_all_segments(self, predicate=None):
         assert_all_segments(self.session, 'ks', 't', predicate=predicate)
@@ -105,12 +118,23 @@ class TestNodeSync(SingleTableNodeSyncTester):
         """
         Validate basic behavior of NodeSync: that a table gets entirely validated and continuously so
         """
-        self.prepare(nodes=2, rf=2)
+        interceptor = fake_write_interceptor()
+        self.prepare(nodes=2, rf=2, interceptors=interceptor)
         self.create_table(nodesync=False)
-        self.do_inserts()
+
+        # Start an interceptor that simulate losing half of the inserts on node2 (the writes are acknowledged
+        # but not truly persisted).
+        with interceptor.enable(self.node(2)) as interception:
+            interception.set_option(interception_chance=0.5)
+            self.do_inserts()
+            self.assertGreater(interception.intercepted_count(), 0)
 
         # NodeSync is not yet running, so make sure there is no state
         self.assert_all_segments(not_validated())
+
+        # Sanity check that there is some inconsistency
+        debug("Validating data is not yet in sync (with repair --validate)...")
+        self.assert_not_in_sync(reenable_nodesync=False)
 
         # Enable NodeSync and make sure everything gets validated
         debug("Enabling NodeSync and waiting on initial validations...")

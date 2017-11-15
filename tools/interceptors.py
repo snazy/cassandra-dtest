@@ -127,7 +127,10 @@ def make_jvm_args(interceptors):
 
 
 def _pack(prop):
-    return ','.join([str(v) for v in prop])
+    try:
+        return ','.join([str(v) for v in prop])
+    except TypeError:
+        return prop
 
 
 def _interceptor_name(interceptor_class, name):
@@ -157,6 +160,8 @@ class Interceptor:
             self.localities = (localities,) if isinstance(localities, Locality) else localities
         return self
 
+
+
     def enable(self, node):
         """
         Enable the interceptor on the provided node and return the corresponding
@@ -179,6 +184,10 @@ class Interceptor:
 
         def intercepted_count(self):
             return self.__read('InterceptedCount')
+
+        def set_option(self, interception_chance=None):
+            if interception_chance:
+                self.__set_property('InterceptionChance', interception_chance)
 
         def __set_property(self, jmx_name, prop):
             if prop:
