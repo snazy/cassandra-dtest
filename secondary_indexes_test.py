@@ -13,7 +13,7 @@ from dse.query import BatchStatement, SimpleStatement
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES,
                    OFFHEAP_MEMTABLES, Tester, debug)
 from tools.assertions import (assert_bootstrap_state, assert_invalid,
-                              assert_none, assert_one, assert_row_count)
+                              assert_none, assert_one, assert_row_count, assert_length_equal)
 from tools.data import (block_until_index_is_built, create_cf, create_ks,
                         rows_to_list)
 from tools.decorators import since
@@ -586,8 +586,6 @@ class TestSecondaryIndexes(Tester):
         node1, node2 = cluster.nodelist()
         session = self.patient_cql_connection(node1)
         session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': '1'};")
-        session.execute("CREATE TABLE ks.compact_table (a int PRIMARY KEY, b int) WITH COMPACT STORAGE;")
-        session.execute("CREATE INDEX keys_index ON ks.compact_table (b);")
         session.execute("CREATE TABLE ks.regular_table (a int PRIMARY KEY, b int)")
         session.execute("CREATE INDEX composites_index on ks.regular_table (b)")
 
@@ -596,16 +594,34 @@ class TestSecondaryIndexes(Tester):
 
         insert_args = [(i, i % 2) for i in xrange(100)]
         execute_concurrent_with_args(session,
-                                     session.prepare("INSERT INTO ks.compact_table (a, b) VALUES (?, ?)"),
-                                     insert_args)
-        execute_concurrent_with_args(session,
                                      session.prepare("INSERT INTO ks.regular_table (a, b) VALUES (?, ?)"),
                                      insert_args)
 
-        res = session.execute("SELECT * FROM ks.compact_table WHERE b = 0")
-        self.assertEqual(len(rows_to_list(res)), 50)
         res = session.execute("SELECT * FROM ks.regular_table WHERE b = 0")
-        self.assertEqual(len(rows_to_list(res)), 50)
+        assert_length_equal(rows_to_list(res), 50)
+
+    @since('2.1', max_version="3.X")  # Compact Storage
+    @skipIf(DISABLE_VNODES, "Test should only run with vnodes")
+    def test_query_indexes_with_vnodes_compact(self):
+        """
+        Verifies correct query behaviour in the presence of vnodes
+        @jira_ticket CASSANDRA-11104
+        """
+        cluster = self.cluster
+        cluster.populate(2).start()
+        node1, node2 = cluster.nodelist()
+        session = self.patient_cql_connection(node1)
+        session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': '1'};")
+        session.execute("CREATE TABLE ks.compact_table (a int PRIMARY KEY, b int) WITH COMPACT STORAGE;")
+        session.execute("CREATE INDEX keys_index ON ks.compact_table (b);")
+
+        insert_args = [(i, i % 2) for i in xrange(100)]
+        execute_concurrent_with_args(session,
+                                     session.prepare("INSERT INTO ks.compact_table (a, b) VALUES (?, ?)"),
+                                     insert_args)
+
+        res = session.execute("SELECT * FROM ks.compact_table WHERE b = 0")
+        assert_length_equal(rows_to_list(res), 50)
 
 
 class TestSecondaryIndexesOnCollections(Tester):
