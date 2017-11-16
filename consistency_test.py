@@ -175,7 +175,7 @@ class TestHelper(Tester):
             )"""
 
         if requires_local_reads:
-            create_cmd += " AND " + get_local_reads_properties()
+            create_cmd += " WITH " + get_local_reads_properties()
 
         session.execute(create_cmd)
 
