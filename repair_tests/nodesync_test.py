@@ -231,3 +231,23 @@ class TestNodeSync(SingleTableNodeSyncTester):
         self.assert_all_segments()
         self.assert_in_sync()
 
+    def test_rf_increase(self):
+        """
+        Validate that NodeSync doesn't run on RF=1, but that it starts if the RF is increased,
+        and eventually replicate everything.
+        """
+        self.prepare(nodes=2, rf=1)
+        self.create_table()
+        self.do_inserts()
+
+        # RF=1, we shouldn't be validating anything
+        self.assert_all_segments(not_validated())
+
+        debug("Raising keyspace replication")
+        self.session.execute("ALTER KEYSPACE ks WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '2'}")
+
+        # Now everything should get validated, and everything should be in sync following that
+        debug("Ensuring everything validated and in sync...")
+        self.assert_all_segments()
+        self.assert_in_sync()
+
