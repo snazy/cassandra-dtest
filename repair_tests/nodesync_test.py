@@ -30,6 +30,10 @@ class SingleTableNodeSyncTester(Tester):
         # following this call without the sleep
         self.session.cluster.control_connection.wait_for_schema_agreement()
 
+    def drop_table(self):
+        debug('Dropping table t...')
+        self.session.execute("DROP TABLE ks.t")
+
     def do_inserts(self, inserts=1000):
         debug("Inserting data...")
         for i in range(0, inserts):
@@ -116,7 +120,10 @@ class TestNodeSync(SingleTableNodeSyncTester):
 
     def test_basic_validation(self):
         """
-        Validate basic behavior of NodeSync: that a table gets entirely validated and continuously so
+        Validate basic behavior of NodeSync: that a table gets entirely validated and continuously so.
+        This test also ensure that:
+            - Disabling NodeSync on a table works properly.
+            - Dropping a table with NodeSync enabled doesn't produce errors (and is acknowledged by NodeSync)
         """
         interceptor = fake_write_interceptor()
         self.prepare(nodes=2, rf=2, interceptors=interceptor)
@@ -149,6 +156,31 @@ class TestNodeSync(SingleTableNodeSyncTester):
         for _ in range(0, RUNS):
             debug("Waiting on all segments to be re-validated from now")
             self.assert_all_segments()
+
+        # Then disable NodeSync, and check not new validation happens from that point on
+        debug("Disabling NodeSync and making no validation happens (for at least 2 seconds)")
+        self.disable_nodesync()
+        # NodeSync react to schema changes asynchronously (with those changes), and we don't forcefully cancel
+        # ongoing segments at the time the table is disabled, so we have to give it some time (1s) to stop all
+        # validations, and then some more time (2s) to make sure we indeed don't have anymore validations
+        time.sleep(3)
+        timestamp = (time.time() - 2) * 1000
+        # check all segment haven't been validated since at least 2 seconds (the 'is not None' is just to
+        # double check we haven't lost the old NodeSync info completely)
+        self.assert_all_segments(predicate=lambda r: r.last_time is not None and r.last_time < timestamp)
+
+        # Now re-enable and check it gets validated again
+        debug("Re-enabling NodeSync and making sure validation resumes")
+        self.enable_nodesync()
+        self.assert_all_segments()
+
+        # Lastly, drop the table and wait a bit for error (the test won't pass if this trigger an error)
+        self.drop_table()
+        time.sleep(3)
+        # TODO: at this point, it could make sense to validate the status is now empty (for that table), but
+        # we actually don't clean it up server side yet (we rely on the normal timeout of the status table,
+        # but that takes a month) so this will have to wait for this to be implemented
+
 
     def test_validation_with_node_failure(self):
         """
@@ -198,3 +230,4 @@ class TestNodeSync(SingleTableNodeSyncTester):
         debug("Checking everything still validated...")
         self.assert_all_segments()
         self.assert_in_sync()
+
