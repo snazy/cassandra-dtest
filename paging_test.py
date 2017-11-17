@@ -17,7 +17,7 @@ from dse.query import (FETCH_SIZE_UNSET, SimpleStatement, dict_factory,
                        named_tuple_factory, tuple_factory)
 from dse.util import Date, Time
 
-from dtest import (ReusableClusterTester, debug, run_scenarios,
+from dtest import (ReusableClusterTester, debug, run_scenarios, make_execution_profile,
                    supports_v5_protocol)
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_one)
@@ -69,15 +69,40 @@ class BasePagingTester(ReusableClusterTester):
             debug('Dropped {}'.format(ks))
 
     def prepare(self, row_factory=dict_factory):
-        supports_v5 = supports_v5_protocol(self.cluster.version())
-        protocol_version = 5 if supports_v5 else None
+        if hasattr(self, 'session'):
+            debug('shutting down old session')
+            self.session.cluster.shutdown()
+
+        protocol_version = self.get_protocol_version()
         cluster = self.cluster
         node1 = cluster.nodelist()[0]
-        session = self.patient_cql_connection(node1,
-                                              protocol_version=protocol_version,
-                                              consistency_level=CL.QUORUM,
-                                              row_factory=row_factory)
-        return session
+
+        profiles = {
+            EXEC_PROFILE_DEFAULT: make_execution_profile(row_factory=row_factory,
+                                                         request_timeout=60,  # needed for schema agreement
+                                                         consistency_level=CL.QUORUM),
+            EXEC_PROFILE_CONTINUOUS_PAGING: make_execution_profile(row_factory=row_factory,
+                                                                   consistency_level=CL.QUORUM,
+                                                                   retry_policy=FallthroughRetryPolicy(),
+                                                                   continuous_paging_options=ContinuousPagingOptions())
+        }
+
+        self.session = self.patient_cql_connection(node1,
+                                                   protocol_version=protocol_version,
+                                                   consistency_level=CL.QUORUM,
+                                                   row_factory=row_factory,
+                                                   execution_profiles=profiles)
+        return self.session
+
+    def get_protocol_version(self):
+        supports_v5 = supports_v5_protocol(self.cluster.version())
+        supports_dse_v1_protocol = self.cluster.version() >= LooseVersion('3.11')
+        if supports_dse_v1_protocol:
+            return 65
+        elif supports_v5:
+            return 5
+        else:
+            return None
 
     def get_rows(self, session, query):
         return rows_to_list(self.execute(session, query))
@@ -3761,7 +3786,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
     def test_failure_threshold_deletions(self):
         """Test that paging throws a failure in case of tombstone threshold """
 
-        supports_v5_protocol = self.cluster.version() >= LooseVersion('3.10')
+        supports_v5 = supports_v5_protocol(self.cluster.version())
 
         self.allow_log_errors = True
         restart_cluster_and_update_config(self.cluster, {'tombstone_failure_threshold': 500})
@@ -3783,7 +3808,7 @@ class TestPagingWithDeletions(BasePagingTester, PageAssertionMixin):
         except ReadTimeout as exc:
             self.assertTrue(self.cluster.version() < LooseVersion('2.2'))
         except ReadFailure as exc:
-            if supports_v5_protocol:
+            if supports_v5:
                 self.assertIsNotNone(exc.error_code_map)
                 self.assertEqual(0x0001, exc.error_code_map.values()[0])
         except Exception:
