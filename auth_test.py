@@ -13,7 +13,7 @@ from dtest import (CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester,
                    debug)
 from tools.assertions import (assert_all, assert_exception, assert_invalid,
                               assert_length_equal, assert_one,
-                              assert_unauthorized)
+                              assert_unauthorized, assert_unauthorized_for_grant)
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
@@ -801,12 +801,14 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         cathy = self.get_session(user='cathy', password='12345')
         # missing both SELECT and AUTHORIZE
-        assert_unauthorized(cathy, "GRANT SELECT ON ALL KEYSPACES TO bob", "User cathy has no AUTHORIZE permission on <all keyspaces> or any of its parents")
+        assert_unauthorized_for_grant(self.cluster, cathy, "cathy", "GRANT SELECT ON ALL KEYSPACES TO bob",
+                                      "AUTHORIZE", "SELECT", "<all keyspaces>")
 
         cassandra.execute("GRANT AUTHORIZE ON ALL KEYSPACES TO cathy")
 
         # still missing SELECT
-        assert_unauthorized(cathy, "GRANT SELECT ON ALL KEYSPACES TO bob", "User cathy has no SELECT permission on <all keyspaces> or any of its parents")
+        assert_unauthorized_for_grant(self.cluster, cathy, "cathy", "GRANT SELECT ON ALL KEYSPACES TO bob",
+                                      "SELECT", "SELECT", "<all keyspaces>")
 
         cassandra.execute("GRANT SELECT ON ALL KEYSPACES TO cathy")
 
@@ -2309,15 +2311,13 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         cassandra.execute("GRANT EXECUTE ON FUNCTION ks.plus_one(int) TO mike")
         cassandra.execute("CREATE ROLE role1")
         cql = "GRANT EXECUTE ON FUNCTION ks.plus_one(int) TO role1"
-        assert_unauthorized(mike, cql,
-                            "User mike has no AUTHORIZE permission on <function ks.plus_one\(int\)> or any of its parents")
+        assert_unauthorized_for_grant(self.cluster, mike, "mike", cql, "AUTHORIZE", "EXECUTE", "<function ks.plus_one\(int\)>")
         cassandra.execute("GRANT AUTHORIZE ON FUNCTION ks.plus_one(int) TO mike")
         mike.execute(cql)
         # now revoke AUTHORIZE from mike
         cassandra.execute("REVOKE AUTHORIZE ON FUNCTION ks.plus_one(int) FROM mike")
         cql = "REVOKE EXECUTE ON FUNCTION ks.plus_one(int) FROM role1"
-        assert_unauthorized(mike, cql,
-                            "User mike has no AUTHORIZE permission on <function ks.plus_one\(int\)> or any of its parents")
+        assert_unauthorized_for_grant(self.cluster, mike, "mike", cql, "AUTHORIZE", "EXECUTE", "<function ks.plus_one\(int\)>")
         cassandra.execute("GRANT AUTHORIZE ON FUNCTION ks.plus_one(int) TO mike")
         mike.execute(cql)
 

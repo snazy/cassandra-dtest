@@ -669,7 +669,19 @@ VALUES (4, blobAsInt(0x), '', blobAsBigint(0x), 0x, blobAsBoolean(0x), blobAsDec
 (2 rows)
 """)
 
-        if self.cluster.version() >= '2.2':
+        if self.cluster.version() >= '4.0':
+            self.verify_output("LIST ALL PERMISSIONS OF user1", node1, """
+ role  | username | resource      | permission | granted | restricted | grantable
+-------+----------+---------------+------------+---------+------------+-----------
+ user1 |    user1 | <table ks.t1> |      ALTER |    True |      False |     False
+ user1 |    user1 | <table ks.t1> |       DROP |    True |      False |     False
+ user1 |    user1 | <table ks.t1> |     SELECT |    True |      False |     False
+ user1 |    user1 | <table ks.t1> |     MODIFY |    True |      False |     False
+ user1 |    user1 | <table ks.t1> |  AUTHORIZE |    True |      False |     False
+
+(5 rows)
+""")
+        elif self.cluster.version() >= '2.2':
             self.verify_output("LIST ALL PERMISSIONS OF user1", node1, """
  role  | username | resource      | permission
 -------+----------+---------------+------------

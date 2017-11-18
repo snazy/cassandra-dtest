@@ -115,6 +115,29 @@ def assert_unauthorized(session, query, message, execution_profile=None):
     assert_exception(session, query, matching=message, expected=Unauthorized, execution_profile=execution_profile)
 
 
+def assert_unauthorized_for_grant(cluster, session, user, cql, primary_perm, secondary_perm, resource):
+    """
+    Assert for an 'UnauthorizedException' respecting the error message change introduced by APOLLO-757.
+    Prepares the error message to check for and calls 'assert_unauthorized'.
+
+    :param cluster: pass in 'self.cluster' from the dtest
+    :param session: the session instance to use
+    :param user: current username authenticated on the session
+    :param cql: the GRANT CQL
+    :param primary_perm: the permission that is required to execute the grant (usually AUTHORIZE or, if AUTHORIZE
+           is already granted, the permission to be granted)
+    :param secondary_perm: the permission to be granted (e.g. SELECT, EXECUTE)
+    :param resource: the string representation for the resource - e.g. '<table ks.cf>'
+    """
+    hasSeparationOfDuties = cluster.version() >= '4.0'
+    if hasSeparationOfDuties:
+        msg = "User {} has no {} permission nor AUTHORIZE FOR {} permission on {} or any of its parents".format(
+            user, primary_perm, secondary_perm, resource)
+    else:
+        msg = "User {} has no {} permission on {} or any of its parents".format(user, primary_perm, resource)
+    assert_unauthorized(session, cql, msg)
+
+
 def _execute(session, query, cl=None, execution_profile=None, timeout=_NOT_SET):
     simple_query = SimpleStatement(query, consistency_level=cl)
     return session.execute(simple_query, timeout=timeout) if not execution_profile \
