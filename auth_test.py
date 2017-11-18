@@ -1071,6 +1071,8 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         @jira_ticket CASSANDRA-7216
         """
 
+        with_describe = self.cluster.version() >= '4.0'
+
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
         cassandra.execute("CREATE USER bob WITH PASSWORD '12345'")
@@ -1094,9 +1096,9 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         # CASSANDRA-7216 automatically grants permissions on a role to its creator
         if self.cluster.cassandra_version() >= '2.2.0':
-            all_permissions.extend(data_resource_creator_permissions('cassandra', '<keyspace ks>'))
-            all_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf>'))
-            all_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf2>'))
+            all_permissions.extend(data_resource_creator_permissions('cassandra', '<keyspace ks>', with_describe))
+            all_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf>', with_describe))
+            all_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf2>', with_describe))
             all_permissions.extend(role_creator_permissions('cassandra', '<role bob>'))
             all_permissions.extend(role_creator_permissions('cassandra', '<role cathy>'))
 
@@ -1109,7 +1111,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         expected_permissions = [('cathy', '<table ks.cf>', 'MODIFY'), ('bob', '<table ks.cf>', 'DROP')]
         if self.cluster.cassandra_version() >= '2.2.0':
-            expected_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf>'))
+            expected_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf>', with_describe))
         self.assertPermissionsListed(expected_permissions, cassandra, "LIST ALL PERMISSIONS ON ks.cf NORECURSIVE")
 
         expected_permissions = [('cathy', '<table ks.cf2>', 'SELECT')]
@@ -1248,7 +1250,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         self.assertEqual(sorted(expected), sorted(perms))
 
 
-def data_resource_creator_permissions(creator, resource):
+def data_resource_creator_permissions(creator, resource, with_describe):
     """
     Assemble a list of all permissions needed to create data on a given resource
     @param creator User who needs permissions
@@ -1260,6 +1262,8 @@ def data_resource_creator_permissions(creator, resource):
         permissions.append((creator, resource, perm))
     if resource.startswith("<keyspace "):
         permissions.append((creator, resource, 'CREATE'))
+        if with_describe:
+            permissions.append((creator, resource, 'DESCRIBE'))
         keyspace = resource[10:-1]
         # also grant the creator of a ks perms on functions in that ks
         for perm in 'CREATE', 'ALTER', 'DROP', 'AUTHORIZE', 'EXECUTE':
@@ -1467,6 +1471,9 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         * Connect as mike
         * Verify that mike is automatically granted permissions on any resource he creates
         """
+
+        with_describe = self.cluster.version() >= '4.0'
+
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE ROLE mike WITH PASSWORD = '12345' AND SUPERUSER = false AND LOGIN = true")
         cassandra.execute("GRANT CREATE ON ALL KEYSPACES TO mike")
@@ -1491,8 +1498,8 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         mike_permissions = [('mike', '<all roles>', 'CREATE'),
                             ('mike', '<all keyspaces>', 'CREATE')]
         mike_permissions.extend(role_creator_permissions('mike', '<role role1>'))
-        mike_permissions.extend(data_resource_creator_permissions('mike', '<keyspace ks>'))
-        mike_permissions.extend(data_resource_creator_permissions('mike', '<table ks.cf>'))
+        mike_permissions.extend(data_resource_creator_permissions('mike', '<keyspace ks>', with_describe))
+        mike_permissions.extend(data_resource_creator_permissions('mike', '<table ks.cf>', with_describe))
         mike_permissions.extend(function_resource_creator_permissions('mike', '<function ks.state_function_1(int, int)>'))
         mike_permissions.extend(function_resource_creator_permissions('mike', '<function ks.simple_aggregate_1(int)>'))
 
@@ -1762,6 +1769,9 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         * Grant ALL permissions to mike for each resource. Verify they show up in LIST ALL PERMISSIONS
         * Verify you can't selectively grant invalid permissions for a given resource. ex: CREATE on an existing table
         """
+
+        with_describe = self.cluster.version() >= '4.0'
+
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1774,12 +1784,15 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
 
         # GRANT ALL ON KEYSPACE grants Permission.ALL_DATA
         cassandra.execute("GRANT ALL ON KEYSPACE ks TO mike")
-        self.assert_permissions_listed([("mike", "<keyspace ks>", "CREATE"),
-                                        ("mike", "<keyspace ks>", "ALTER"),
-                                        ("mike", "<keyspace ks>", "DROP"),
-                                        ("mike", "<keyspace ks>", "SELECT"),
-                                        ("mike", "<keyspace ks>", "MODIFY"),
-                                        ("mike", "<keyspace ks>", "AUTHORIZE")],
+        ks_perms = [("mike", "<keyspace ks>", "CREATE"),
+                    ("mike", "<keyspace ks>", "ALTER"),
+                    ("mike", "<keyspace ks>", "DROP"),
+                    ("mike", "<keyspace ks>", "SELECT"),
+                    ("mike", "<keyspace ks>", "MODIFY"),
+                    ("mike", "<keyspace ks>", "AUTHORIZE")]
+        if with_describe:
+            ks_perms += [("mike", "<keyspace ks>", "DESCRIBE")]
+        self.assert_permissions_listed(ks_perms,
                                        cassandra,
                                        "LIST ALL PERMISSIONS OF mike")
         cassandra.execute("REVOKE ALL ON KEYSPACE ks FROM mike")
@@ -1877,6 +1890,9 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
         * Grant various permissions to roles
         * Verify they propagate appropriately.
         """
+
+        with_describe = self.cluster.version() >= '4.0'
+
         cassandra = self.get_session(user='cassandra', password='cassandra')
         cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
         cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
@@ -1894,8 +1910,8 @@ class TestAuthRoles(ReusableClusterTester, AuthMixin):
                                 ("role1", "<table ks.cf>", "SELECT"),
                                 ("role2", "<table ks.cf>", "ALTER"),
                                 ("role2", "<role role1>", "ALTER")]
-        expected_permissions.extend(data_resource_creator_permissions('cassandra', '<keyspace ks>'))
-        expected_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf>'))
+        expected_permissions.extend(data_resource_creator_permissions('cassandra', '<keyspace ks>', with_describe))
+        expected_permissions.extend(data_resource_creator_permissions('cassandra', '<table ks.cf>', with_describe))
         expected_permissions.extend(role_creator_permissions('cassandra', '<role mike>'))
         expected_permissions.extend(role_creator_permissions('cassandra', '<role role1>'))
         expected_permissions.extend(role_creator_permissions('cassandra', '<role role2>'))
