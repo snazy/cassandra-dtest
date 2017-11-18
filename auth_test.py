@@ -54,37 +54,10 @@ class TestAuthThreeNodes(Tester, AuthMixin):
 
         @jira_ticket CASSANDRA-10655
         """
-        cluster = self.cluster
         config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
                   'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
                   'permissions_validity_in_ms': 0}
-        self.cluster.set_configuration_options(values=config)
-        cluster.set_configuration_options(values=config)
-        cluster.populate(3).start()
-
-        self.cluster.wait_for_any_log('Created default superuser', 25)
-
-        session = self.get_session(user='cassandra', password='cassandra')
-        auth_metadata = UpdatingKeyspaceMetadataWrapper(
-            cluster=session.cluster,
-            ks_name='system_auth',
-            max_schema_agreement_wait=30  # 3x the default of 10
-        )
-        self.assertEquals(1, auth_metadata.replication_strategy.replication_factor)
-
-        session.execute("""
-            ALTER KEYSPACE system_auth
-                WITH replication = {'class':'SimpleStrategy', 'replication_factor':3};
-        """)
-
-        self.assertEquals(3, auth_metadata.replication_strategy.replication_factor)
-
-        # Run repair to workaround read repair issues caused by CASSANDRA-10655
-        debug("Repairing before altering RF")
-        self.cluster.repair()
-
-        debug("Shutting down client session")
-        session.shutdown()
+        self._prepare_cluster(config)
 
         # make sure schema change is persistent
         debug("Stopping cluster..")
@@ -101,6 +74,112 @@ class TestAuthThreeNodes(Tester, AuthMixin):
                 ks_name='system_auth'
             )
             self.assertEquals(3, exclusive_auth_metadata.replication_strategy.replication_factor)
+
+    @since('4.0')
+    def permissions_invalidation_test(self):
+        """
+        Since APOLLO-909 we send invalidation messages for roles and their permissions when role related
+        information, permissions, role assignments, role options, is changed
+
+        @jira_ticket APOLLO-909
+        """
+        config = {'authenticator': 'org.apache.cassandra.auth.PasswordAuthenticator',
+                  'authorizer': 'org.apache.cassandra.auth.CassandraAuthorizer',
+                  # huge validity to prevent invalidation based on time
+                  'permissions_validity_in_ms': 999999,
+                  'roles_validity_in_ms': 999999}
+        self._prepare_cluster(config)
+
+        node1, node2, node3 = self.cluster.nodelist()
+
+        cassandra = self.patient_exclusive_cql_connection(node1, user='cassandra', password='cassandra')
+        cassandra.execute("CREATE USER cathy WITH PASSWORD '12345'")
+        cassandra.execute("CREATE KEYSPACE ks WITH replication = {'class':'SimpleStrategy', 'replication_factor':1}")
+        cassandra.execute("CREATE TABLE ks.cf (id int primary key, val int)")
+        cassandra.execute("CREATE TABLE ks.cf2 (id int primary key, val int)")
+        cassandra.execute("CREATE TABLE ks.cf3 (id int primary key, val int)")
+        cassandra.execute("CREATE ROLE role1")
+        cassandra.execute("CREATE ROLE role2")
+        cassandra.cluster.refresh_schema_metadata()
+
+        # Verify that role permissions invalidation works (i.e. appears to be "immediate").
+        # 1. Let 'cathy' execute a query - permissions are then fetched into the permissions cache. Query fails (unauthorized).
+        # 2. Immediately let 'cassandra' grant SELECT permission to 'cathy' - INVALIDATION verb is broadcasted
+        # 3. Let 'cathy' execute the query again - permissions should have been invalidated and query should therefore succeed
+
+        cathy = self.patient_exclusive_cql_connection(node2, user='cathy', password='12345')
+        assert_unauthorized(cathy, "SELECT * FROM ks.cf",
+                            "User cathy has no SELECT permission on <table ks.cf> or any of its parents")
+
+        cassandra.execute("GRANT SELECT ON TABLE ks.cf TO cathy")
+        self._verify_permission_changes_are_propagated(cathy, "SELECT * FROM ks.cf")
+
+        # Same test as above, but for permission granted to transitive role
+
+        cassandra.execute("GRANT role1 TO cathy")
+
+        cathy = self.patient_exclusive_cql_connection(node2, user='cathy', password='12345')
+        assert_unauthorized(cathy, "SELECT * FROM ks.cf2",
+                            "User cathy has no SELECT permission on <table ks.cf2> or any of its parents")
+
+        cassandra.execute("GRANT SELECT ON TABLE ks.cf2 TO role1")
+        self._verify_permission_changes_are_propagated(cathy, "SELECT * FROM ks.cf2")
+
+        # Same test as above, but for permission granted to transitive role
+
+        cassandra.execute("GRANT SELECT ON TABLE ks.cf3 TO role2")
+
+        cathy = self.patient_exclusive_cql_connection(node2, user='cathy', password='12345')
+        assert_unauthorized(cathy, "SELECT * FROM ks.cf3",
+                            "User cathy has no SELECT permission on <table ks.cf3> or any of its parents")
+
+        cassandra.execute("GRANT role2 TO cathy")
+        self._verify_permission_changes_are_propagated(cathy, "SELECT * FROM ks.cf3")
+
+        # Verifiy that credentials invalidation works
+
+        cathy3 = self.patient_exclusive_cql_connection(node3, user='cathy', password='12345')
+        cathy3.shutdown()
+        cassandra.execute("ALTER ROLE cathy WITH PASSWORD = 'abcdef'")
+        # immediately create a new session with the new password
+        cathy3 = self.patient_exclusive_cql_connection(node3, user='cathy', password='abcdef', timeout=5)
+        cathy3.shutdown()
+
+    def _verify_permission_changes_are_propagated(self, session, query):
+        # Give the nodes 3 seconds to have the GRANT/REVOKE being propagated to all nodes.
+        # Permission modificiations send invalidation internode messages that let the "other" nodes
+        # invalidate their caches.
+        wait_until = time.time() + 3
+        while time.time() < wait_until:
+            try:
+                session.execute(query)
+                return
+            except Exception:
+                time.sleep(0.1)
+        # execute again without a try-except to propagate the exception
+        session.execute(query)
+
+    def _prepare_cluster(self, config):
+        self.cluster.set_configuration_options(values=config)
+        self.cluster.populate(3).start()
+        self.cluster.wait_for_any_log('Created default superuser', 25)
+        session = self.get_session(user='cassandra', password='cassandra')
+        auth_metadata = UpdatingKeyspaceMetadataWrapper(
+            cluster=session.cluster,
+            ks_name='system_auth',
+            max_schema_agreement_wait=30  # 3x the default of 10
+        )
+        self.assertEquals(1, auth_metadata.replication_strategy.replication_factor)
+        session.execute("""
+            ALTER KEYSPACE system_auth
+                WITH replication = {'class':'SimpleStrategy', 'replication_factor':3};
+        """)
+        self.assertEquals(3, auth_metadata.replication_strategy.replication_factor)
+        # Run repair to workaround read repair issues caused by CASSANDRA-10655
+        debug("Repairing before altering RF")
+        self.cluster.repair()
+        debug("Shutting down client session")
+        session.shutdown()
 
 
 class TestAuthOneNode(ReusableClusterTester, AuthMixin):
@@ -887,6 +966,7 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         assert_unauthorized(cathy, "SELECT * FROM ks.cf", "User cathy has no SELECT permission on <table ks.cf> or any of its parents")
 
+    @since('2.1', max_version='3.99')
     def permissions_caching_test(self):
         """
         * Launch a one node cluster, with a 2s permission cache
@@ -898,8 +978,13 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
         * Verify that reading from ks.cf throws Unauthorized until the cache expires
         * Verify that after the cache expires, we can eventually read with both sessions
 
+        This dtest tests cache-expiry, which is no longer relevant since we send INVALIDATE
+        verbs to invalidate cached authz information. Therefore, this dtest does not run
+        since DSE 6.0 (4.0), APOLLO-909.
+
         @jira_ticket CASSANDRA-8194
         """
+
         config = self.default_config.asdict()
         config['permissions_validity_in_ms'] = 2000
         restart_cluster_and_update_config_with_sleep(self.cluster, config)
