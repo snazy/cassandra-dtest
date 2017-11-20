@@ -1,7 +1,8 @@
 import os
 import re
+import subprocess
 
-from ccmlib.node import ToolError
+from ccmlib.node import ToolError, handle_external_tool_process
 from dtest import Tester, debug
 from tools.assertions import assert_all, assert_invalid
 from tools.decorators import since
@@ -63,6 +64,44 @@ class TestNodetool(Tester):
             if re.match('.*Instances.*Bytes.*Type.*', line):
                 hasPattern = True
         self.assertTrue(hasPattern, "Expected 'SJK hh' output")
+
+    def test_quoted_arg_with_spaces(self):
+        """
+        @jira_ticket APOLLO-1183
+
+        Fixes bug in handling of quoted parameters.
+        """
+
+        cluster = self.cluster
+        cluster.populate([1]).start()
+        node = cluster.nodelist()[0]
+
+        session = self.patient_cql_connection(node)
+        session.execute("CREATE KEYSPACE ks1 WITH replication = { 'class':'SimpleStrategy', 'replication_factor':1}")
+        session.execute('CREATE TABLE ks1.tab (id text PRIMARY KEY, val text)')
+
+        # Execute 'nodetool getendpoints ks1 tab "some key with a space"'
+        # Note: we cannot use 'node.nodetool()' here, because that one expects a string that will be blindly
+        # split into an array at every space.
+        addr = node.address()
+        env = node.get_env()
+        nodetool = node.get_tool('nodetool')
+        args = [nodetool, '-h', addr, '-p', str(node.jmx_port), 'getendpoints', 'ks1', 'tab', 'some key with a space']
+        proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        out, err, code = handle_external_tool_process(proc, args)
+        debug("{}\n"
+              "stdout:\n"
+              "{}\n"
+              "stderr:\n"
+              "{}\n"
+              "code:\n"
+              "{}".format(args, out, err, code))
+        lines = out.split(os.linesep)
+
+        # Check for exit code and expected output (only endpoint is 127.0.0.1)
+        self.assertEqual(code, 0, "Exit code must be 0")
+        self.assertTrue(any(re.match(".*{}.*".format(addr), line) for line in lines),
+                        "Missing {} output from 'nodetool getendpoints' invocation".format(addr))
 
     # DSE 5.1.2
     @since('3.11')

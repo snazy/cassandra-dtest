@@ -537,3 +537,19 @@ class TestNodeSyncTool(Tester):
         node1.stop(wait_other_notice=True)  # will remove its proposers
         self._nodesync(args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
                        expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
+
+    def test_quoted_arg_with_spaces(self):
+        """
+        @jira_ticket APOLLO-1183
+
+        Fixes bug in handling of quoted parameters.
+        """
+
+        cluster = self.cluster
+        cluster.populate([1]).start()
+        node = cluster.nodelist()[0]
+
+        # Execute some nodesync command with spaces in an argument.
+        # The command itself doesn't make sense, but that's not the point of this test.
+        self._nodesync(args=['validation', 'cancel', '-v', 'this id does not exist'],
+                       expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
