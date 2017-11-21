@@ -18,7 +18,7 @@ NODESYNC_SERVICE_MBEAN = make_mbean('nodesync', 'NodeSyncService', domain='com.d
 def _start_nodesync_service(node):
     debug('Starting NodeSync service in node %s' % node)
     with JolokiaAgent(node) as jmx:
-        jmx.execute_method(NODESYNC_SERVICE_MBEAN, 'enable')
+        jmx.execute_method(NODESYNC_SERVICE_MBEAN, 'enable()')
 
 
 def _stop_nodesync_service(node):
