@@ -1,4 +1,4 @@
-from cassandra import Unauthorized
+from dse import InvalidRequest, Unauthorized
 from dtest import Tester
 from tools.assertions import assert_all, assert_exception, assert_none
 from tools.decorators import since
@@ -59,6 +59,8 @@ class TestSystemKeyspaces(Tester):
         node = cluster.nodelist()[0]
         session = self.patient_cql_connection(node)
 
+        expected_alter_exception = InvalidRequest if self.cluster.version() >= '4.0' else Unauthorized
+
         # ALTER KEYSPACE should work for system_auth, system_distributed, and system_traces
         stmt = """
             ALTER KEYSPACE system_auth
@@ -107,11 +109,11 @@ class TestSystemKeyspaces(Tester):
 
         assert_exception(session,
                          "ALTER TABLE system_distributed.repair_history WITH comment = '';",
-                         expected=Unauthorized)
+                         expected=expected_alter_exception)
 
         assert_exception(session,
                          "ALTER TABLE system_traces.sessions WITH comment = '';",
-                         expected=Unauthorized)
+                         expected=expected_alter_exception)
 
         # DROP TABLE should fail in system_auth, system_distributed, and system_traces
         assert_exception(session, 'DROP TABLE system_auth.roles;', expected=Unauthorized)
