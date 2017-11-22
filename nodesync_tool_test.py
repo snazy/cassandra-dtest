@@ -410,14 +410,19 @@ class TestNodeSyncTool(Tester):
         self._prepare_cluster(nodes=2, rf=2, byteman=True, keyspaces=1, tables_per_keyspace=1)
         node = self.cluster.nodelist()[0]
 
-        def submit(rate=None, status='running'):
+        def submit(rate=None, status_to_wait_for='running'):
+            """
+            param rate The validation rate in KB/s
+            param status_to_wait_for The user validation status to wait for, possible values are `running`,
+            `successful`, `cancelled` and `failed`
+            """
             args = ['validation', 'submit']
             if rate:
                 args.extend(['-r', str(rate)])
             args.append('k1.t1')
             stdout, stderr = self._nodesync(args)
             uuid = _parse_validation_id(stdout)
-            self._wait_for_validation_status(uuid, node, status)
+            self._wait_for_validation_status(uuid, node, status_to_wait_for)
             return uuid
 
         def get_rate(expected):
@@ -438,7 +443,7 @@ class TestNodeSyncTool(Tester):
         set_rate(rate=1000)
 
         # submit with rate and verify that, at termination, the original rate is restored and we can set a new rate
-        submit(rate=1, status='successful')
+        submit(rate=1, status_to_wait_for='successful')
         get_rate(expected=1000)
         set_rate(rate=2000)
 
@@ -446,13 +451,13 @@ class TestNodeSyncTool(Tester):
         node.byteman_submit(['./byteman/user_validation_sleep.btm'])
 
         # submit without rate and verify that, while running, the original rate is kept and we can set a new rate
-        uuid1 = submit(rate=None, status='running')
+        uuid1 = submit(rate=None, status_to_wait_for='running')
         get_rate(expected=2000)
         set_rate(rate=3000)
 
         # submit with rate and verify that the new rate is not applied and we can still set the rate
         # because the previous validation hasn't finished yet
-        uuid2 = submit(rate=2, status='running')
+        uuid2 = submit(rate=2, status_to_wait_for='running')
         get_rate(expected=3000)
         set_rate(rate=4000)
 
@@ -462,7 +467,7 @@ class TestNodeSyncTool(Tester):
         get_rate(expected=4000)
 
         # submit with rate and verify that, while running, the validation rate is applied and we can't set a new rate
-        uuid3 = submit(rate=2, status='running')
+        uuid3 = submit(rate=2, status_to_wait_for='running')
         get_rate(expected=2)
         set_rate(rate=5000, conflicting_validation=uuid3)
 
