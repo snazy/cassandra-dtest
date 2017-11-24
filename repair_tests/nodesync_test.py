@@ -6,7 +6,8 @@ from ccmlib.node import ToolError
 from dtest import Tester, debug
 from tools.decorators import since
 from tools.interceptors import fake_write_interceptor
-from tools.nodesync import nodesync_opts, assert_all_segments, not_validated, enable_nodesync, disable_nodesync
+from tools.nodesync import (nodesync_opts, assert_all_segments, not_validated, enable_nodesync,
+                            disable_nodesync, read_nodesync_status)
 from tools.preparation import prepare, config_opts
 
 
@@ -33,9 +34,17 @@ class SingleTableNodeSyncTester(Tester):
         debug('Dropping table t...')
         self.session.execute("DROP TABLE ks.t")
 
-    def do_inserts(self, inserts=1000):
+    def truncate_table(self):
+        debug('Truncating table t...')
+        self.session.execute("TRUNCATE TABLE ks.t")
+
+    def truncate_status_table(self):
+        debug('Truncating NodeSync status table ...')
+        self.session.execute("TRUNCATE TABLE system_distributed.nodesync_status")
+
+    def do_inserts(self, inserts=1000, start_at=0):
         debug("Inserting data...")
-        for i in range(0, inserts):
+        for i in range(start_at, start_at + inserts):
             self.session.execute("INSERT INTO ks.t(k) VALUES({})".format(i))
 
     def enable_nodesync(self):
@@ -70,6 +79,30 @@ class SingleTableNodeSyncTester(Tester):
 
     def assert_all_segments(self, predicate=None):
         assert_all_segments(self.session, 'ks', 't', predicate=predicate)
+
+    def read_nodesync_status(self, print_debug=False):
+        return read_nodesync_status(self.session, 'ks', 't', print_debug=debug)
+
+    def assert_segments_count(self, min, max=None):
+        """ Validate that number of segments that are currently used.
+
+        If only :min is provided, this must be the exact number of segments. If :max is provided as well,
+        then the method check that the number of segment is between :min and :max, both inclusive.
+        """
+        # The small subtlety here is that if local ranges or the depth changes, there is will be 'stale'
+        # records in the status table (which will eventually expire, but not fast enough for tests), and
+        # while those should theoretically be ignored, the consolidation of records in read_nodesync_status
+        # can still be impacted. While we could theoretically improve that method, it's a bit painful.
+        # So we work around that by truncating the nodesync table and waiting for all segments to be
+        # re-validated.
+        self.truncate_status_table()
+        self.assert_all_segments()
+        record_count = len(self.read_nodesync_status())
+        if not max:
+            self.assertEqual(record_count, min)
+        else:
+            self.assertGreaterEqual(record_count, min)
+            self.assertLessEqual(record_count, max)
 
 
 @since('4.0')
@@ -248,3 +281,56 @@ class TestNodeSync(SingleTableNodeSyncTester):
         debug("Ensuring everything validated and in sync...")
         self.assert_all_segments()
         self.assert_in_sync()
+
+    def test_depth_update(self):
+        """
+        Test that when data grow, the depth is increased (to create more segments).
+        """
+        # Note: not using vnodes because that would require a lot more data to get a depth increase and make
+        # things a bit harder to reason about for this test.
+        self.prepare(nodes=2, rf=2, num_tokens=1)
+        self.create_table()
+        # Insert a tiny bit of data just to have something for initial checks
+        self.do_inserts(inserts=10)
+        # Wait for all segments to be validated so the status table is fully populated and we get an accurate segment count
+        self.assert_all_segments()
+
+        # In most cases, we will have 3 segments, because we have 2 nodes/2 tokens so 2 local ranges (and not enough data
+        # to have a depth > 0), but one will wrap and will thus be split. In theory, if one of the node get the minimum
+        # token as token however (is it possible? don't remember and feeling like checking), we'll only have 2 segments,
+        # so playing it safe and not using equality.
+        debug("Checking initial segment count...")
+        self.assert_segments_count(2, 3)
+
+        # Now insert more data, enough to guarantee a depth increase.
+        # We have 3 segments, and a target of maximum 100kb per segment, so we need a bit more than 300kb to get an increase.
+        # From quick experiments, every row we insert (each is a distinct partition) account for a bit below 30 bytes and
+        # 3 * 100kb / 30 is 10240, so 15k rows should be enough to get the size increase.
+        INSERTIONS = 15000
+        self.do_inserts(inserts=INSERTIONS)
+        # Then we need to wait for at least 5 seconds because it's how often the check for size changes runs
+        time.sleep(5.5)
+        # Make sure all segment have been validated post-increase, and then check we do have twice more records
+        debug("Checking segment count has increased...")
+        self.assert_all_segments()
+        self.assert_segments_count(4, 6)
+
+        # Check for one more increase by doubling the size.
+        debug("Doubling size...")
+        self.do_inserts(inserts=INSERTIONS, start_at=INSERTIONS)
+        time.sleep(5.5)
+        debug("Checking segment count has increased...")
+        self.assert_all_segments()
+        self.assert_segments_count(8, 12)
+
+        # And now check for size decrease by truncating the table and making sure we get back to the initial
+        # number of segments.
+        # TODO: the following flush shouldn't be necessary, but somehow the test appears to fail without it:
+        # there seems to be remaining accounted data post-truncate. This should be investigated, but as this
+        # unrelated to this test purpose and doesn't meaningfully slow the test, using as a work-around.
+        self.cluster.flush()
+        self.truncate_table()
+        time.sleep(5.5)
+        debug("Checking segment count has decreased...")
+        self.assert_all_segments()
+        self.assert_segments_count(2, 3)
