@@ -94,13 +94,6 @@ def prepare(tester,
             options['endpoint_snitch'] = 'org.apache.cassandra.locator.PropertyFileSnitch'
         cluster.set_configuration_options(values=options)
 
-    jvm_args = []
-    if interceptors:
-        jvm_args += make_jvm_args(interceptors)
-
-    if nodesync_options:
-        jvm_args += nodesync_options
-
     cluster.populate(nodes, install_byteman=byteman)
 
     # We'll use JMX to control interceptors, and what requires this apparently
@@ -108,7 +101,7 @@ def prepare(tester,
         for node in cluster.nodelist():
             remove_perf_disable_shared_mem(node)
 
-    cluster.start(jvm_args=jvm_args)
+    cluster.start(jvm_args=jvm_args(interceptors, nodesync_options))
 
     node1 = cluster.nodelist()[0]
 
@@ -118,6 +111,17 @@ def prepare(tester,
         create_ks(session, 'ks', rf)
 
     return session
+
+
+def jvm_args(interceptors=None, nodesync_options=None):
+    jvm_args = []
+    if interceptors:
+        jvm_args += make_jvm_args(interceptors)
+
+    if nodesync_options:
+        jvm_args += nodesync_options
+
+    return jvm_args
 
 
 def config_opts(use_cache=False, start_thrift=False, num_tokens=None, **kwargs):
