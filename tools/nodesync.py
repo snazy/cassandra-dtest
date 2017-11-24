@@ -76,7 +76,7 @@ class NodeSyncRecord(object):
             validation = '<none>'
         else:
             validation = 'last={} ({}s ago)'.format(self.last_time, ((time.time() * 1000) - self.last_time) / 1000)
-            if not self.last_was_success:
+            if self.last_successful_time is not None and not self.last_was_success:
                 validation += ', last_success={} ({}s ago)'.format(self.last_successful_time, ((time.time() * 1000) - self.last_successful_time) / 1000)
         missing = ''
         if self.missing_nodes:
@@ -252,7 +252,7 @@ def not_validated():
     return lambda r: r.last_time is None and r.last_successful_time is None
 
 
-def assert_all_segments(session, keyspace, table, timeout=30, predicate=None):
+def assert_all_segments(session, keyspace, table, timeout=60, predicate=None):
     """ Waits up to :timeout to see if every segment of :keyspace.:table pass the provided :predicate, and fail
     if that is not the case.
 
