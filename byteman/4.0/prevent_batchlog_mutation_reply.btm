@@ -2,8 +2,8 @@
 # Prevent processing of mutation-verb responses
 #
 RULE do not process replies for mutations (to cause write-timeouts)
-CLASS org.apache.cassandra.batchlog.BatchlogManager$ReplayingBatch$ReplayWriteHandler
-METHOD onResponse
+CLASS org.apache.cassandra.net.MessageDeliveryTask$RequestDeliveryTask
+METHOD deliverMessage
 AT ENTRY
 IF TRUE
 DO

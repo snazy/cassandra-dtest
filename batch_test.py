@@ -291,6 +291,74 @@ class TestBatch(Tester):
         assert_one(session, "SELECT * FROM dogs", [0, 'Pluto'])
 
     @since('3.0')
+    def batchlog_replay_hint_failed_mutation(self):
+        """
+        @jira_ticket DB-1377 ensure that when batchlog replay failed, only failed mutations are written to hint
+        """
+        debug("Prepare test")
+        # prepare the cluster and disable automatich batchlog replay
+        session = self.prepare(nodes=[2, 1], rf={'dc1': 2, 'dc2': 1}, install_byteman=True,
+                               # disable automatic batchlog replay for this test
+                               jvm_args=["-Ddse.batchlog.replay_interval_in_ms=-1",
+                                         # prevent the (forced) batchlog replay to ignore younger batchlog entries
+                                         "-Dcassandra.batchlog.replay_timeout_in_ms=1"],
+                               config_options={
+                                   # set a longer write-req-timeout to speed up the test a bit
+                                   'write_request_timeout_in_ms': 300})
+        session.execute("CREATE TABLE dogs (dogid int PRIMARY KEY, dogname text)")  # rf=3
+        create_ks(session, 'ks_2', rf={'dc1': 0, 'dc2': 1})
+        session.execute("CREATE TABLE ks_2.dogs (dogid int PRIMARY KEY, dogname text)")
+
+        session.cluster.control_connection.wait_for_schema_agreement()
+        node1, node2, _ = self.cluster.nodelist()
+
+        node1.byteman_submit(['./byteman/batchlog_do_not_remove.btm'])
+
+        with JolokiaAgent(node2) as jmx:
+            jmx.execute_method(make_mbean('db', type='StorageService'), 'setLoggingLevel', ['org.apache.cassandra.batchlog.BatchlogManager', 'TRACE'])
+
+        debug("Create batch with 8 mutations, first mutation replay must fail, the rest succeed")
+        batch_stmt = SimpleStatement("""
+                                         BEGIN BATCH
+                                         INSERT INTO ks.dogs   (dogid, dogname) VALUES (1, '=====')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (2, ' For ')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (3, ' The ')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (4, 'Horde')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (5, ' !!! ')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (6, '.....')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (7, '.....')
+                                         INSERT INTO ks_2.dogs (dogid, dogname) VALUES (8, '.....')
+                                         APPLY BATCH
+                                     """)
+
+        debug("Test write-timeouts during batchlog-replay...")
+        debug("Execute logged batch against node1")
+        session.execute(batch_stmt)
+
+        # mutations will be successfully applied on dc2 for ks_2
+        version = "pre4.0" if self.cluster.version() < "4.0" else "4.0"
+        # prevent _sending_ of batchlog mutation replies
+        node1.byteman_submit(['./byteman/{}/prevent_batchlog_mutation_reply.btm'.format(version)])
+
+        # run batchlog replay
+        debug("Run batchlog replay")
+        mark = node2.mark_log(filename="debug.log")
+        self._verify_batchlog_metrics(node2, 0, 0)
+        self._run_batchlog_replay(node2)
+
+        debug("Verify metrics: all batchlog replay failed")
+        self._verify_batchlog_metrics(node2, 0, 1)  # 1 hinted batchlog
+        hints_calls = node2.grep_log(expr="Adding hints for undelivered endpoints:", filename="debug.log", from_mark=mark)
+        hints = len(hints_calls)
+        debug("Hints are written {} times".format(hints))
+        self.assertEquals(hints, 1, "Hints should be written exactly once.")
+
+        debug("Verify log message")
+        node2.watch_log_for("Failed to replay batchlog .* of age .* seconds with .* mutations, "
+                            "will write hints[.] "
+                            "Reason\/failure: Operation timed out - received only 1 responses[.]", filename="debug.log", timeout=5)
+
+    @since('3.0')
     def batchlog_replay_with_different_broadcast_listen_address(self):
         """
         @jira_ticket DB-1350 ensure that batchlog replay works when broadcast address and listen address are different
@@ -490,12 +558,9 @@ class TestBatch(Tester):
         debug("Execute logged batch against node1")
         session.execute(batch_stmt)
 
-        if self.cluster.version() < "4.0":
-            # prevent _sending_ of batchlog mutation replies
-            node1.byteman_submit(['./byteman/pre4.0/prevent_batchlog_mutation_reply.btm'])
-        else:
-            # prevent _processing_ of batchlog mutation replies
-            node2.byteman_submit(['./byteman/4.0/prevent_batchlog_mutation_reply.btm'])
+        version = "pre4.0" if self.cluster.version() < "4.0" else "4.0"
+        # prevent _sending_ of batchlog mutation replies
+        node1.byteman_submit(['./byteman/{}/prevent_batchlog_mutation_reply.btm'.format(version)])
 
         # run batchlog replay
         debug("Run batchlog replay")
@@ -553,8 +618,10 @@ class TestBatch(Tester):
     def _verify_batchlog_metrics(self, node, expected_replays, expected_hinted_replays):
         batchlog_replays, hinted_batchlog_replays = self._get_batchlog_metrics(node)
 
-        self.assertEqual(batchlog_replays, expected_replays, "Expect {} batchlog replays on {}".format(expected_replays, node.name))
-        self.assertEqual(hinted_batchlog_replays, expected_hinted_replays, "Expect {} hinted batchlog replays on {}".format(expected_hinted_replays, node.name))
+        self.assertEqual(batchlog_replays, expected_replays,
+                         "Expect {} batchlog replays on {}, but got {}".format(expected_replays, node.name, batchlog_replays))
+        self.assertEqual(hinted_batchlog_replays, expected_hinted_replays,
+                         "Expect {} hinted batchlog replays on {}, but got {}".format(expected_hinted_replays, node.name, hinted_batchlog_replays))
 
     @since('3.0', max_version='3.x')
     def logged_batch_compatibility_1_test(self):
@@ -699,7 +766,7 @@ class TestBatch(Tester):
         else:
             assert False, "Expecting TimedOutException but no exception was raised"
 
-    def prepare(self, nodes=1, compression=True, version=None, protocol_version=None, install_byteman=False, jvm_args=None, config_options=None):
+    def prepare(self, nodes=1, rf=None, compression=True, version=None, protocol_version=None, install_byteman=False, jvm_args=None, config_options=None):
         if version:
             self.cluster.set_install_dir(version=version)
             debug("Set cassandra dir to {}".format(self.cluster.get_install_dir()))
@@ -716,7 +783,7 @@ class TestBatch(Tester):
         node1 = self.cluster.nodelist()[0]
         # some tests require the "exclusive" cql connection (only connect to the given node)
         session = self.patient_exclusive_cql_connection(node1, protocol_version=protocol_version)
-        self.create_schema(session, nodes)
+        self.create_schema(session, nodes if rf is None else rf)
         return session
 
     def create_schema(self, session, rf):
