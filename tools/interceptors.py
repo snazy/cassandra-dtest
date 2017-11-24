@@ -160,8 +160,6 @@ class Interceptor:
             self.localities = (localities,) if isinstance(localities, Locality) else localities
         return self
 
-
-
     def enable(self, node):
         """
         Enable the interceptor on the provided node and return the corresponding

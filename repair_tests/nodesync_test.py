@@ -5,8 +5,7 @@ from ccmlib.node import ToolError
 
 from dtest import Tester, debug
 from tools.decorators import since
-from tools.interceptors import (Direction, Type, Verb, delaying_interceptor,
-                                dropping_interceptor, fake_write_interceptor)
+from tools.interceptors import fake_write_interceptor
 from tools.nodesync import nodesync_opts, assert_all_segments, not_validated, enable_nodesync, disable_nodesync
 from tools.preparation import prepare, config_opts
 
@@ -181,7 +180,6 @@ class TestNodeSync(SingleTableNodeSyncTester):
         # we actually don't clean it up server side yet (we rely on the normal timeout of the status table,
         # but that takes a month) so this will have to wait for this to be implemented
 
-
     def test_validation_with_node_failure(self):
         """
         Validate that when a node dies, we do continue validating but those validation are not mark
@@ -250,4 +248,3 @@ class TestNodeSync(SingleTableNodeSyncTester):
         debug("Ensuring everything validated and in sync...")
         self.assert_all_segments()
         self.assert_in_sync()
-
