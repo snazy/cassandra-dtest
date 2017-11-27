@@ -413,14 +413,14 @@ class TestMaterializedViews(Tester):
         result = list(session.execute("SELECT * FROM ks.users_by_state_birth_year WHERE state='TX' AND birth_year=1968"))
         self.assertEqual(len(result), 1, "Expecting {} users, got {}".format(1, len(result)))
 
-    def _add_dc_after_mv_test(self, rf):
+    def _add_dc_after_mv_test(self, rf, alter_ks_add_dc=None):
         """
         @jira_ticket CASSANDRA-10978
 
         Add datacenter with configurable replication.
         """
 
-        session = self.prepare(rf=rf)
+        session = self.prepare(rf=rf, nodes=3)
 
         debug("Creating schema")
         session.execute("CREATE TABLE t (id int PRIMARY KEY, v int)")
@@ -446,6 +446,12 @@ class TestMaterializedViews(Tester):
         debug("Bootstrapping new node in another dc")
         node5 = new_node(self.cluster, remote_debug_port='1414', data_center='dc2')
         node5.start(jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+
+        if alter_ks_add_dc is not None:
+            session.execute(alter_ks_add_dc)
+
+            node4.nodetool("rebuild -ks ks -- dc1")
+            node5.nodetool("rebuild -ks ks -- dc1")
 
         session2 = self.patient_exclusive_cql_connection(node4)
 
@@ -477,9 +483,11 @@ class TestMaterializedViews(Tester):
         @jira_ticket CASSANDRA-10634
 
         Test that materialized views work as expected when adding a datacenter with NetworkTopologyStrategy.
-        """
 
-        self._add_dc_after_mv_test({'dc1': 1, 'dc2': 1})
+        Since 4.0 (CASSANDRA-12681), Cassandra won't allow to create non-existing DC before adding nodes in new DC
+        """
+        alter_ks = "ALTER KEYSPACE ks WITH REPLICATION = {'class': 'NetworkTopologyStrategy', 'dc1':1, 'dc2':1};"
+        self._add_dc_after_mv_test(rf={'dc1': 1}, alter_ks_add_dc=alter_ks)
 
     @attr('resource-intensive')
     def add_node_after_mv_test(self):
