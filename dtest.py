@@ -65,7 +65,7 @@ TRACE = os.environ.get('TRACE', '').lower() in ('yes', 'true')
 KEEP_LOGS = os.environ.get('KEEP_LOGS', '').lower() in ('yes', 'true')
 KEEP_TEST_DIR = os.environ.get('KEEP_TEST_DIR', '').lower() in ('yes', 'true')
 PRINT_DEBUG = os.environ.get('PRINT_DEBUG', '').lower() in ('yes', 'true')
-OFFHEAP_MEMTABLES = os.environ.get('OFFHEAP_MEMTABLES', '').lower() in ('yes', 'true')
+MEMTABLE_TYPE = os.environ.get('MEMTABLE_TYPE', 'heap_buffers').lower()
 NUM_TOKENS = os.environ.get('NUM_TOKENS', '256')
 RECORD_COVERAGE = os.environ.get('RECORD_COVERAGE', '').lower() in ('yes', 'true')
 IGNORE_REQUIRE = os.environ.get('IGNORE_REQUIRE', '').lower() in ('yes', 'true')
@@ -721,8 +721,7 @@ def create_ccm_cluster(test_path, name):
     else:
         cluster.set_configuration_options(values={'initial_token': None, 'num_tokens': NUM_TOKENS})
 
-    if OFFHEAP_MEMTABLES:
-        cluster.set_configuration_options(values={'memtable_allocation_type': 'offheap_objects'})
+    cluster.set_configuration_options(values={'memtable_allocation_type': MEMTABLE_TYPE})
 
     cluster.set_datadir_count(DATADIR_COUNT)
     cluster.set_environment_variable('CASSANDRA_LIBJEMALLOC', CASSANDRA_LIBJEMALLOC)

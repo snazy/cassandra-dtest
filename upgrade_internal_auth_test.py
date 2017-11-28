@@ -5,7 +5,7 @@ from ccmlib.common import is_win
 from ccmlib.node import Node
 from dse import Unauthorized
 
-from dtest import OFFHEAP_MEMTABLES, Tester, debug
+from dtest import MEMTABLE_TYPE, Tester, debug
 from tools.assertions import assert_all, assert_invalid
 from tools.decorators import since
 from tools.misc import ImmutableMapping
@@ -33,7 +33,7 @@ class TestAuthUpgrade(Tester):
         self.do_upgrade_with_internal_auth("github:apache/cassandra-2.2")
 
     @since('3.0')
-    @skipIf(OFFHEAP_MEMTABLES, 'offheap_objects are not available in 3.0')
+    @skipIf(MEMTABLE_TYPE.startswith("offheap"), 'offheap_objects are not available in 3.0')
     def upgrade_to_30_test(self):
         self.do_upgrade_with_internal_auth("github:apache/cassandra-3.0")
 

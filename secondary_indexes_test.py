@@ -11,7 +11,7 @@ from dse.protocol import ConfigurationException
 from dse.query import BatchStatement, SimpleStatement
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES,
-                   OFFHEAP_MEMTABLES, Tester, debug)
+                   MEMTABLE_TYPE, Tester, debug)
 from tools.assertions import (assert_bootstrap_state, assert_invalid,
                               assert_none, assert_one, assert_row_count, assert_length_equal)
 from tools.data import (block_until_index_is_built, create_cf, create_ks,
@@ -943,7 +943,7 @@ class TestSecondaryIndexesOnCollections(Tester):
         session.cluster.refresh_schema_metadata()
         self.assertEqual(0, len(session.cluster.metadata.keyspaces["map_double_index"].indexes))
 
-    @skipIf(OFFHEAP_MEMTABLES, 'Hangs with offheap memtables')
+    @skipIf(MEMTABLE_TYPE.startswith("offheap"), 'Hangs with offheap memtables')
     def test_map_indexes(self):
         """
         Checks that secondary indexes on maps work for querying on both keys and values
