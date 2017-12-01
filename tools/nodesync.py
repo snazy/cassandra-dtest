@@ -21,7 +21,8 @@ def disable_nodesync(session, keyspace, table):
     session.execute("ALTER TABLE {}.{} WITH nodesync = {{'enabled': 'false'}}".format(keyspace, table))
 
 
-def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, segment_size_target_mb=1):
+def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, segment_size_target_kb=100,
+                  size_checker_interval_sec=5):
     """ Creates a list of JVM arguments that sets settings for NodeSync more suitable to testing
 
     This is generally intended to be used for building the nodesync_options argument of the prepare
@@ -35,8 +36,10 @@ def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, se
         args.append("-Ddse.nodesync.min_validation_interval_ms={}".format(min_validation_interval_ms))
     if segment_lock_timeout_sec:
         args.append("-Ddse.nodesync.segment_lock_timeout_sec={}".format(segment_lock_timeout_sec))
-    if segment_size_target_mb:
-        args.append("-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_mb * 1024 * 1024))
+    if segment_size_target_kb:
+        args.append("-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_kb * 1024))
+    if size_checker_interval_sec:
+        args.append("-Ddse.nodesync.size_checker_interval_sec={}".format(size_checker_interval_sec))
 
     return args
 
@@ -221,7 +224,7 @@ def __consolidate(keyspace, table, records):
     return result
 
 
-def _read_nodesync_status(session, keyspace, table):
+def read_nodesync_status(session, keyspace, table, print_debug=False):
     """ Reads in the rows from the nodesync status system table that pertain to a specific data table,
     returning a list of NodeSyncRecord.
     """
@@ -230,6 +233,8 @@ def _read_nodesync_status(session, keyspace, table):
                             fetch_size=None)
     rows = session.execute(query).current_rows
     raw_records = [NodeSyncRecord._from_row(row) for row in rows]
+    if print_debug:
+        debug("Records = {}".format(raw_records))
     records = __consolidate(keyspace, table, raw_records)
     return records
 
@@ -263,7 +268,7 @@ def assert_all_segments(session, keyspace, table, timeout=60, predicate=None):
     if not predicate:
         predicate = validated_since(start * 1000)
     while start + timeout > time.time():
-        nodesync_status = _read_nodesync_status(session, keyspace, table)
+        nodesync_status = read_nodesync_status(session, keyspace, table)
         if all(predicate(record) for record in nodesync_status):
             debug("All segments matched predicate in {} seconds".format(time.time() - start))
             return
@@ -290,7 +295,7 @@ def get_oldest_segments(session, keyspace, table, segment_count, only_success=Tr
         time = record.last_successful_time if only_success else record.last_time
         return time if time is not None else -1
 
-    nodesync_status = _read_nodesync_status(session, keyspace, table)
+    nodesync_status = read_nodesync_status(session, keyspace, table)
     nodesync_status.sort(key=sort_record)
     return nodesync_status[0:segment_count]
 
@@ -299,5 +304,5 @@ def get_unsuccessful_validations(session, keyspace, table):
     """ Returns the set of rows in the nodesync status table for :keyspace.:table where the latest validations
     were unsuccessful.
     """
-    nodesync_status = _read_nodesync_status(session, keyspace, table)
+    nodesync_status = read_nodesync_status(session, keyspace, table)
     return [record for record in nodesync_status if not record.last_was_success]
