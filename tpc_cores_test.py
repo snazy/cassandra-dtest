@@ -6,71 +6,108 @@ from dtest import Tester, debug
 from tools.decorators import since
 from tools.misc import new_node
 
-limit = 1000
+default_op_count = 20000
+tolerance = int(default_op_count / 20)
+read_op = 'read'
+write_op = 'write'
+write_switch_op = 'write_switch_for_memtable'
 
 
 @since('4.0')
 class TestTPCCores(Tester):
-    def _stress_and_check_switches(self, node, op, op_in_message=None, op_limit=limit, op_count="50k"):
-        node.stress([op, 'n=' + op_count, 'no-warmup', '-rate', 'threads=100'])
-        out, err, _ = node.nodetool('tpstats')
-
-        if (op_in_message is None):
-            op_in_message = op
-        debug(op_in_message)
+    @staticmethod
+    def _stress_and_get_tpstats(node, op, phase, op_count=default_op_count):
+        node.stress([op, 'n=' + str(op_count), 'no-warmup', '-rate', 'threads=100'])
+        out, err, _ = node.nodetool('tpstats --cores')
+        debug(os.linesep + '=== ' + phase + ' ===')
         debug(out)
-        switches = self._get_completed(out, op.upper() + '_SWITCH_FOR_MEMTABLE')
-        self.assertTrue(switches < op_limit, "Too many switches for memtable on " + op_in_message + ": " + str(switches))
+        return out
 
-    def _get_completed(self, out, stat):
+    @staticmethod
+    def _get_completed(out, stat):
         for line in out.split(os.linesep):
-            if stat in line:
-                switches = line.split()[3]
-                debug(stat + ': ' + switches)
-                return int(switches)
+            if "TPC/all/" + stat.upper() in line:
+                completed = line.split()[3]
+                return int(completed)
         return 0
 
-    def tpc_startup_cores_test(self):
-        """
-        Verify that we end up with the correct assignment of tpc cores after startup / restart.
-        Nodes would start with memtables using only core 0 before APOLLO-939, causing everything to be
-        processed there. This was visible in high READ_SWITCH_FOR_MEMTABLE counts (~ 50k * (cores-1)/cores).
+    def _assert_count_expected(self, op, actual_count, expected_count, phase):
+        upper_bound = expected_count + tolerance
+        self.assertTrue(actual_count <= upper_bound,
+                        'Too many {0} operations during \'{1}\': {2!s} (Expected at most {3!s})'
+                        .format(op, phase, actual_count, upper_bound))
+        lower_bound = expected_count - tolerance
+        self.assertTrue(actual_count >= lower_bound,
+                        'Too few {0} operations during \'{1}\': {2!s} (Expected at least {3!s})'
+                        .format(op, phase, actual_count, lower_bound))
+        debug('Actual {0} operations during \'{1}\' ({2!s}) correctly fit in the expected range [{3!s}, {4!s}]'
+              .format(op, phase, actual_count, lower_bound, upper_bound))
 
-        @jira_ticket APOLLO-939
+    def tpc_startup_switch_cores_test(self):
+        """
+        Check that we end up with the correct assignment of TPC cores after node startup / restart in a single-node
+        cluster, by verifying that requests don't need to switch cores too much.
+        As single-partition reads are no longer switched to the core corresponding to their partition key if they are
+        already on a TPC thread, this check applies solely for writes.
+        Also verify that we report the correct number of reads / writes in the TPC stats.
         """
         cluster = self.cluster
         cluster.populate(1).start()
         node1 = cluster.nodes['node1']
 
-        # Check  we are using the correct cores for writes
-        self._stress_and_check_switches(node1, 'write')
+        # Check that we are not switching cores too much and that we are reporting the expected number of writes
+        phase = 'initial write'
+        num_writes = default_op_count
+        tpstats = self._stress_and_get_tpstats(node1, write_op, phase, num_writes)
+        self._assert_count_expected(write_switch_op, self._get_completed(tpstats, write_switch_op), 0, phase)
+        self._assert_count_expected(write_op, self._get_completed(tpstats, write_op), num_writes, phase)
 
-        # Check  we are using the correct cores for reads
-        self._stress_and_check_switches(node1, 'read', 'initial read')
+        # Check that we are reporting the expected number of reads
+        phase = 'initial read'
+        num_reads = default_op_count
+        tpstats = self._stress_and_get_tpstats(node1, read_op, phase, num_reads)
+        self._assert_count_expected(read_op, self._get_completed(tpstats, read_op), num_reads, phase)
 
-        # Check  we are using the correct cores for reads after stopping and restarting with replay
+        # Abruptly restart the node (will require commit log replay after start)
         node1.stop(gently=False)
         node1.start(wait_for_binary_proto=True)
-        self._stress_and_check_switches(node1, 'read', 'read after restart')
 
-        # Check  we are using the correct cores for reads after flush with empty memtables
-        cluster.flush()
-        self._stress_and_check_switches(node1, 'read', 'read after flush', limit * 2)
+        # Check that we are reporting the expected number of reads and write switches (the latter due to commit
+        # log replay) after stopping and restarting
+        phase = 'read after restart'
+        tpstats = self._stress_and_get_tpstats(node1, read_op, phase, num_reads)
+        self._assert_count_expected(read_op, self._get_completed(tpstats, read_op), num_reads, phase)
+        self._assert_count_expected(write_switch_op, self._get_completed(tpstats, write_switch_op), num_writes, phase)
 
-        # Check  we are using the correct cores for reads after restart with empty memtables
-        node1.stop(gently=True)
-        node1.start(wait_for_binary_proto=True)
-        self._stress_and_check_switches(node1, 'read', 'read after flush and restart')
+        # Check that we are not switching cores too much (i.e. that the number of switches has not changed since the
+        # "read after restart" phase) and that we are reporting the expected number of writes after stopping and
+        # restarting with replay
+        phase = 'write after restart'
+        tpstats = self._stress_and_get_tpstats(node1, write_op, phase, num_writes)
+        self._assert_count_expected(write_switch_op, self._get_completed(tpstats, write_switch_op), num_writes, phase)
+        self._assert_count_expected(write_op, self._get_completed(tpstats, write_op), num_writes, phase)
 
-    def _stress_and_check_balance(self, node, op, message, op_limit=limit, op_count="50k", switches_limit=limit):
-        if op_count is not None:
-            node.stress([op, 'n=' + op_count, 'no-warmup', '-rate', 'threads=100'])
+    @staticmethod
+    def _is_balanced_distribution(total, cores, counts, op, phase):
+        expected_per_core = int(total / len(cores))
+        for i in range(len(cores)):
+            upper_bound = expected_per_core + tolerance
+            lower_bound = expected_per_core - tolerance
+            if counts[i] > upper_bound or counts[i] < lower_bound:
+                debug('Actual {0} operations during \'{1}\' ({2}) do not fit in the expected range [{3!s}, {4!s}]'
+                      .format(op, phase, counts[i], lower_bound, upper_bound))
+                return False
+        return True
+
+    def _stress_and_check_balance(self, node, op, phase, run_stress=True, op_count=default_op_count):
+        if run_stress:
+            node.stress([op, 'n=' + str(op_count), 'no-warmup', '-rate', 'threads=100'])
 
         out, err, _ = node.nodetool('tpstats --cores')
+        debug(os.linesep + '=== ' + phase + ' ===')
+        debug(out)
 
         stat = re.compile('TPC/(\d|all)/' + op.upper() + ' ')
-        debug(message)
-        debug(out)
         total = 0
         cores = []
         counts = []
@@ -80,8 +117,8 @@ class TestTPCCores(Tester):
             if match is not None:
                 count = int(line.split()[3])
                 core = match.group(1)
-                debug(op + ' on ' + core + ': ' + str(count))
-                if (core == "all"):
+                debug('{0} on core {1}: {2!s}'.format(op, core, count))
+                if core == "all":
                     total = count
                 else:
                     counts += [count]
@@ -91,23 +128,25 @@ class TestTPCCores(Tester):
         debug(counts)
         debug(total)
 
-        expected = total / len(cores)
-        failed = False
-        for i in range(len(cores)):
-            if counts[i] > expected + op_limit or counts[i] < expected - op_limit:
-                failed = True
-                debug("Expecting around " + str(expected) + " " + op + " operations on core " + cores[i] + " but got " + str(counts[i]) + " after " + message)
+        self.assertTrue(self._is_balanced_distribution(total, cores, counts, op, phase))
+        return out
 
-        self.assertFalse(failed)
+    def _run_phase(self, node, op, phase, last_node_stats=None, run_stress=True, op_count=default_op_count):
+        node_stats = self._stress_and_check_balance(node, op, phase, run_stress, op_count)
+        last_op_count = 0
+        if last_node_stats is not None:
+            last_op_count = self._get_completed(last_node_stats, op)
+        expected_op_count = last_op_count + op_count / len(self.cluster.nodelist())
+        self._assert_count_expected(op, self._get_completed(node_stats, op), expected_op_count, phase)
+        return node_stats
 
-        switches = self._get_completed(out, "TPC/all/" + op.upper() + "_SWITCH_FOR_MEMTABLE")
-        if switches_limit is not None:
-            self.assertTrue(switches < switches_limit, "Too many switches for memtable on " + message + ": " + str(switches))
-        return switches
-
-    def tpc_reassign_tokens_cores_test(self):
+    def tpc_ring_change_balance_cores_test(self):
         """
-        Verify that we end up with the correct assignment of tpc cores after token distribution change.
+        Check that we end up with the correct assignment of TPC cores after token distribution change in a
+        multi-node cluster, by verifying that each core receives nearly the same number of requests.
+        Even though single-partition reads are no longer switched to the core corresponding to their partition key if
+        they are already on a TPC thread, this check can still be applied to them.
+        Naturally, this check also verifies that we report the correct number of reads / writes in the TPC stats.
 
         @jira_ticket APOLLO-694
         """
@@ -126,22 +165,30 @@ class TestTPCCores(Tester):
         cluster.start()
 
         # Do some initial loading to make sure it's balanced
-        self._stress_and_check_balance(node1, 'write', 'initial_write')
+        phase = 'initial write'
+        node1_stats = self._run_phase(node1, write_op, phase)
 
         # Add node
         node2 = new_node(cluster)
         node2.set_configuration_options(values={'initial_token': tokens[1]})
         node2.start(wait_for_binary_proto=True)
 
-        # Check that read requests are properly distributed.
-        # We haven't flushed, so they'd still jump for memtable.
-        switches = self._stress_and_check_balance(node1, 'read', 'read on node1 after node added', switches_limit=None)
+        # Check that read requests are properly distributed after node addition, even without flush
+        phase = 'read on node1 after node addition'
+        node1_stats = self._run_phase(node1, read_op, phase, node1_stats)
+        phase = 'check reads on node2 after read on node1'
+        node2_stats = self._run_phase(node2, read_op, phase, None, False)
 
         node1.flush()
 
-        # Check we no longer switch for memtable.
-        self._stress_and_check_balance(node2, 'read', 'read on node1 after node added and flush')
-        self._stress_and_check_balance(node1, 'read', 'read on node2 after node added', op_count=None, switches_limit=switches + limit)
+        # Check that read requests are properly distributed after flush, both across cores and across nodes
+        phase = 'read on node2'
+        node2_stats = self._run_phase(node2, read_op, phase, node2_stats)
+        phase = 'check reads on node1 after flush and read on node2'
+        node1_stats = self._run_phase(node1, read_op, phase, node1_stats, False)
 
-        self._stress_and_check_balance(node1, 'write', 'write on node1 after node added', op_count='10k')
-        self._stress_and_check_balance(node2, 'write', 'write on node2 after node added', op_count=None)
+        # Check that write requests are properly distributed after flush, both across cores and across nodes
+        phase = 'write on node1 after flush'
+        node1_stats = self._run_phase(node1, write_op, phase, node1_stats, True, 10000)
+        phase = 'check writes on node2 after write on node1'
+        node2_stats = self._run_phase(node2, write_op, phase, node2_stats, False, 10000)
