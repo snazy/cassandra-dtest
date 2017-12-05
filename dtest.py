@@ -446,7 +446,8 @@ class Tester(TestCase):
                                     protocol_version, port=port, ssl_opts=ssl_opts, load_balancing_policy=wlrr, **kwargs)
 
     def _create_session(self, node, keyspace, user, password, compression, protocol_version,
-                        port=None, ssl_opts=None, execution_profiles=None, **kwargs):
+                        port=None, ssl_opts=None, execution_profiles=None, schema_timeout=10, **kwargs):
+
         node_ip = get_ip_from_node(node)
         if not port:
             port = get_port_from_node(node)
@@ -470,7 +471,8 @@ class Tester(TestCase):
                             ssl_options=ssl_opts,
                             connect_timeout=10,
                             allow_beta_protocol_version=True,
-                            execution_profiles=profiles)
+                            execution_profiles=profiles,
+                            max_schema_agreement_wait=schema_timeout)
         session = cluster.connect(wait_for_all_pools=True)
 
         if keyspace is not None:

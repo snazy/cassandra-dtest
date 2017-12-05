@@ -24,7 +24,9 @@ def prepare(tester,
             protocol_version=None,
             guarantee_local_reads=False,
             nodesync_options=None,
-            byteman=False):
+            byteman=False,
+            schema_timeout=10,
+            request_timeout=10):
     """
     Prepare a cluster for a given test. This configure and start the cluster
     with the options provided, as well as create a keyspace, and return a
@@ -110,7 +112,8 @@ def prepare(tester,
 
     node1 = cluster.nodelist()[0]
 
-    session = tester.patient_cql_connection(node1, protocol_version=protocol_version, user=user, password=password)
+    session = tester.patient_cql_connection(node1, protocol_version=protocol_version, user=user, password=password,
+                                            schema_timeout=schema_timeout, request_timeout=request_timeout)
     if rf:
         create_ks(session, 'ks', rf)
 
