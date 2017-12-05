@@ -21,7 +21,7 @@ def disable_nodesync(session, keyspace, table):
     session.execute("ALTER TABLE {}.{} WITH nodesync = {{'enabled': 'false'}}".format(keyspace, table))
 
 
-def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=5, segment_size_target_kb=100,
+def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=10, segment_size_target_kb=100,
                   size_checker_interval_sec=5):
     """ Creates a list of JVM arguments that sets settings for NodeSync more suitable to testing
 

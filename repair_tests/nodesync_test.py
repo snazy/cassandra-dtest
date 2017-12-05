@@ -19,7 +19,8 @@ class SingleTableNodeSyncTester(Tester):
             opts = config_opts(num_tokens=num_tokens)
         debug('Creating cluster...')
         self.session = prepare(self, nodes=nodes, rf=rf, options=opts,
-                               nodesync_options=nodesync_opts(), interceptors=interceptors)
+                               nodesync_options=nodesync_opts(), interceptors=interceptors,
+                               schema_timeout=30, request_timeout=30)
 
     def create_table(self, nodesync=True):
         debug('Creating table t...')
@@ -256,6 +257,9 @@ class TestNodeSync(SingleTableNodeSyncTester):
 
         debug("Moving 3rd node...")
         self.node(3).nodetool('move {}'.format(2**16))
+
+        # Give some time for node 3 to breath.
+        time.sleep(1)
 
         # Everything should still get eventually validated
         debug("Checking everything still validated...")
