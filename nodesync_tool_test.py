@@ -42,6 +42,13 @@ class TestNodeSyncTool(Tester):
 
         return self.session
 
+    def _restart_cluster(self):
+        self.cluster.stop()
+        self.cluster.start(wait_for_binary_proto=True)
+        node1 = self.cluster.nodelist()[0]
+        self.session = self.patient_cql_connection(node1)
+        return self.session
+
     def _start_nodesync_service(self):
         for node in self.cluster.nodelist():
             node.nodetool('nodesyncservice enable')
@@ -120,7 +127,7 @@ class TestNodeSyncTool(Tester):
         else:
             raise DtestTimeoutError('Timeout waiting for the validation to be written to the system table')
 
-    def _wait_for_validation_status(self, uuid, node, status):
+    def _wait_for_validation_status(self, uuid, node, status, timeout=30):
         """
         Wait until the validation identified by the specified UUID and node appears on the system table with the
         specified status.
@@ -128,7 +135,7 @@ class TestNodeSyncTool(Tester):
         query = "SELECT status FROM system_distributed.nodesync_user_validations " \
                 "WHERE id='{}' AND node='{}'".format(uuid, node.address())
         start = time.time()
-        while time.time() < start + 30:
+        while time.time() < start + timeout:
             try:
                 self.assertEqual(rows_to_list(self.session.execute(query)), [[status]])
                 break
@@ -412,7 +419,7 @@ class TestNodeSyncTool(Tester):
         self._prepare_cluster(nodes=2, rf=2, byteman=True, keyspaces=1, tables_per_keyspace=1)
         node = self.cluster.nodelist()[0]
 
-        def submit(rate=None, status_to_wait_for='running'):
+        def submit(rate=None, status_to_wait_for=None):
             """
             param rate The validation rate in KB/s
             param status_to_wait_for The user validation status to wait for, possible values are `running`,
@@ -424,25 +431,16 @@ class TestNodeSyncTool(Tester):
             args.append('k1.t1')
             stdout, stderr = self._nodesync(args)
             uuid = _parse_validation_id(stdout)
-            self._wait_for_validation_status(uuid, node, status_to_wait_for)
+            if status_to_wait_for:
+                self._wait_for_validation_status(uuid, node, status_to_wait_for)
             return uuid
 
-        def cancel(uuids):
-            for uuid in uuids:
-                self._nodesync(args=['validation', 'cancel', str(uuid)])
-            for uuid in uuids:
-                self._wait_for_validation_status(uuid, node, 'cancelled')
+        def cancel(uuid):
+            self._nodesync(args=['validation', 'cancel', str(uuid)])
+            self._wait_for_validation_status(uuid, node, 'cancelled')
 
         def get_rate(expected):
-            start = time.time()
-            while time.time() < start + 180:
-                try:
-                    self.assertIn('{} KB/s'.format(expected), node.nodetool('nodesyncservice getrate').stdout)
-                    break
-                except AssertionError:
-                    time.sleep(1)
-            else:
-                raise DtestTimeoutError('Timeout waiting for rate {} KB/s'.format(expected))
+            self.assertIn('{} KB/s'.format(expected), node.nodetool('nodesyncservice getrate').stdout)
 
         def set_rate(rate, conflicting_validation=None):
             command = 'nodesyncservice setrate {}'.format(rate)
@@ -467,28 +465,37 @@ class TestNodeSyncTool(Tester):
         node.byteman_submit(['./byteman/user_validation_sleep.btm'])
 
         # submit without rate and verify that, while running, the original rate is kept and we can set a new rate
-        uuid1 = submit(rate=None, status_to_wait_for='running')
+        submit(rate=None, status_to_wait_for='running')
         get_rate(expected=2000)
         set_rate(rate=3000)
 
         # submit with rate and verify that the new rate is not applied and we can still set the rate
         # because the previous validation hasn't finished yet
-        uuid2 = submit(rate=2, status_to_wait_for='running')
+        submit(rate=2, status_to_wait_for='running')
         get_rate(expected=3000)
         set_rate(rate=4000)
 
-        # cancel the validations
-        cancel([uuid1, uuid2])
-        get_rate(expected=4000)
+        # restart the cluster to get rid of byteman and the slowed down validations
+        self._restart_cluster()
+
+        # submit a bunch of validations and check that the rate is restored when all of them have finished
+        set_rate(rate=5000)
+        for uuid in map(lambda x: submit(rate=x), xrange(10)):
+            self._wait_for_validation_status(uuid, node, 'successful', timeout=180)
+        get_rate(expected=5000)
+        set_rate(rate=6000)
+
+        # use byteman to keep the validations running for a while
+        node.byteman_submit(['./byteman/user_validation_sleep.btm'])
 
         # submit with rate and verify that, while running, the validation rate is applied and we can't set a new rate
-        uuid3 = submit(rate=3, status_to_wait_for='running')
+        uuid4 = submit(rate=3, status_to_wait_for='running')
         get_rate(expected=3)
-        set_rate(rate=5000, conflicting_validation=uuid3)
+        set_rate(rate=7000, conflicting_validation=uuid4)
 
-        # cancel the validation and verify that the rate is restored
-        cancel([uuid3])
-        get_rate(expected=4000)
+        # cancel the running validation and verify that the rate is restored
+        cancel(uuid4)
+        get_rate(expected=6000)
 
     def test_list(self):
         """
