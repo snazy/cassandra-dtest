@@ -245,19 +245,19 @@ class TestNodeSyncTool(Tester):
         assert_enabled('system_distributed', 'nodesync_status', enable)
         assert_enabled('system_distributed', 'nodesync_user_validations', enable)
 
-    def test_enable(self):
+    def test_enable_nodesync(self):
         """
         Test 'nodesync enable' command.
         """
         self._test_toggle(True)
 
-    def test_disable(self):
+    def test_disable_nodesync(self):
         """
         Test 'nodesync disable' command.
         """
         self._test_toggle(False)
 
-    def test_submit(self):
+    def test_submit_user_validation(self):
         """
         Test 'nodesync validation submit' command.
         """
@@ -330,7 +330,7 @@ class TestNodeSyncTool(Tester):
                               'error: Submission failed'])
 
     @no_vnodes()
-    def test_submit_no_vnodes(self):
+    def test_submit_user_validation_no_vnodes(self):
         """
         Extends `test_submit` taking advantage of the determinism of token range allocation when vnodes are disabled
         to do additional checks on the command output and it's side effects.
@@ -411,7 +411,7 @@ class TestNodeSyncTool(Tester):
                               'has been successfully cancelled',
                               'error: Submission failed'])
 
-    def test_submit_with_rate(self):
+    def test_submit_user_validation_with_rate(self):
         """
         Test 'nodesync validation submit' command with '-r/--rate' option.
         @jira_ticket APOLLO-1271
@@ -497,7 +497,7 @@ class TestNodeSyncTool(Tester):
         cancel(uuid4)
         get_rate(expected=6000)
 
-    def test_list(self):
+    def test_list_user_validations(self):
         """
         Test 'nodesync validation list' command.
         """
@@ -596,7 +596,7 @@ class TestNodeSyncTool(Tester):
                               '2           k1.t1  successful  failed         1h    -      100%        20B        4B',
                               '3           k1.t1  failed      failed         1h    -       50%        1kB        4B'])
 
-    def test_cancel(self):
+    def test_cancel_user_validation(self):
         """
         Test 'nodesync validation cancel' command.
         """
