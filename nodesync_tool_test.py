@@ -5,26 +5,12 @@ from uuid import UUID
 
 from cassandra.util import sortedset
 from ccmlib import common
+from ccmlib.node import ToolError
 
 from dtest import Tester, debug, DtestTimeoutError
 from tools.assertions import assert_one, assert_all, assert_true
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
-from tools.jmxutils import (JolokiaAgent, make_mbean)
-
-NODESYNC_SERVICE_MBEAN = make_mbean('nodesync', 'NodeSyncService', domain='com.datastax')
-
-
-def _start_nodesync_service(node):
-    debug('Starting NodeSync service in node %s' % node)
-    with JolokiaAgent(node) as jmx:
-        jmx.execute_method(NODESYNC_SERVICE_MBEAN, 'enable()')
-
-
-def _stop_nodesync_service(node):
-    debug('Stopping NodeSync service in node %s' % node)
-    with JolokiaAgent(node) as jmx:
-        jmx.execute_method(NODESYNC_SERVICE_MBEAN, 'disable()')
 
 
 def _parse_validation_id(stdout):
@@ -56,13 +42,20 @@ class TestNodeSyncTool(Tester):
 
         return self.session
 
+    def _restart_cluster(self):
+        self.cluster.stop()
+        self.cluster.start(wait_for_binary_proto=True)
+        node1 = self.cluster.nodelist()[0]
+        self.session = self.patient_cql_connection(node1)
+        return self.session
+
     def _start_nodesync_service(self):
         for node in self.cluster.nodelist():
-            _start_nodesync_service(node)
+            node.nodetool('nodesyncservice enable')
 
     def _stop_nodesync_service(self):
         for node in self.cluster.nodelist():
-            _stop_nodesync_service(node)
+            node.nodetool('nodesyncservice disable')
 
     def _nodesync(self, args=list(), expected_stdout=None, expected_stderr=None,
                   ignore_stdout_order=False, ignore_stderr_order=False):
@@ -133,6 +126,23 @@ class TestNodeSyncTool(Tester):
             time.sleep(1)
         else:
             raise DtestTimeoutError('Timeout waiting for the validation to be written to the system table')
+
+    def _wait_for_validation_status(self, uuid, node, status, timeout=30):
+        """
+        Wait until the validation identified by the specified UUID and node appears on the system table with the
+        specified status.
+        """
+        query = "SELECT status FROM system_distributed.nodesync_user_validations " \
+                "WHERE id='{}' AND node='{}'".format(uuid, node.address())
+        start = time.time()
+        while time.time() < start + timeout:
+            try:
+                self.assertEqual(rows_to_list(self.session.execute(query)), [[status]])
+                break
+            except AssertionError:
+                time.sleep(1)
+        else:
+            raise DtestTimeoutError('Timeout waiting for the validation status to be written to the system table')
 
     def _test_toggle(self, enable=True):
         """
@@ -235,19 +245,19 @@ class TestNodeSyncTool(Tester):
         assert_enabled('system_distributed', 'nodesync_status', enable)
         assert_enabled('system_distributed', 'nodesync_user_validations', enable)
 
-    def test_enable(self):
+    def test_enable_nodesync(self):
         """
         Test 'nodesync enable' command.
         """
         self._test_toggle(True)
 
-    def test_disable(self):
+    def test_disable_nodesync(self):
         """
         Test 'nodesync disable' command.
         """
         self._test_toggle(False)
 
-    def test_submit(self):
+    def test_submit_user_validation(self):
         """
         Test 'nodesync validation submit' command.
         """
@@ -320,7 +330,7 @@ class TestNodeSyncTool(Tester):
                               'error: Submission failed'])
 
     @no_vnodes()
-    def test_submit_no_vnodes(self):
+    def test_submit_user_validation_no_vnodes(self):
         """
         Extends `test_submit` taking advantage of the determinism of token range allocation when vnodes are disabled
         to do additional checks on the command output and it's side effects.
@@ -401,7 +411,93 @@ class TestNodeSyncTool(Tester):
                               'has been successfully cancelled',
                               'error: Submission failed'])
 
-    def test_list(self):
+    def test_submit_user_validation_with_rate(self):
+        """
+        Test 'nodesync validation submit' command with '-r/--rate' option.
+        @jira_ticket APOLLO-1271
+        """
+        self._prepare_cluster(nodes=2, rf=2, byteman=True, keyspaces=1, tables_per_keyspace=1)
+        node = self.cluster.nodelist()[0]
+
+        def submit(rate=None, status_to_wait_for=None):
+            """
+            param rate The validation rate in KB/s
+            param status_to_wait_for The user validation status to wait for, possible values are `running`,
+            `successful`, `cancelled` and `failed`
+            """
+            args = ['validation', 'submit']
+            if rate:
+                args.extend(['-r', str(rate)])
+            args.append('k1.t1')
+            stdout, stderr = self._nodesync(args)
+            uuid = _parse_validation_id(stdout)
+            if status_to_wait_for:
+                self._wait_for_validation_status(uuid, node, status_to_wait_for)
+            return uuid
+
+        def cancel(uuid):
+            self._nodesync(args=['validation', 'cancel', str(uuid)])
+            self._wait_for_validation_status(uuid, node, 'cancelled')
+
+        def get_rate(expected):
+            self.assertIn('{} KB/s'.format(expected), node.nodetool('nodesyncservice getrate').stdout)
+
+        def set_rate(rate, conflicting_validation=None):
+            command = 'nodesyncservice setrate {}'.format(rate)
+            if conflicting_validation:
+                try:
+                    node.nodetool(command)
+                except ToolError as e:
+                    msg = 'Cannot set NodeSync rate because a user triggered validation with custom rate is running: {}'
+                    self.assertIn(msg.format(conflicting_validation), e.message)
+            else:
+                node.nodetool(command)
+                get_rate(expected=rate)
+
+        set_rate(rate=1000)
+
+        # submit with rate and verify that, at termination, the original rate is restored and we can set a new rate
+        submit(rate=1, status_to_wait_for='successful')
+        get_rate(expected=1000)
+        set_rate(rate=2000)
+
+        # use byteman to keep the validations running for a while
+        node.byteman_submit(['./byteman/user_validation_sleep.btm'])
+
+        # submit without rate and verify that, while running, the original rate is kept and we can set a new rate
+        submit(rate=None, status_to_wait_for='running')
+        get_rate(expected=2000)
+        set_rate(rate=3000)
+
+        # submit with rate and verify that the new rate is not applied and we can still set the rate
+        # because the previous validation hasn't finished yet
+        submit(rate=2, status_to_wait_for='running')
+        get_rate(expected=3000)
+        set_rate(rate=4000)
+
+        # restart the cluster to get rid of byteman and the slowed down validations
+        self._restart_cluster()
+
+        # submit a bunch of validations and check that the rate is restored when all of them have finished
+        set_rate(rate=5000)
+        for uuid in map(lambda x: submit(rate=x), xrange(10)):
+            self._wait_for_validation_status(uuid, node, 'successful', timeout=180)
+        get_rate(expected=5000)
+        set_rate(rate=6000)
+
+        # use byteman to keep the validations running for a while
+        node.byteman_submit(['./byteman/user_validation_sleep.btm'])
+
+        # submit with rate and verify that, while running, the validation rate is applied and we can't set a new rate
+        uuid4 = submit(rate=3, status_to_wait_for='running')
+        get_rate(expected=3)
+        set_rate(rate=7000, conflicting_validation=uuid4)
+
+        # cancel the running validation and verify that the rate is restored
+        cancel(uuid4)
+        get_rate(expected=6000)
+
+    def test_list_user_validations(self):
         """
         Test 'nodesync validation list' command.
         """
@@ -500,7 +596,7 @@ class TestNodeSyncTool(Tester):
                               '2           k1.t1  successful  failed         1h    -      100%        20B        4B',
                               '3           k1.t1  failed      failed         1h    -       50%        1kB        4B'])
 
-    def test_cancel(self):
+    def test_cancel_user_validation(self):
         """
         Test 'nodesync validation cancel' command.
         """
