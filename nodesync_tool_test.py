@@ -1,16 +1,15 @@
 import datetime
-import subprocess
 import time
 from uuid import UUID
 
 from cassandra.util import sortedset
-from ccmlib import common
 from ccmlib.node import ToolError
 
-from dtest import Tester, debug, DtestTimeoutError
-from tools.assertions import assert_one, assert_all, assert_true
+from dtest import Tester, DtestTimeoutError
+from tools.assertions import assert_one, assert_all
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
+from tools.nodesync import nodesync_tool
 
 
 def _parse_validation_id(stdout):
@@ -57,65 +56,6 @@ class TestNodeSyncTool(Tester):
         for node in self.cluster.nodelist():
             node.nodetool('nodesyncservice disable')
 
-    def _nodesync(self, args=list(), expected_stdout=None, expected_stderr=None,
-                  ignore_stdout_order=False, ignore_stderr_order=False):
-        """
-        Runs nodesync command line tool with the specified arguments, ensuring the specified expected command output.
-
-        @param args The arguments to be passed to nodesync
-        @param expected_stdout A list of text lines that should be contained by the command stdout
-        @param expected_stderr A list of text lines that should be contained by the command stderr
-        @param ignore_stdout_order If stdout is not expected to be ordered
-        @param ignore_stderr_order If stderr is not expected to be ordered
-        @return a 2-tuple composed by the stdout and the stderr of the command execution
-        """
-
-        # prepare the command
-        node = self.cluster.nodelist()[0]
-        env = common.make_cassandra_env(node.get_install_cassandra_root(), node.get_node_cassandra_root())
-        nodesync_bin = node.get_tool('nodesync')
-        full_args = [nodesync_bin] + args
-        debug('COMMAND: ' + ' '.join(str(arg) for arg in full_args))
-
-        # run the command
-        p = subprocess.Popen(full_args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-        debug('STDERR: ' + stderr)
-        debug('STDOUT: ' + stdout)
-
-        def non_blank_lines(text):
-            return filter(lambda l: l.strip(), text.splitlines()) if text else []
-
-        def check_lines(expected, actual, ignore_order=False):
-            if expected:
-                if ignore_order:
-                    expected = sorted(expected)
-                    actual = sorted(actual)
-                for i in range(len(actual)):
-                    if expected[0] in actual[i]:
-                        return check_lines(expected[1:], actual[1 + i:])
-                return False
-            return True
-
-        # validate stderr
-        stderr_lines = non_blank_lines(stderr)
-        if expected_stderr:
-            assert_true(check_lines(expected_stderr, stderr_lines, ignore_stderr_order),
-                        'Expected lines in stderr %s but found %s (order matters: %s)'
-                        % (expected_stderr, stderr_lines, not ignore_stderr_order))
-        else:
-            assert_true(len(stderr_lines) == 0, 'Found unexpected errors: ' + stderr)
-
-        # validate stdout
-        if expected_stdout:
-            lines = non_blank_lines(stdout)
-            assert_true(check_lines(expected_stdout, lines, ignore_stdout_order),
-                        'Expected lines in stdout %s but found %s (order matters: %s)'
-                        % (expected_stdout, lines, not ignore_stdout_order))
-
-        # return the command results
-        return stdout, stderr
-
     def _wait_for_validation(self, uuid, count=1):
         """ Wait until the validation identified by the specified UUID appears on the system table """
         query = "SELECT COUNT(*) FROM system_distributed.nodesync_user_validations WHERE id='{}'".format(uuid)
@@ -155,7 +95,7 @@ class TestNodeSyncTool(Tester):
             args = ['enable' if enable else 'disable'] + args
             if stdout:
                 stdout = map(lambda t: 'Nodesync %s for %s' % ('enabled' if enable else 'disabled', t), stdout)
-            self._nodesync(args, stdout, stderr, ignore_stdout_order=True)
+            nodesync_tool(self.cluster, args, stdout, stderr, ignore_stdout_order=True)
 
         def assert_enabled(keyspace, table, expected):
             query = "SELECT nodesync['enabled'] FROM system_schema.tables WHERE keyspace_name='{}' AND table_name='{}'"
@@ -164,9 +104,9 @@ class TestNodeSyncTool(Tester):
         self._prepare_cluster(keyspaces=2, tables_per_keyspace=4, nodesync_enabled=not enable)
 
         # input errors
-        nodesync(['t1'], stderr=['error: Keyspace required for unqualified table name: t1'])
-        nodesync(['k0.t1'], stderr=['error: Keyspace [k0] does not exist.'])
-        nodesync(['k1.t0'], stderr=['error: Table [k1.t0] does not exist.'])
+        nodesync(['t1'], stderr=['Error: Keyspace required for unqualified table name: t1'])
+        nodesync(['k0.t1'], stderr=['Error: Keyspace [k0] does not exist.'])
+        nodesync(['k1.t0'], stderr=['Error: Table [k1.t0] does not exist.'])
 
         # qualified table name
         nodesync(['-v', 'k1.t1'], ['k1.t1'])
@@ -267,7 +207,7 @@ class TestNodeSyncTool(Tester):
             Invoke the command validating the output and, if it should succeed, check that the validation has been
             written in the system table with the generated id.
             """
-            stdout, stderr = self._nodesync(['validation', 'submit'] + args, expected_stdout, expected_stderr)
+            stdout, stderr = nodesync_tool(self.cluster, ['validation', 'submit'] + args, expected_stdout, expected_stderr)
             if should_succeed:
                 uuid = _parse_validation_id(stdout)
                 self._wait_for_validation(uuid)
@@ -275,23 +215,23 @@ class TestNodeSyncTool(Tester):
         self._prepare_cluster(nodes=3, rf=2, keyspaces=1, tables_per_keyspace=1)
 
         # test basic input validation
-        test(expected_stderr=['error: A qualified table name should be specified'])
-        test(['t'], expected_stderr=['error: Keyspace required for unqualified table name: t'])
-        test(['k0.t1'], expected_stderr=['error: Keyspace [k0] does not exist.'])
-        test(['k1.t0'], expected_stderr=['error: Table [k1.t0] does not exist.'])
-        test(['k1.t1', 'a'], expected_stderr=['error: Cannot parse range: a'])
-        test(['k1.t1', '(0]'], expected_stderr=['error: Cannot parse range: (0]'])
-        test(['k1.t1', '(0,]'], expected_stderr=['error: Cannot parse range: (0,]'])
-        test(['k1.t1', '(,0]'], expected_stderr=['error: Cannot parse range: (,0]'])
-        test(['k1.t1', '(a,0]'], expected_stderr=['error: Cannot parse token: a'])
-        test(['k1.t1', '(0,b]'], expected_stderr=['error: Cannot parse token: b'])
-        test(['k1.t1', '(1,2)'], expected_stderr=['error: Invalid input range: (1,2): '
+        test(expected_stderr=['Error: A qualified table name should be specified'])
+        test(['t'], expected_stderr=['Error: Keyspace required for unqualified table name: t'])
+        test(['k0.t1'], expected_stderr=['Error: Keyspace [k0] does not exist.'])
+        test(['k1.t0'], expected_stderr=['Error: Table [k1.t0] does not exist.'])
+        test(['k1.t1', 'a'], expected_stderr=['Error: Cannot parse range: a'])
+        test(['k1.t1', '(0]'], expected_stderr=['Error: Cannot parse range: (0]'])
+        test(['k1.t1', '(0,]'], expected_stderr=['Error: Cannot parse range: (0,]'])
+        test(['k1.t1', '(,0]'], expected_stderr=['Error: Cannot parse range: (,0]'])
+        test(['k1.t1', '(a,0]'], expected_stderr=['Error: Cannot parse token: a'])
+        test(['k1.t1', '(0,b]'], expected_stderr=['Error: Cannot parse token: b'])
+        test(['k1.t1', '(1,2)'], expected_stderr=['Error: Invalid input range: (1,2): '
                                                   'only ranges with an open start and closed end are allowed. '
                                                   'Did you meant (1, 2]?'])
-        test(['k1.t1', '[1,2]'], expected_stderr=['error: Invalid input range: [1,2]: '
+        test(['k1.t1', '[1,2]'], expected_stderr=['Error: Invalid input range: [1,2]: '
                                                   'only ranges with an open start and closed end are allowed. '
                                                   'Did you meant (1, 2]?'])
-        test(['k1.t1', '[1,2)'], expected_stderr=['error: Invalid input range: [1,2): '
+        test(['k1.t1', '[1,2)'], expected_stderr=['Error: Invalid input range: [1,2): '
                                                   'only ranges with an open start and closed end are allowed. '
                                                   'Did you meant (1, 2]?'])
 
@@ -299,7 +239,7 @@ class TestNodeSyncTool(Tester):
         self._stop_nodesync_service()
         test(['k1.t1', '(1,2]'], expected_stderr=["there are no more replicas to try: "
                                                   "Cannot start user validation, NodeSync is not currently running.",
-                                                  'error: Submission failed'])
+                                                  'Error: Submission failed'])
         self._start_nodesync_service()
 
         # successful invocations without the verbose flag should produce an empty output
@@ -327,7 +267,7 @@ class TestNodeSyncTool(Tester):
                               'Cancelling validation in those nodes where it was already submitted: [/127.0.0.1]',
                               '/127.0.0.1:',
                               'has been successfully cancelled',
-                              'error: Submission failed'])
+                              'Error: Submission failed'])
 
     @no_vnodes()
     def test_submit_user_validation_no_vnodes(self):
@@ -343,7 +283,7 @@ class TestNodeSyncTool(Tester):
             Invoke the command validating the output and check that expected rows have been written in the system table
             with the generated id.
             """
-            stdout, stderr = self._nodesync(['validation', 'submit'] + args, expected_stdout, expected_stderr)
+            stdout, stderr = nodesync_tool(self.cluster, ['validation', 'submit'] + args, expected_stdout, expected_stderr)
             if expected_rows is not None:
                 uuid = _parse_validation_id(stdout)
                 self._wait_for_validation(uuid, len(expected_rows))
@@ -397,7 +337,7 @@ class TestNodeSyncTool(Tester):
                               'trying next replicas: JMX connection to 127.0.0.2/127.0.0.2:7200 failed'],
              expected_stderr=['/127.0.0.3: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
                               'there are no more replicas to try: JMX connection to 127.0.0.3/127.0.0.3:7300',
-                              'error: Submission failed'])
+                              'Error: Submission failed'])
 
         # a validation of two ranges where only one of them fails should be cancelled in the successful node
         test(args=['-v', 'k1.t1', '(1,2]', '(-9000000000000000001,-9000000000000000000]'],
@@ -409,7 +349,7 @@ class TestNodeSyncTool(Tester):
                               'Cancelling validation in those nodes where it was already submitted: [/127.0.0.1]',
                               '/127.0.0.1:',
                               'has been successfully cancelled',
-                              'error: Submission failed'])
+                              'Error: Submission failed'])
 
     def test_submit_user_validation_with_rate(self):
         """
@@ -429,14 +369,14 @@ class TestNodeSyncTool(Tester):
             if rate:
                 args.extend(['-r', str(rate)])
             args.append('k1.t1')
-            stdout, stderr = self._nodesync(args)
+            stdout, stderr = nodesync_tool(self.cluster, args)
             uuid = _parse_validation_id(stdout)
             if status_to_wait_for:
                 self._wait_for_validation_status(uuid, node, status_to_wait_for)
             return uuid
 
         def cancel(uuid):
-            self._nodesync(args=['validation', 'cancel', str(uuid)])
+            nodesync_tool(self.cluster, args=['validation', 'cancel', str(uuid)])
             self._wait_for_validation_status(uuid, node, 'cancelled')
 
         def get_rate(expected):
@@ -541,7 +481,7 @@ class TestNodeSyncTool(Tester):
             args = ['validation', 'list']
             if list_all:
                 args += ['-a']
-            self._nodesync(args, expected_stdout=expected_stdout)
+            nodesync_tool(self.cluster, args, expected_stdout=expected_stdout)
 
         start = datetime.datetime(2017, 1, 1)
         end = start + datetime.timedelta(hours=1)
@@ -605,7 +545,7 @@ class TestNodeSyncTool(Tester):
         self._start_nodesync_service()
 
         def submit_validation():
-            stdout, stderr = self._nodesync(['validation', 'submit', 'k1.t1'])
+            stdout, stderr = nodesync_tool(self.cluster, ['validation', 'submit', 'k1.t1'])
             _uuid = _parse_validation_id(stdout)
             self._wait_for_validation(_uuid)
             return _uuid
@@ -615,24 +555,24 @@ class TestNodeSyncTool(Tester):
             node.byteman_submit(['./byteman/user_validation_sleep.btm'])
 
         # try to cancel non existing validation
-        self._nodesync(args=['validation', 'cancel', '-v', 'not_existent_id'],
-                       expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
+        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', 'not_existent_id'],
+                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
         # successfully cancel a validation
         uuid = submit_validation()
-        self._nodesync(args=['validation', 'cancel', '-v', str(uuid)],
-                       expected_stdout=['/127.0.0.1: Cancelled',
-                                        'The validation has been cancelled in nodes [/127.0.0.1]'])
+        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
+                      expected_stdout=['/127.0.0.1: Cancelled',
+                                       'The validation has been cancelled in nodes [/127.0.0.1]'])
 
         # try to cancel an already cancelled validation
-        self._nodesync(args=['validation', 'cancel', '-v', str(uuid)],
-                       expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
+        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
+                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
         # try to cancel a validation residing on a down node
         uuid = submit_validation()
         node1.stop(wait_other_notice=True)  # will remove its proposers
-        self._nodesync(args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
-                       expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
+        nodesync_tool(self.cluster, args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
+                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
     def test_quoted_arg_with_spaces(self):
         """
@@ -647,5 +587,5 @@ class TestNodeSyncTool(Tester):
 
         # Execute some nodesync command with spaces in an argument.
         # The command itself doesn't make sense, but that's not the point of this test.
-        self._nodesync(args=['validation', 'cancel', '-v', 'this id does not exist'],
-                       expected_stderr=["error: The validation to be cancelled hasn't been found in any node"])
+        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', 'this id does not exist'],
+                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])

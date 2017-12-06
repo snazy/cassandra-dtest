@@ -8,17 +8,83 @@ The main methods exposed are :wait_for_all_segments, :get_oldest_segments and :g
 import time
 import calendar
 import heapq
+import subprocess
 
+from ccmlib import common
 from dtest import debug
 from dse.query import SimpleStatement
+from tools.assertions import assert_true
 
 
 def enable_nodesync(session, keyspace, table):
+    """ Enable NodeSync on a particular table """
     session.execute("ALTER TABLE {}.{} WITH nodesync = {{'enabled': 'true'}}".format(keyspace, table))
 
 
 def disable_nodesync(session, keyspace, table):
+    """ Disable NodeSync on a particular table """
     session.execute("ALTER TABLE {}.{} WITH nodesync = {{'enabled': 'false'}}".format(keyspace, table))
+
+
+def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=None,
+                  ignore_stdout_order=False, ignore_stderr_order=False):
+    """
+    Runs the nodesync command line tool with the specified arguments, ensuring the specified expected command output.
+
+    @param cluster the cluste on which to run the tool
+    @param args The arguments to be passed to nodesync
+    @param expected_stdout A list of text lines that should be contained by the command stdout
+    @param expected_stderr A list of text lines that should be contained by the command stderr
+    @param ignore_stdout_order If stdout is not expected to be ordered
+    @param ignore_stderr_order If stderr is not expected to be ordered
+    @return a 2-tuple composed by the stdout and the stderr of the command execution
+    """
+
+    # prepare the command
+    node = cluster.nodelist()[0]
+    env = common.make_cassandra_env(node.get_install_cassandra_root(), node.get_node_cassandra_root())
+    nodesync_bin = node.get_tool('nodesync')
+    full_args = [nodesync_bin] + args
+    debug('COMMAND: ' + ' '.join(str(arg) for arg in full_args))
+
+    # run the command
+    p = subprocess.Popen(full_args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    debug('STDERR: ' + stderr)
+    debug('STDOUT: ' + stdout)
+
+    def non_blank_lines(text):
+        return filter(lambda l: l.strip(), text.splitlines()) if text else []
+
+    def check_lines(expected, actual, ignore_order=False):
+        if expected:
+            if ignore_order:
+                expected = sorted(expected)
+                actual = sorted(actual)
+            for i in range(len(actual)):
+                if expected[0] in actual[i]:
+                    return check_lines(expected[1:], actual[1 + i:])
+            return False
+        return True
+
+    # validate stderr
+    stderr_lines = non_blank_lines(stderr)
+    if expected_stderr:
+        assert_true(check_lines(expected_stderr, stderr_lines, ignore_stderr_order),
+                    'Expected lines in stderr %s but found %s (order matters: %s)'
+                    % (expected_stderr, stderr_lines, not ignore_stderr_order))
+    else:
+        assert_true(len(stderr_lines) == 0, 'Found unexpected errors: ' + stderr)
+
+    # validate stdout
+    if expected_stdout:
+        lines = non_blank_lines(stdout)
+        assert_true(check_lines(expected_stdout, lines, ignore_stdout_order),
+                    'Expected lines in stdout %s but found %s (order matters: %s)'
+                    % (expected_stdout, lines, not ignore_stdout_order))
+
+    # return the command results
+    return stdout, stderr
 
 
 def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=10, segment_size_target_kb=100,
