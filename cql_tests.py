@@ -20,11 +20,12 @@ from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
 from thrift_tests import get_thrift_client
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_none, assert_one, assert_unavailable)
-from tools.data import create_ks, rows_to_list
+from tools.data import create_ks, create_cf, rows_to_list
 from tools.decorators import since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingKeyspaceMetadataWrapper,
                                     UpdatingTableMetadataWrapper)
+from tools.preparation import prepare
 
 
 class CQLTester(Tester):
@@ -1622,3 +1623,41 @@ class WarningsTester(CQLTester):
             self.assertEquals(None, result.warnings)
             log = node1.grep_log(warning)
             self.assertEquals(warnings, len(log))
+
+    @since('4.0')
+    def test_rf_increase_warning(self):
+        """ Test for the warning emitted when one raise a keyspace replication factor """
+        self.session = prepare(self, nodes=2, rf=1)
+
+        def _test_helper(session, ks, tables, expected_msg):
+            debug("Creating keyspace and tables")
+            create_ks(session, ks, 1)
+            for (t, nodesync) in tables:
+                create_cf(session, '{}.{}'.format(ks, t), nodesync=nodesync)
+
+            # Give enough time for NodeSync to pick up the new tables (this currently asynchronously from the table
+            # creation for internal reasons).
+            time.sleep(1)
+
+            debug("Increasing replication factor and checking warning")
+            fut = session.execute_async("ALTER KEYSPACE {} WITH replication = {{ 'class' : 'SimpleStrategy', 'replication_factor' : '2' }}".format(ks))
+            fut.result()
+            self.assertIsNotNone(fut.warnings)
+            self.assertEquals([expected_msg], fut.warnings)
+
+        # 2 tables, no nodesync involved.
+        _test_helper(self.session, 'ks1', [('t1', False), ('t2', False)],
+                     "When increasing replication factor you need to run a a non-incremental repair on all nodes to distribute the data (nodetool repair -pr).")
+
+        # 2 tables, only 1 with nodesync
+        _test_helper(self.session, 'ks2', [('t1', True), ('t2', False)],
+                     "After a replication factor increase, data will need to be replicated to achieve the new factor. " +
+                     "For the table with NodeSync enabled, NodeSync will do so automatically, " +
+                     "though you can prioritize specific tables by triggering user validations ('nodesync help validation submit'). " +
+                     "For other tables you need to run a non-incremental repair on all nodes (nodetool repair -pr).")
+
+        # 2 tables, all with nodesync
+        _test_helper(self.session, 'ks3', [('t1', True), ('t2', True)],
+                     "After a replication factor increase, data will need to be replicated to achieve the new factor. " +
+                     "This will be done automatically by NodeSync, but can be prioritized " +
+                     "on specific tables by triggering user validations ('nodesync help validation submit').")
