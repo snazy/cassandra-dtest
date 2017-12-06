@@ -1,11 +1,12 @@
 import datetime
 import time
+import re
 from uuid import UUID
 
 from cassandra.util import sortedset
 from ccmlib.node import ToolError
 
-from dtest import Tester, DtestTimeoutError
+from dtest import Tester, DtestTimeoutError, debug
 from tools.assertions import assert_one, assert_all
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
@@ -589,3 +590,76 @@ class TestNodeSyncTool(Tester):
         # The command itself doesn't make sense, but that's not the point of this test.
         nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', 'this id does not exist'],
                       expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
+
+    def test_tracing_nofollow(self):
+        """
+        Test enabling tracing, disabling it and checking the result.
+        """
+        session = self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
+        self._start_nodesync_service()
+
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable'],
+                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'."])
+
+        match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
+        self.assertIsNotNone(match)
+        id = match.group(1)
+
+        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is enabled on all nodes"])
+        nodesync_tool(self.cluster, ['tracing', 'disable'])
+        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
+
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'show', '-i ' + id])
+        for node in self.cluster.nodelist():
+            self.assertIn("Starting NodeSync tracing on /{}".format(node.address()), stdout)
+        for node in self.cluster.nodelist():
+            self.assertIn("Stopped NodeSync tracing on /{}".format(node.address()), stdout)
+
+    def test_tracing_follow(self):
+        """
+        Test enabling tracing with the follow option and a timeout.
+        """
+        session = self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
+        self._start_nodesync_service()
+
+        start = time.time()
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable', '--follow', '-t 3'])
+        # Note that we print the duration for fun, but I don't think we rely on that number
+        # in any meaningful way because it account for JMX initialization that the tool
+        # does and that is very very slow (so the duration will be a lot longer than 3 seconds)
+        debug("duration: {}".format(time.time() - start))
+
+        for node in self.cluster.nodelist():
+            self.assertIn("Starting NodeSync tracing on /{}".format(node.address()), stdout)
+        for node in self.cluster.nodelist():
+            self.assertIn("Stopped NodeSync tracing on /{}".format(node.address()), stdout)
+
+        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
+
+    def test_tracing_node_subset(self):
+        """
+        Test enabling tracing, disabling it and checking the result on only a subset of nodes.
+        """
+        session = self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
+        self._start_nodesync_service()
+
+        [node1, node2] = self.cluster.nodelist()
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable', '-n ' + node1.address()],
+                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'."])
+
+        match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
+        self.assertIsNotNone(match)
+        id = match.group(1)
+
+        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is only enabled on [/{}]".format(node1.address())])
+        nodesync_tool(self.cluster, ['tracing', 'status', '-n ' + node1.address()], expected_stdout=["Tracing is enabled"])
+        nodesync_tool(self.cluster, ['tracing', 'disable'])
+        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
+
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'show', '-i ' + id])
+
+        self.assertIn("Starting NodeSync tracing on /{}".format(node1.address()), stdout)
+        self.assertIn("Stopped NodeSync tracing on /{}".format(node1.address()), stdout)
+
+        self.assertNotIn("Starting NodeSync tracing on /{}".format(node2.address()), stdout)
+        self.assertNotIn("Stopped NodeSync tracing on /{}".format(node2.address()), stdout)
