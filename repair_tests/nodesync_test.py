@@ -6,21 +6,33 @@ from ccmlib.node import ToolError
 from dtest import Tester, debug
 from tools.decorators import since
 from tools.interceptors import fake_write_interceptor
+from tools.misc import new_node
 from tools.nodesync import (nodesync_opts, assert_all_segments, not_validated, enable_nodesync,
                             disable_nodesync, read_nodesync_status)
-from tools.preparation import prepare, config_opts
+from tools.preparation import prepare, config_opts, jvm_args
 
 
 class SingleTableNodeSyncTester(Tester):
 
-    def prepare(self, nodes=2, rf=2, num_tokens=None, interceptors=None):
+    def prepare(self, nodes=2, rf=2, num_tokens=None, interceptors=None, nodesync_options=None):
         opts = None
         if num_tokens:
             opts = config_opts(num_tokens=num_tokens)
         debug('Creating cluster...')
+        # Saving config in case the test adds new nodes with bootstrap_node()
+        self.interceptors = interceptors
+        self.nodesync_options = nodesync_options
+        if not self.nodesync_options:
+            self.nodesync_options = nodesync_opts()
         self.session = prepare(self, nodes=nodes, rf=rf, options=opts,
-                               nodesync_options=nodesync_opts(), interceptors=interceptors,
+                               nodesync_options=self.nodesync_options, interceptors=self.interceptors,
                                schema_timeout=30, request_timeout=30)
+
+    def bootstrap_node(self):
+        node = new_node(self.cluster)
+        args = jvm_args(interceptors=self.interceptors, nodesync_options=self.nodesync_options)
+        node.start(wait_for_binary_proto=True, jvm_args=args)
+        return node
 
     def create_table(self, nodesync=True):
         debug('Creating table t...')
@@ -338,3 +350,27 @@ class TestNodeSync(SingleTableNodeSyncTester):
         debug("Checking segment count has decreased...")
         self.assert_all_segments()
         self.assert_segments_count(2, 3)
+
+    def test_bootstrap(self):
+        """
+        Test that:
+            - NodeSync don't run on a one node cluster (even if RF>1)
+            - NodeSync does start if a 2nd node is added.
+            - Adding a 3rd node doesn't break anything either.
+        """
+        self.prepare(nodes=1, rf=2)
+        self.create_table()
+        self.do_inserts()
+
+        # Single node cluster, we shouldn't be validating anything
+        self.assert_all_segments(not_validated())
+
+        debug("Bootstrapping 2nd node")
+        self.bootstrap_node()
+        debug("Validating everything is validated...")
+        self.assert_all_segments()
+
+        debug("Bootstrapping 3rd node")
+        self.bootstrap_node()
+        debug("Validating everything is validated...")
+        self.assert_all_segments()

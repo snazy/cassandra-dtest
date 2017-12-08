@@ -8,6 +8,7 @@ The main methods exposed are :wait_for_all_segments, :get_oldest_segments and :g
 import time
 import calendar
 import heapq
+import re
 import subprocess
 
 from ccmlib import common
@@ -27,7 +28,7 @@ def disable_nodesync(session, keyspace, table):
 
 
 def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=None,
-                  ignore_stdout_order=False, ignore_stderr_order=False):
+                  ignore_stdout_order=False, ignore_stderr_order=False, print_debug=True):
     """
     Runs the nodesync command line tool with the specified arguments, ensuring the specified expected command output.
 
@@ -45,13 +46,15 @@ def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=No
     env = common.make_cassandra_env(node.get_install_cassandra_root(), node.get_node_cassandra_root())
     nodesync_bin = node.get_tool('nodesync')
     full_args = [nodesync_bin] + args
-    debug('COMMAND: ' + ' '.join(str(arg) for arg in full_args))
+    if print_debug:
+        debug('COMMAND: ' + ' '.join(str(arg) for arg in full_args))
 
     # run the command
     p = subprocess.Popen(full_args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate()
-    debug('STDERR: ' + stderr)
-    debug('STDOUT: ' + stdout)
+    if print_debug:
+        debug('STDERR: ' + stderr)
+        debug('STDOUT: ' + stdout)
 
     def non_blank_lines(text):
         return filter(lambda l: l.strip(), text.splitlines()) if text else []
@@ -87,7 +90,35 @@ def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=No
     return stdout, stderr
 
 
-def nodesync_opts(min_validation_interval_ms=500, segment_lock_timeout_sec=10, segment_size_target_kb=100,
+# A convenience primarily meant to help debugging test failures. If you don't understand why
+# a part of a test doesn't do what it should, you can enclose that part with:
+#   with tracing() as trace:
+#     ... some part of the test ...
+# to get the NodeSync trace for that piece of code.
+def tracing(cluster):
+    return Tracer(cluster)
+
+
+class Tracer():
+    def __init__(self, cluster):
+        self.cluster = cluster
+
+    def __enter__(self):
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable'],
+                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'."],
+                                  print_debug=False)
+        match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
+        self.id = match.group(1)
+
+    def __exit__(self, type, value, traceback):
+        nodesync_tool(self.cluster, ['tracing', 'disable'], print_debug=False)
+        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'show', '-i ' + self.id], print_debug=False)
+        print("-- Tracing output -----------------")
+        print(stdout)
+        print("-----------------------------------")
+
+
+def nodesync_opts(min_validation_interval_ms=1000, segment_lock_timeout_sec=20, segment_size_target_kb=100,
                   size_checker_interval_sec=5):
     """ Creates a list of JVM arguments that sets settings for NodeSync more suitable to testing
 
@@ -341,9 +372,6 @@ def assert_all_segments(session, keyspace, table, timeout=60, predicate=None):
         time.sleep(1)
 
     failed_records = [record for record in nodesync_status if not predicate(record)]
-    size = len(failed_records)
-    if size > 3:
-        failed_records = failed_records[0:3]
     assert False, """Was not able to validate all segments within the {timeout}s timeout:
                      {count} failed the predicate (for instance: {ex_failed})""".format(timeout=timeout,
                                                                                         count=len(failed_records),
