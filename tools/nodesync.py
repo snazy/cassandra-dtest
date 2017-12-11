@@ -119,7 +119,7 @@ class Tracer():
 
 
 def nodesync_opts(min_validation_interval_ms=1000, segment_lock_timeout_sec=20, segment_size_target_kb=100,
-                  size_checker_interval_sec=5):
+                  size_checker_interval_sec=5, controller_update_interval_sec=300):
     """ Creates a list of JVM arguments that sets settings for NodeSync more suitable to testing
 
     This is generally intended to be used for building the nodesync_options argument of the prepare
@@ -137,6 +137,8 @@ def nodesync_opts(min_validation_interval_ms=1000, segment_lock_timeout_sec=20, 
         args.append("-Ddse.nodesync.segment_size_target_bytes={}".format(segment_size_target_kb * 1024))
     if size_checker_interval_sec:
         args.append("-Ddse.nodesync.size_checker_interval_sec={}".format(size_checker_interval_sec))
+    if controller_update_interval_sec:
+        args.append("-Ddse.nodesync.controller_update_interval_sec={}".format(controller_update_interval_sec))
 
     return args
 

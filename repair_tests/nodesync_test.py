@@ -14,17 +14,19 @@ from tools.preparation import prepare, config_opts, jvm_args
 
 class SingleTableNodeSyncTester(Tester):
 
-    def prepare(self, nodes=2, rf=2, num_tokens=None, interceptors=None, nodesync_options=None):
-        opts = None
+    def prepare(self, nodes=2, rf=2, num_tokens=None, interceptors=None,
+                options=None, nodesync_options=None):
+        if options is None:
+            options = {}
         if num_tokens:
-            opts = config_opts(num_tokens=num_tokens)
+            options.update(config_opts(num_tokens=num_tokens))
         debug('Creating cluster...')
         # Saving config in case the test adds new nodes with bootstrap_node()
         self.interceptors = interceptors
         self.nodesync_options = nodesync_options
         if not self.nodesync_options:
             self.nodesync_options = nodesync_opts()
-        self.session = prepare(self, nodes=nodes, rf=rf, options=opts,
+        self.session = prepare(self, nodes=nodes, rf=rf, options=options,
                                nodesync_options=self.nodesync_options, interceptors=self.interceptors,
                                schema_timeout=30, request_timeout=30)
 
@@ -374,3 +376,26 @@ class TestNodeSync(SingleTableNodeSyncTester):
         self.bootstrap_node()
         debug("Validating everything is validated...")
         self.assert_all_segments()
+
+    def test_single_node_cluster_does_not_print_not_able_to_sustain_rate_warning(self):
+        """
+        @jira_ticket DB-1470
+        """
+
+        debug("Starting 1-node cluster")
+        options = {'nodesync': {'rate_in_kb': 1024,
+                                'min_threads': 1,
+                                'max_threads': 1,
+                                'min_inflight_validations': 1,
+                                'max_inflight_validations': 1}}
+        self.prepare(nodes=1, rf=3,
+                     options=options,
+                     nodesync_options=nodesync_opts(controller_update_interval_sec=1))
+
+        debug("Sleeping 2 seconds")
+        time.sleep(2)
+
+        debug("Checking that NodeSync will not print not able to sustain rate warning")
+        node1 = self.node(1)
+        self.assertFalse(node1.grep_log("NodeSync doesn't seem to be able to sustain the configured rate"),
+                         "Should not print not able to sustain rate warning.")
