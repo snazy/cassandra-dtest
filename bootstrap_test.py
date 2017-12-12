@@ -55,6 +55,10 @@ class BaseBootstrapTest(Tester):
             debug("***using internode ssl***")
             generate_ssl_stores(self.test_path)
             cluster.enable_internode_ssl(self.test_path)
+            # This is an artifact of having https://github.com/pcmanus/ccm/pull/639 merged into CCM
+            # but not having CASSANDRA-10404 merged to Apollo
+            if cluster.version() >= '4.0':
+                del cluster._config_options["server_encryption_options"]["enabled"]
 
         tokens = cluster.balanced_tokens(2)
         cluster.set_configuration_options(values={'num_tokens': 1})
