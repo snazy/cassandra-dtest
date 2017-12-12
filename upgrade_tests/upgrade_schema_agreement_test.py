@@ -244,25 +244,3 @@ class TestSchemaAgreementUpgrade(Tester):
         with self.assertRaises(AssertionError, msg="Expected no schema migration log entries for the last {} seconds".format(self.migration_check_time)):
             self._upgrade_schema_agreement_test(upgrade_path=[[False, 'alias:apollo/dse5.0'],
                                                               [False, 'alias:apollo/64ee3acbacfe93b00fd844a4662af2d814852f26']])
-
-    # REVIEWER NOTICE:
-    # The following tests should not make it into the dtest repo. The above tests using dse5.1 cannot work
-    # until DB-1477 is committed.
-
-    def upgrade_schema_agreement_ok50_test(self):
-        """
-        Test the upgrade from DSE 5.0.latest to DSE 5.1.latest and verify that there is no migration storm.
-
-        TO BE CLEAR: THIS TEST IS INTENDED TO FAIL AND NOT INTENDED TO BE COMMITTED!
-        """
-        self._upgrade_schema_agreement_test(upgrade_path=[[False, 'alias:apollo/dse5.0'],
-                                                          [True, 'alias:apollo/a1477-schema-mismatch-5.1']])
-
-    def upgrade_schema_agreement_ok51_test(self):
-        """
-        Test the upgrade from DSE 5.0.latest to DSE 5.1.latest and verify that there is no migration storm.
-
-        TO BE CLEAR: THIS TEST IS INTENDED TO FAIL AND NOT INTENDED TO BE COMMITTED!
-        """
-        self._upgrade_schema_agreement_test(upgrade_path=[[False, 'alias:apollo/dse5.1'],
-                                                          [True, 'alias:apollo/a1477-schema-mismatch-5.1']])
