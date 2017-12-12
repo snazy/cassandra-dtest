@@ -411,6 +411,35 @@ class TestNodetool(Tester):
         session.execute('INSERT INTO test.test (pk, ck, val) VALUES (0, 1, 2);')
         assert_all(session, 'SELECT pk, ck, val FROM test.test;', [[0, 1, 2]])
 
+    @since('4.0')
+    def test_set_get_concurrent_view_builders(self):
+        """
+        @jira_ticket CASSANDRA-12245
+        Test that the number of concurrent view builders can be set and get through nodetool
+        """
+        cluster = self.cluster
+        cluster.populate(2)
+        node = cluster.nodelist()[0]
+        cluster.start()
+
+        # Test that nodetool help messages are displayed
+        self.assertIn('Set the number of concurrent view', node.nodetool('help setconcurrentviewbuilders').stdout)
+        self.assertIn('Get the number of concurrent view', node.nodetool('help getconcurrentviewbuilders').stdout)
+
+        # Set and get throttle with nodetool, ensuring that the rate change is logged
+        node.nodetool('setconcurrentviewbuilders 4')
+        self.assertIn('Current number of concurrent view builders in the system is: \n4',
+                      node.nodetool('getconcurrentviewbuilders').stdout)
+
+        # Try to set an invalid zero value
+        try:
+            node.nodetool('setconcurrentviewbuilders 0')
+        except ToolError as e:
+            self.assertIn('concurrent_view_builders should be great than 0.', e.stdout)
+            self.assertEqual(e.exit_status, 1, msg=str(e.exit_status))
+        else:
+            self.fail("Expected error when setting and invalid value")
+
     @since('3.0')
     def test_refresh_size_estimates_clears_invalid_entries(self):
         """
