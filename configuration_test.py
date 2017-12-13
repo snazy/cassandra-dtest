@@ -6,6 +6,7 @@ from dse.concurrent import execute_concurrent_with_args
 from dtest import Tester, debug
 from ccmlib.node import TimeoutError
 from tools.data import create_ks
+from tools.decorators import since
 from tools.misc import get_timestamp
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
@@ -140,6 +141,7 @@ class TestConfiguration(Tester):
 
         self.assertEqual(chunk_length, value, "Expected chunk_length: {}.  We got: {}".format(value, chunk_length))
 
+    @since('3.0')
     def native_transport_startup_delay_test(self):
         """
         @jira_ticket APOLLO-1315

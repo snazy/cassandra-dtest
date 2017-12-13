@@ -68,6 +68,7 @@ class TestNodetool(Tester):
                 hasPattern = True
         self.assertTrue(hasPattern, "Expected 'SJK hh' output")
 
+    @since('3.0')
     def test_quoted_arg_with_spaces(self):
         """
         @jira_ticket APOLLO-1183
