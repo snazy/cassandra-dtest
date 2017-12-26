@@ -1,0 +1,8 @@
+RULE slow down view application
+CLASS org.apache.cassandra.utils.concurrent.CoordinatedAction
+METHOD get
+AT ENTRY
+IF TRUE
+DO
+   Thread.sleep(2100)
+ENDRULE
