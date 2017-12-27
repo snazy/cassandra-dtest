@@ -24,6 +24,8 @@ from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import get_ip_from_node, new_node
+from tools.preparation import jvm_args
+from tools.interceptors import delaying_interceptor, Verb
 
 # CASSANDRA-10978. Migration wait (in seconds) to use in bootstrapping tests. Needed to handle
 # pathological case of flushing schema keyspace for multiple data directories. See CASSANDRA-6696
@@ -44,14 +46,22 @@ class TestMaterializedViews(Tester):
         new_list = [list(row) for row in rows]
         return new_list
 
-    def prepare(self, user_table=False, rf=1, options=None, nodes=3, install_byteman=False, enable_batch_commitlog=False, **kwargs):
+    def prepare(self, user_table=False, rf=1, options=None, nodes=3,
+                install_byteman=False, enable_batch_commitlog=False,
+                interceptors=None, **kwargs):
         cluster = self.cluster
         cluster.populate([nodes, 0], install_byteman=install_byteman)
         if options:
             cluster.set_configuration_options(values=options)
         if enable_batch_commitlog:
             cluster.set_batch_commitlog(enabled=True)
-        cluster.start()
+
+        # We'll use JMX to control interceptors, and what requires this apparently
+        if interceptors:
+            for node in cluster.nodelist():
+                remove_perf_disable_shared_mem(node)
+
+        cluster.start(jvm_args=jvm_args(interceptors=interceptors))
         node1 = cluster.nodelist()[0]
 
         session = self.patient_cql_connection(node1, **kwargs)
@@ -733,6 +743,65 @@ class TestMaterializedViews(Tester):
                 "SELECT * FROM t_by_v2 WHERE v2 = 'a' AND v = {} ALLOW FILTERING".format(i),
                 ['a', i, i, 3.0]
             )
+
+    @since('4.0')
+    def timeout_on_mv_acquire_lock_test(self):
+        """
+        Test that base table update is dropped when there is a timeout during
+        view lock acquisition and ViewLockAcquisitionTimeouts metric is accounted.
+
+        @jira_ticket DB-1522
+        """
+
+        debug("Creating cluster")
+        cluster = self.cluster
+        cluster.populate(3)
+
+        node1, node2, _ = cluster.nodelist()
+
+        # Set a very low timeout on node2 so the base table write request will timeout
+        node2.set_configuration_options(values={'write_request_timeout_in_ms': 100})
+
+        # Add a delay longer then write_request_timeout_in_ms to cause the view lock acquisition to fail
+        delaying_write = delaying_interceptor(500, Verb.WRITES.msg("WRITE"))
+
+        # We'll use JMX to control interceptors, and what requires this apparently
+        for node in cluster.nodelist():
+            remove_perf_disable_shared_mem(node)
+
+        cluster.start(jvm_args=jvm_args(interceptors=[delaying_write]))
+
+        debug("Creating views")
+        session = self.patient_cql_connection(node1)
+        create_ks(session, 'ks', 2)
+        session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
+        session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
+                         "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
+        session.execute(("CREATE MATERIALIZED VIEW t_by_v2 AS SELECT * FROM t "
+                         "WHERE v2 IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v2, id)"))
+
+        intercepted_count = 0
+        with delaying_write.enable(node2) as interception:
+            debug("Inserting data")
+            for i in xrange(10):
+                session.execute("INSERT INTO t (id, v, v2, v3) VALUES ({v}, {v}, 'a', 3.0)".format(v=i))
+
+            intercepted_count = interception.intercepted_count()
+
+        debug("Verifying view write lock timed out message was print")
+        node2.watch_log_for('Could not acquire view lock in .* milliseconds for table t'
+                            ' of keyspace ks.', filename='debug.log')
+
+        debug("Verifying ViewLockAcquisitionTimeouts metric")
+        dropped = self._get_view_lock_acquisition_timeouts(node2, "ks", "t")
+        debug("ViewLockAcquisitionTimeouts is {}".format(dropped))
+        debug("Interception count is {}".format(intercepted_count))
+        self.assertEquals(dropped, intercepted_count)
+
+    def _get_view_lock_acquisition_timeouts(self, node, ks, table):
+        mbean = make_mbean('metrics', type="Table", keyspace=ks, scope=table, name='ViewLockAcquisitionTimeouts')
+        with JolokiaAgent(node) as jmx:
+            return jmx.read_attribute(mbean, 'Count')
 
     def secondary_index_test(self):
         """Test that secondary indexes cannot be created on a materialized view"""
