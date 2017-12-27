@@ -1,0 +1,9 @@
+RULE Major compact after tracker notification
+CLASS org.apache.cassandra.db.lifecycle.Tracker
+METHOD notifyAdded
+BIND cfs = $0.cfstore;
+AFTER INVOKE handleNotification
+IF TRUE
+DO
+   cfs.forceMajorCompaction();
+ENDRULE

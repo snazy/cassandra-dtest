@@ -1120,6 +1120,86 @@ class TestIncRepair(Tester):
             node.watch_log_for("Removing compaction strategy", from_mark=mark, timeout=10, filename="debug.log")
             mark = node.mark_log()
 
+    @since('3.0', max_version='4')
+    def do_not_compact_sstables_received_during_incremental_repair_test(self):
+        """
+        Simulate a race by running a major compaction as soon as a remote
+        sstable with tombstones is received from the remote node, and ensure
+        it is not compacted.
+
+        @jira_ticket DB-1333
+        """
+
+        debug("Configuring and starting cluster")
+        cluster = self.cluster
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+        cluster.populate(2, install_byteman=True).start()
+        node1, node2 = cluster.nodelist()
+
+        debug("Inserting data (2 sstables)..")
+        session = self.patient_exclusive_cql_connection(node1)
+        # create keyspace with RF=2 to be able to be repaired
+        create_ks(session, 'ks', 2)
+
+        # create table with short gc_gs
+        debug("Creating table")
+        session.execute("""
+            CREATE TABLE cf1 (
+                key text,
+                c1 text,
+                c2 text,
+                PRIMARY KEY (key, c1)
+            )
+            WITH dclocal_read_repair_chance=0.0
+            AND compaction = {'class': 'SizeTieredCompactionStrategy', 'enabled': 'false',
+                               'min_threshold': 2, 'max_threshold': 2};
+        """)
+
+        debug("Disabling compaction")
+        node1.nodetool('disableautocompaction ks cf1')
+        node2.nodetool('disableautocompaction ks cf1')
+
+        debug("Populating table ks.cf1")
+        # insert some data in multiple sstables
+        for i in xrange(0, 10):
+            for j in xrange(0, 100):
+                query = SimpleStatement("INSERT INTO cf1 (key, c1, c2) VALUES ('k{}', 'v{}', 'value')".format(i, j), consistency_level=ConsistencyLevel.ONE)
+                session.execute(query)
+            cluster.flush()
+
+        debug("Repairing..")
+        self.repair(node1, options=["ks cf1"])
+
+        debug("Stopping node2")
+        node2.stop(wait_other_notice=True)
+
+        debug("Inserting more data with tombstones on node1..")
+        # Create SSTables with tombstones,  one with row tombstone and another with cell range tombstones
+        for i in xrange(0, 5):
+            query = SimpleStatement("DELETE FROM cf1 WHERE key='k{}'".format(i), consistency_level=ConsistencyLevel.ONE)
+            session.execute(query)
+        cluster.flush()
+        for i in xrange(5, 10):
+            for j in xrange(0, 100):
+                query = SimpleStatement("DELETE FROM cf1 WHERE key='k{}' AND c1='v{}'".format(i, j), consistency_level=ConsistencyLevel.ONE)
+                session.execute(query)
+        cluster.flush()
+        # Create another non-tombstoned SSTable with which should be marked as repaired by node2
+        for i in xrange(11, 20):
+            for j in xrange(0, 100):
+                query = SimpleStatement("INSERT INTO cf1 (key, c1, c2) VALUES ('k{}', 'v{}', 'value')".format(i, j), consistency_level=ConsistencyLevel.ONE)
+                session.execute(query)
+        cluster.flush()
+
+        debug("Starting node2")
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.wait_for_cessation_time_in_seconds=10"])
+
+        debug("Installing byteman rule on node2 to compact during incremental repair")
+        node2.byteman_submit(['./byteman/major_compact_sstables_after_tracker_notification.btm'])
+
+        debug("Repairing again..")
+        self.repair(node1, options=["ks cf1"])  # Completing without failures is success
+
     @since('3.0')
     def mark_unrepaired_test(self):
         """
