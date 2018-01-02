@@ -531,7 +531,7 @@ class TestRebuild(Tester):
         for i in xrange(0, keys):
             query_c1c2(session, i, ConsistencyLevel.ONE, tolerate_missing=True, must_be_missing=True)
 
-    def _refetch_reset_iteration(self, rebuild_node, sessions, nodetoolCmd, snapshot_exists=False):
+    def _refetch_reset_iteration(self, rebuild_node, sessions, nodetoolCmd, snapshot_exists=False, expect_logs=[]):
         """
         Stop the 4th node and populate _more_ data. Since the 4th node is down and hints are disabled,
         the 4th node won't get the new data when it starts.
@@ -600,7 +600,7 @@ class TestRebuild(Tester):
         clear_snapshot_dir(rebuild_node, ks="ks1", cf='cf')
 
         # rebuild refetch/reset
-        rebuild_node.mark_log()
+        mark = rebuild_node.mark_log()
         rebuild_node.mark_log_for_errors()
         out, err, _ = rebuild_node.nodetool("ring")
         debug("""Output of 'nodetool ring':
@@ -620,10 +620,13 @@ class TestRebuild(Tester):
         # Verify snapshot existence
         self.assertEquals(snapshot_exists, has_snapshot_dir(rebuild_node, ks="ks1", cf="cf"))
 
+        # Verify expected log messages
+        rebuild_node.watch_log_for(expect_logs, from_mark=mark, timeout=0)
+
         # Expect the nodetool command to _not_ let the node log the "Streaming range ... from 127.0.0.3" message,
         # because that would indicate that it is streaming from that node, which is what don't want.
         with self.assertRaises(TimeoutError):
-            rebuild_node.watch_log_for('Streaming range .* from endpoint /127.0.0.3 for keyspace ks1', from_mark=True, timeout=3)
+            rebuild_node.watch_log_for('Streaming range .* from endpoint /127.0.0.3 for keyspace ks1', from_mark=mark, timeout=3)
 
         # down node must now have updated data
         for key in keysInitial:
@@ -761,25 +764,39 @@ class TestRebuild(Tester):
                               "Source '/123.123.123.123' is not a known node in this cluster")
 
         # refetch, include DC
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -dc dc1')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -dc dc1',
+                                      expect_logs=['Resetting available ranges for keyspace ks'])
 
         # refetch, exclude DC
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -xdc dc2')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -xdc dc2',
+                                      expect_logs=['Resetting available ranges for keyspace ks'])
 
         # reset, include DC
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -dc dc1', snapshot_exists=True)
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -dc dc1',
+                                      snapshot_exists=True,
+                                      expect_logs=['Resetting available ranges for keyspace ks',
+                                                   'Truncating table ks1.cf, with snapshot'])
 
         # reset, exclude DC
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset-no-snapshot -xdc dc2')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset-no-snapshot -xdc dc2',
+                                      expect_logs=['Resetting available ranges for keyspace ks',
+                                                   'Truncating table ks1.cf, no snapshot'])
 
         # refetch, include source
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -s 127.0.0.1,127.0.0.2')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -s 127.0.0.1,127.0.0.2',
+                                      expect_logs=['Resetting available ranges for keyspace ks'])
 
         # refetch, exclude source
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -x 127.0.0.3,127.0.0.4')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m refetch -x 127.0.0.3,127.0.0.4',
+                                      expect_logs=['Resetting available ranges for keyspace ks'])
 
         # reset, include source
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -s 127.0.0.1,127.0.0.2', snapshot_exists=True)
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset -s 127.0.0.1,127.0.0.2',
+                                      snapshot_exists=True,
+                                      expect_logs=['Resetting available ranges for keyspace ks',
+                                                   'Truncating table ks1.cf, with snapshot'])
 
         # reset, exclude source
-        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset-no-snapshot -x 127.0.0.3,127.0.0.4')
+        self._refetch_reset_iteration(rebuild_node, sessions, 'rebuild -m reset-no-snapshot -x 127.0.0.3,127.0.0.4',
+                                      expect_logs=['Resetting available ranges for keyspace ks',
+                                                   'Truncating table ks1.cf, no snapshot'])
