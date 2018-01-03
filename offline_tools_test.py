@@ -150,7 +150,7 @@ class TestOfflineTools(Tester):
         cluster.stop()
 
         output, _, rc = node1.run_sstableofflinerelevel("keyspace1", "standard1")
-        self.assertIn("L0=1", output)
+        self.assertIn("L0=0", output)
         self.assertEqual(rc, 0, msg=str(rc))
 
         cluster.start()
