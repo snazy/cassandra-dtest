@@ -1,11 +1,12 @@
 import re
+import os
 import time
 
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 
 from dtest import PRINT_DEBUG, Tester, debug
-from tools.assertions import assert_length_equal, assert_one
+from tools.assertions import assert_length_equal, assert_one, assert_none
 from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 
@@ -178,6 +179,64 @@ class TestReadRepair(Tester):
             self.assertNotIn("Appending to commitlog", activity)
             self.assertNotIn("Adding to cf memtable", activity)
             self.assertNotIn("Acquiring switchLock read lock", activity)
+
+    @since('4.0')
+    def oversized_read_repair_mutation_test(self):
+        """
+        @jira_ticket APOLLO-1521
+        For 6.0, it will split oversized mutation into smaller batches
+        """
+        node1, node2, node3 = self.cluster.nodelist()
+        session1 = self.patient_exclusive_cql_connection(node1)
+
+        debug('Prepare schema')
+        create_ks(session1, 'oversized_readrepair_mutation', 3)
+        query = """
+            CREATE TABLE oversized_readrepair_mutation.cf1 (
+                pk int,
+                ck int,
+                value blob,
+                PRIMARY KEY (pk, ck)
+            )
+        """
+        session1.execute(query)
+
+        debug('Shutdown node2')
+        node2.stop(wait_other_notice=True)
+
+        # each row having 0.1 MB, total read_mutation will be 0.1 * 500 = 50MB > 16MB, split into 4 batches with size 125
+        rows = 500
+        random_bytes = os.urandom(1024 * 102)
+        insert_prepared = session1.prepare("INSERT INTO oversized_readrepair_mutation.cf1 (pk, ck, value) VALUES (?, ?, ?)")
+
+        # prepare data in 1 partition
+        for n in xrange(rows):
+            session1.execute(insert_prepared.bind((1, n, random_bytes)))
+        session1.execute("DELETE FROM oversized_readrepair_mutation.cf1 WHERE pk=1 and ck=200")
+
+        debug('Startig node2')
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+
+        # there should be read_repair messages for single partition query
+        query = SimpleStatement("SELECT * FROM oversized_readrepair_mutation.cf1 WHERE pk = 1", consistency_level=ConsistencyLevel.ALL)
+        future = session1.execute_async(query, trace=True)
+        future.result()
+        trace = future.get_query_trace(max_wait=120)
+        self.check_trace_events_digest_mismatch(trace, True)
+        self.assertTrue(node1.grep_log('read repair mutation for table oversized_readrepair_mutation.cf1, key 1, node /127.0.0.2, will split the mutation by half', filename='debug.log'),
+                        "Expect to find log for splitting oversized readrepair mutation")
+
+        debug('Shutdown node1 and node3')
+        node1.stop()
+        node3.stop(wait_other_notice=True)
+        session2 = self.patient_exclusive_cql_connection(node2)
+
+        # node2 should have the read_repaired data
+        for n in xrange(rows):
+            if n is not 200:
+                assert_one(session2, "SELECT * FROM oversized_readrepair_mutation.cf1 WHERE pk = 1 AND ck = %d" % n, [1, n, random_bytes], cl=ConsistencyLevel.ONE)
+            else:
+                assert_none(session2, "SELECT * FROM oversized_readrepair_mutation.cf1 WHERE pk = 1 AND ck = %d" % n, cl=ConsistencyLevel.ONE)
 
     @since('3.0')
     def test_read_repair_chance_in_single_partition_read(self):
