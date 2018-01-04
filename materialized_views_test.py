@@ -772,7 +772,7 @@ class TestMaterializedViews(Tester):
         cluster.start(jvm_args=jvm_args(interceptors=[delaying_write]))
 
         debug("Creating views")
-        session = self.patient_cql_connection(node1)
+        session = self.patient_exclusive_cql_connection(node1)
         create_ks(session, 'ks', 2)
         session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
