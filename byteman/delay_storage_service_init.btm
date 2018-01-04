@@ -1,0 +1,12 @@
+#
+# Delay full StorageService initialization by sleeping just before initializing Gossiper, to test for vulnerabilities
+# when internode messaging to the affected node happens.
+#
+RULE Delay StorageService initialization
+CLASS org.apache.cassandra.service.StorageService
+METHOD prepareToJoin
+AT INVOKE org.apache.cassandra.gms.Gossiper.register(org.apache.cassandra.gms.IEndpointStateChangeSubscriber)
+IF TRUE
+DO
+   java.lang.Thread.sleep(20000);
+ENDRULE
