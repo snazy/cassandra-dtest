@@ -1544,6 +1544,8 @@ class TestIncRepair(Tester):
         preNode2CleanupMark = node2.mark_log()
         node2.watch_log_for("Running LocalSessions.cleanup", from_mark=preNode2CleanupMark, timeout=60, filename='debug.log')
 
+        time.sleep(30)
+
         debug("Checking all nodes have the session marked as {}".format("finalized" if finalized else "failed"))
         for node in cluster.nodelist():
             session = self.patient_exclusive_cql_connection(node)
