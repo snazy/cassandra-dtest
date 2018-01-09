@@ -1268,6 +1268,40 @@ class TestRepair(BaseRepairTest):
         else:
             node1.nodetool('repair keyspace1 standard1 -inc -par')
 
+    @since('3.0')
+    def repair_one_node_cluster_test(self):
+        self._repair_abort_test(nodes=1, rf=2)
+
+    @since('3.0')
+    def repair_one_node_in_local_dc_test(self):
+        self._repair_abort_test(options=['--in-local-dc'], nodes=[1, 1], rf={'dc1': 1, 'dc2': 1}, no_common_range=True)
+
+    def _repair_abort_test(self, options=[], nodes=1, rf=1, no_common_range=False):
+        """
+        @jira_ticket DB-1511
+        """
+        cluster = self.cluster
+        debug("Starting cluster..")
+        cluster.populate(nodes).start(wait_for_binary_proto=True)
+        session = self.patient_cql_connection(self.cluster.nodelist()[0])
+        create_ks(session, 'ks', rf=rf)
+        node1 = self.cluster.nodelist()[0]
+
+        if self.cluster.version() >= "4.0":
+            debug("Preview repair")
+            out = node1.repair(["--preview"] + options)
+            if no_common_range:
+                self.assertTrue("no common ranges to repair" in str(out), "Expect 'no common ranges to repair'")
+
+        debug("Full repair")
+        node1.repair(["--full"] + options)
+
+        debug("Incremental repair")
+        if self.cluster.version() >= "3.11":
+            node1.repair(["--inc"] + options)
+        else:
+            node1.repair()
+
     @since('2.2')
     def test_dead_sync_initiator(self):
         """
