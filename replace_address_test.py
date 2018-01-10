@@ -1,6 +1,5 @@
 import os
 import tempfile
-import types
 from itertools import chain
 from shutil import rmtree
 from unittest import skipIf
@@ -14,7 +13,7 @@ from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, TRACE, Tester,
                    debug)
 from tools.assertions import (assert_all, assert_bootstrap_state,
                               assert_not_running)
-from tools.data import create_ks, rows_to_list
+from tools.data import rows_to_list
 from tools.decorators import since
 
 
@@ -36,7 +35,7 @@ class BaseReplaceAddressTest(Tester):
         r'failed stream session'
     )
 
-    def _setup(self, n=3, opts=None, enable_byteman=False, mixed_versions=False, replaced_node_index=-1):
+    def _setup(self, n=3, opts=None, enable_byteman=False, mixed_versions=False):
         # If we are on 2.1, we need to set the log level to debug or higher, as debug.log does not exist.
         if self.cluster.version() < '2.2' and not TRACE:
             self.cluster.set_log_level('DEBUG')
@@ -49,7 +48,7 @@ class BaseReplaceAddressTest(Tester):
 
         self.cluster.set_batch_commitlog(enabled=True)
         self.query_node = self.cluster.nodelist()[0]
-        self.replaced_node = self.cluster.nodelist()[replaced_node_index]
+        self.replaced_node = self.cluster.nodelist()[-1]
 
         self.cluster.seeds.remove(self.replaced_node)
         NUM_TOKENS = os.environ.get('NUM_TOKENS', '256')
@@ -75,15 +74,6 @@ class BaseReplaceAddressTest(Tester):
             session.execute("""ALTER KEYSPACE system_auth
                             WITH replication = {'class':'SimpleStrategy',
                             'replication_factor':2};""")
-            if n < 3:
-                # Change system_distributed keyspace replication factor to 2, otherwise consistent replace will fail
-                session.execute("""ALTER KEYSPACE system_distributed
-                                WITH replication = {'class':'SimpleStrategy',
-                                'replication_factor':2};""")
-
-            if not isinstance(n, types.IntType):
-                debug("change system_distributed replication to multi-dc, dc1: {}, dc2: {}".format(n[0], n[1]))
-                session.execute("ALTER KEYSPACE system_distributed WITH replication = {{'class':'NetworkTopologyStrategy','dc1':{}, 'dc2':{}}};".format(n[0], n[1]))
         else:
             self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'FailureDetector.* unknown endpoint']  # APOLLO-59
 
@@ -96,15 +86,15 @@ class BaseReplaceAddressTest(Tester):
 
         # only create node if it's not yet created
         if self.replacement_node is None:
-            replacement_address = '127.0.0.10'
+            replacement_address = '127.0.0.4'
             if same_address:
                 replacement_address = self.replaced_node.address()
                 self.cluster.remove(self.replaced_node)
 
-            debug("Starting replacement node {} with jvm_option '{}={}' and extra_jvm_args: {}".format(replacement_address, jvm_option, replace_address, extra_jvm_args))
+            debug("Starting replacement node {} with jvm_option '{}={}'".format(replacement_address, jvm_option, replace_address))
             self.replacement_node = Node('replacement', cluster=self.cluster, auto_bootstrap=True,
                                          thrift_interface=None, storage_interface=(replacement_address, 7000),
-                                         jmx_port='7900', remote_debug_port='0', initial_token=None, binary_interface=(replacement_address, 9042))
+                                         jmx_port='7400', remote_debug_port='0', initial_token=None, binary_interface=(replacement_address, 9042))
             if opts is not None:
                 debug("Setting options on replacement node: {}".format(opts))
                 self.replacement_node.set_configuration_options(opts)
@@ -123,7 +113,7 @@ class BaseReplaceAddressTest(Tester):
             self.replacement_node.watch_log_for("Writes will not be forwarded to this node during replacement",
                                                 timeout=60)
 
-    def _stop_node_to_replace(self, gently=False, table='keyspace1.standard1', cl=ConsistencyLevel.ALL):
+    def _stop_node_to_replace(self, gently=False, table='keyspace1.standard1', cl=ConsistencyLevel.THREE):
         if self.replaced_node.is_running():
             debug("Stopping {}".format(self.replaced_node.name))
             self.replaced_node.stop(gently=gently, wait_other_notice=True)
@@ -140,53 +130,13 @@ class BaseReplaceAddressTest(Tester):
                                whitelist=whitelist)
         self.cluster.flush()
 
-    def _prepare_inconsistent_data(self, rf=3):
-        session = self.patient_cql_connection(self.cluster.nodelist()[0], consistency_level=ConsistencyLevel.ONE)
-        create_ks(session, 'keyspace1', rf)
-        session.execute("CREATE TABLE IF NOT EXISTS keyspace1.standard1(key int primary key, value int)"
-                        " with read_repair_chance=0.0 and dclocal_read_repair_chance=0.0")
-
-        debug("stop cluster, populate data 0-500 on node1")
-        self.cluster.stop(wait_other_notice=True)
-        self.cluster.nodelist()[0].start(wait_other_notice=True, wait_for_binary_proto=True)
-        session = self.patient_cql_connection(self.cluster.nodelist()[0], consistency_level=ConsistencyLevel.ONE)
-        for key in xrange(500):
-            session.execute("INSERT INTO keyspace1.standard1(key,value) VALUES ({v}, {v})".format(v=key))
-        data1 = rows_to_list(session.execute('select * from keyspace1.standard1 LIMIT 10000'))
-
-        debug("stop cluster, populate data 500-1000 on node2")
-        self.cluster.stop(wait_other_notice=True)
-        self.cluster.nodelist()[1].start(wait_other_notice=True, wait_for_binary_proto=True)
-        session = self.patient_cql_connection(self.cluster.nodelist()[1], consistency_level=ConsistencyLevel.ONE)
-        for key in range(500, 1000):
-            session.execute("INSERT INTO keyspace1.standard1(key,value) VALUES ({v}, {v})".format(v=key))
-        self.cluster.nodelist()[1].flush()
-        data2 = rows_to_list(session.execute('select * from keyspace1.standard1 LIMIT 10000'))
-
-        # multi-dc
-        if not isinstance(rf, types.IntType):
-            debug("start dc2, prepare 1000-1500 on dc2")
-            self.cluster.stop(wait_other_notice=True)
-            for node in self.cluster.nodelist():
-                if node.data_center != self.cluster.nodelist()[0].data_center:
-                    debug("starting {} in dc2".format(node.name))
-                    node.start(wait_other_notice=True)
-            session = self.patient_cql_connection(self.cluster.nodelist()[-1], consistency_level=ConsistencyLevel.LOCAL_QUORUM)
-            for key in range(1000, 1500):
-                session.execute("INSERT INTO keyspace1.standard1(key,value) VALUES ({v}, {v})".format(v=key))
-
-        debug("start all nodes")
-        self.cluster.start()
-
-        return data1 + data2
-
     def _fetch_initial_data(self, table='keyspace1.standard1', cl=ConsistencyLevel.THREE, limit=10000):
         debug("Fetching initial data from {} on {} with CL={} and LIMIT={}".format(table, self.query_node.name, cl, limit))
         session = self.patient_cql_connection(self.query_node)
         query = SimpleStatement('select * from {} LIMIT {}'.format(table, limit), consistency_level=cl)
         return rows_to_list(session.execute(query))
 
-    def _verify_data(self, initial_data, table='keyspace1.standard1', cl=ConsistencyLevel.LOCAL_ONE, limit=10000,
+    def _verify_data(self, initial_data, table='keyspace1.standard1', cl=ConsistencyLevel.ONE, limit=10000,
                      restart_nodes=False):
         self.assertGreater(len(initial_data), 0, "Initial data must be greater than 0")
 
@@ -201,7 +151,6 @@ class BaseReplaceAddressTest(Tester):
         session = self.patient_exclusive_cql_connection(self.replacement_node)
         assert_all(session, 'select * from {} LIMIT {}'.format(table, limit),
                    expected=initial_data,
-                   ignore_order=True,
                    cl=cl)
 
     def _verify_replacement(self, node, same_address):
@@ -317,107 +266,17 @@ class TestReplaceAddress(BaseReplaceAddressTest):
     def replace_first_boot_test(self):
         self._test_replace_node(jvm_option='replace_address_first_boot')
 
-    @attr('resource-intensive')
-    def consistent_replace_stopped_node_same_address_test(self):
-        """
-        @jira_ticket CASSANDRA-8523
-        Test that we can replace a node with the same address correctly
-        """
-        self._test_consistent_replace_node(gently=False, same_address=True)
-
-    @since('3.0')
-    def consistent_replace_first_boot_test(self):
-        """
-        Add consistent replace to stream from quorum replicas
-        @jira_ticket APOLLO-247
-        """
-        self._test_consistent_replace_node(gently=False, jvm_option='replace_address_first_boot')
-
-    @since('3.0')
-    def consistent_replace_stopped_node_test(self):
-        """
-        Add consistent replace to stream from quorum replicas
-        @jira_ticket APOLLO-247
-        """
-        self._test_consistent_replace_node(gently=False)
-
-    @since('3.0')
-    def consistent_replace_shutdown_node_test(self):
-        """
-        Add consistent replace to stream from quorum replicas
-        @jira_ticket APOLLO-247
-        """
-        self._test_consistent_replace_node(gently=True)
-
-    @since('3.0')
-    def consistent_replace_shutdown_node_rf2_test(self):
-        """
-        Add consistent replace to stream from quorum replicas
-        @jira_ticket APOLLO-247
-        """
-        self._test_consistent_replace_node(gently=True, nodes=2, rf=2, consistent_data=True)
-        self.assertTrue(self.replacement_node.grep_log("Cannot ensure replace consistency GLOBAL_QUORUM "
-                                                       "for range .* in keyspace keyspace1"))
-
-    @since('3.0')
-    def consistent_replace_shutdown_node_dc_local_test(self):
-        """
-        Prepare different data on dc1 and dc2, verify "-Dcassandra.replace_consistency=LOCAL_QUORUM" only streams
-        data from local dc.
-        @jira_ticket APOLLO-247
-        """
-        # replace last node in first dc
-        self._test_replace_node(nodes=[3, 3], rf={'dc1': 3, 'dc2': 3}, data_center='dc1', replaced_node_index=2,
-                                consistent_data=False,
-                                extra_jvm_args=["-Dcassandra.replace_consistency=LOCAL_DC_QUORUM"],
-                                options={'hinted_handoff_enabled': False})
-
-    @since('3.0')
-    def consistent_replace_shutdown_node_insufficient_replicas_test(self):
-        """
-        Add consistent replace to stream from quorum replicas.
-        Verify failure when there is insufficient replicas for quorum
-        @jira_ticket APOLLO-247
-        """
-        self.ignore_log_patterns = list(self.ignore_log_patterns) + [
-            # This is caused by insufficient sources
-            r'Exception encountered during startup']
-
-        self._setup(n=3, opts={'hinted_handoff_enabled': False})
-        self._prepare_inconsistent_data()
-        debug("stopping node2, consistent replace should fail")
-        self.cluster.nodelist()[1].stop(wait_other_notice=True)
-        self._stop_node_to_replace(gently=True)
-        self._do_replace(extra_jvm_args=["-Dcassandra.replace_consistency=GLOBAL_QUORUM"], wait_for_binary_proto=False)
-
-        # verify consistent replace failure
-        self.replacement_node.watch_log_for("java.lang.IllegalStateException: Unable to find sufficient sources for streaming range")
-        assert_not_running(self.replacement_node)
-
-    def _test_consistent_replace_node(self, gently=False, jvm_option='replace_address', same_address=False, nodes=3, rf=3, consistent_data=False):
-        self._test_replace_node(gently=gently, jvm_option=jvm_option, same_address=same_address, nodes=nodes, rf=rf,
-                                consistent_data=consistent_data,
-                                extra_jvm_args=["-Dcassandra.replace_consistency=GLOBAL_QUORUM"],
-                                options={'hinted_handoff_enabled': False})
-
-    def _test_replace_node(self, gently=False, jvm_option='replace_address', same_address=False, nodes=3, rf=3, replaced_node_index=-1,
-                           extra_jvm_args=None, consistent_data=True, options=None, data_center=None):
+    def _test_replace_node(self, gently=False, jvm_option='replace_address', same_address=False):
         """
         Check that the replace address function correctly replaces a node that has failed in a cluster.
         Create a cluster, cause a node to fail, and bring up a new node with the replace_address parameter.
         Check that tokens are migrated and that data is replicated properly.
         """
-        self._setup(n=nodes, opts=options, replaced_node_index=replaced_node_index)
-        cl = ConsistencyLevel.THREE if rf >= 3 else ConsistencyLevel.QUORUM
-        initial_data = None
-        if consistent_data:
-            self._insert_data(rf=rf)
-            initial_data = self._fetch_initial_data(cl=cl)
-        else:
-            initial_data = self._prepare_inconsistent_data(rf=rf)
-
+        self._setup(n=3)
+        self._insert_data()
+        initial_data = self._fetch_initial_data()
         self._stop_node_to_replace(gently=gently)
-        self._do_replace(jvm_option=jvm_option, same_address=same_address, extra_jvm_args=extra_jvm_args, data_center=data_center)
+        self._do_replace(same_address=same_address)
 
         for node in self.cluster.nodelist():
             if node.is_running() and node != self.replacement_node:
