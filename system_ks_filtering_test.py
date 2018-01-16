@@ -157,7 +157,7 @@ class TestSystemKeyspaceFiltering(Tester):
 
             for sysTable in [u'local', u'peers',
                              u'sstable_activity', u'size_estimates', u'IndexInfo', u'built_views',
-                             u'available_ranges', u'views_builds_in_progress']:
+                             u'available_ranges', u'view_builds_in_progress']:
                 self.assertTrue(sysTable in userSession.cluster.metadata.keyspaces['system'].tables,
                                 '{} in metadata for a user'.format(sysTable))
                 self.assertEqual(rows_to_list(userSession.execute('SELECT table_name '
