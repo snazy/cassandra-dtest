@@ -107,9 +107,8 @@ class TestSystemKeyspaces(Tester):
                          "ALTER TABLE system_auth.roles WITH comment = '';",
                          expected=Unauthorized)
 
-        assert_exception(session,
-                         "ALTER TABLE system_distributed.repair_history WITH comment = '';",
-                         expected=expected_alter_exception)
+        assert_none(session,
+                    "ALTER TABLE system_distributed.repair_history WITH comment = '';")
 
         assert_exception(session,
                          "ALTER TABLE system_traces.sessions WITH comment = '';",
