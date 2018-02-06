@@ -34,20 +34,6 @@ from tools.interceptors import delaying_interceptor, Verb
 MIGRATION_WAIT = 5
 
 
-def mv_jvm_opts(gossip_settle_wait_in_ms=3000):
-    # Initial view build will only start after mv_builder_gossip_settle_wait_in_ms
-    return ['-Dcassandra.mv.builder.gossip_settle_wait_in_ms={}'.format(gossip_settle_wait_in_ms),
-            '-Dcassandra.batchlog.replay_timeout_in_ms=0',  # Replay all batches
-            '-Ddse.batchlog.replay_interval_in_ms=-1']  # Disable scheduled replay
-
-
-def start_with_mv_options(entity, **kwargs):
-    jvm_args = kwargs['jvm_args'] if 'jvm_args' in kwargs else []
-    jvm_args = jvm_args + mv_jvm_opts()
-    kwargs['jvm_args'] = jvm_args
-    entity.start(**kwargs)
-
-
 @since('3.0')
 class TestMaterializedViews(Tester):
     """
@@ -62,27 +48,20 @@ class TestMaterializedViews(Tester):
 
     def prepare(self, user_table=False, rf=1, options=None, nodes=3,
                 install_byteman=False, enable_batch_commitlog=False,
-                gossip_settle_wait_in_ms=3000,
                 interceptors=None, **kwargs):
         cluster = self.cluster
-        # In case of failed batch replay
-        cluster.set_log_level('TRACE', ['org.apache.cassandra.batchlog.BatchlogManager'])
         cluster.populate([nodes, 0], install_byteman=install_byteman)
         if options:
-            debug("Setting configuration options: {}".format(options))
             cluster.set_configuration_options(values=options)
         if enable_batch_commitlog:
             cluster.set_batch_commitlog(enabled=True)
-
-        jvm_args = mv_jvm_opts(gossip_settle_wait_in_ms)
 
         # We'll use JMX to control interceptors, and what requires this apparently
         if interceptors:
             for node in cluster.nodelist():
                 remove_perf_disable_shared_mem(node)
-            jvm_args = jvm_args + jvm_args(interceptors=interceptors)
 
-        cluster.start(jvm_args=jvm_args)
+        cluster.start(jvm_args=jvm_args(interceptors=interceptors))
         node1 = cluster.nodelist()[0]
 
         session = self.patient_cql_connection(node1, **kwargs)
@@ -146,10 +125,10 @@ class TestMaterializedViews(Tester):
 
         def _view_build_finished(node):
             s = self.patient_exclusive_cql_connection(node)
-            query = "SELECT * FROM system.built_views WHERE keyspace_name='%s' AND view_name='%s'" %\
-                    (ks, view)
+            query = "SELECT * FROM %s WHERE keyspace_name='%s' AND view_name='%s'" % \
+                    (self._build_progress_table(), ks, view)
             result = list(s.execute(query))
-            return len(result) == 1
+            return len(result) == 0
 
         for node in self.cluster.nodelist():
             if node.is_running():
@@ -160,30 +139,21 @@ class TestMaterializedViews(Tester):
                 if attempts <= 0:
                     raise RuntimeError("View {}.{} build not finished after 50 seconds.".format(ks, view))
 
-        # View is only finished building after batchlogs are replayed
-        self._replay_batchlogs()
-
-    def _wait_view_build_start_on_node(self, session, ks, view):
+    def _wait_for_view_build_start(self, session, ks, view, wait_minutes=2):
         """Wait for the start of a MV build, ensuring that it has saved some progress"""
         start = time.time()
         while True:
             try:
                 query = "SELECT COUNT(*) FROM %s WHERE keyspace_name='%s' AND view_name='%s'" % \
                         (self._build_progress_table(), ks, view)
-                result = session.execute(query)
-                self.assertEqual(result[0][0], 0)
+                result = list(session.execute(query))
+                self.assertEqual(result[0].count, 0)
             except AssertionError:
                 break
 
             elapsed = (time.time() - start) / 60
-            if elapsed > 2:
+            if elapsed > wait_minutes:
                 self.fail("The MV build hasn't started in 2 minutes.")
-
-    def _wait_for_view_build_start_all_nodes(self, ks, view):
-        for node in self.cluster.nodelist():
-            if node.is_running():
-                node_session = self.patient_exclusive_cql_connection(node)
-                self._wait_view_build_start_on_node(node_session, ks, view)
 
     def _insert_data(self, session):
         # insert data
@@ -201,17 +171,8 @@ class TestMaterializedViews(Tester):
                 node.nodetool("replaybatchlog")
                 # CASSANDRA-13069 - Ensure replayed mutations are removed from the batchlog
                 node_session = self.patient_exclusive_cql_connection(node)
-                result = node_session.execute("SELECT count(*) FROM system.batches;")
-                self.assertEqual(result[0][0], 0)
-
-                # If there were failed batches, wait for hints to be delivered
-                failed_batches = node.grep_log(r'Adding hints for undelivered endpoints: \[\/(.*)\]', filename='debug.log')
-                failed_nodes = set()
-                for failed_batch in failed_batches:
-                    failed_nodes.add(failed_batch[1].group(1))
-                for failed_node in failed_nodes:
-                    debug("Waiting for hints to be replayed to node {}".format(failed_node))
-                    node.watch_log_for('Finished hinted handoff .* to endpoint \/{}'.format(failed_node), filename='debug.log')
+                result = list(node_session.execute("SELECT count(*) FROM system.batches;"))
+                self.assertEqual(result[0].count, 0)
 
     def create_test(self):
         """Test the materialized view creation"""
@@ -295,39 +256,16 @@ class TestMaterializedViews(Tester):
         debug("wait for view to build")
         self._wait_for_view("ks", "t_by_v")
 
+        debug("wait that all batchlogs are replayed")
+        self._replay_batchlogs()
+
         for i in xrange(1000):
             assert_one(session, "SELECT * FROM t_by_v WHERE v = {}".format(i), [i, i])
 
-    def view_build_after_slow_schema_propagation_test(self):
-        """
-        Check that view is successfully build after slow schema propagation
-        @jira_ticket DB-1328
-        """
-        self._populate_mv_after_insert_wide_rows_test(slow_propagation=True)
-
     def populate_mv_after_insert_wide_rows_test(self):
-        self._populate_mv_after_insert_wide_rows_test()
-
-    def _populate_mv_after_insert_wide_rows_test(self, slow_propagation=False):
         """Test that a view is OK when created with existing data with wide rows"""
 
-        # Start building view early to force schema not found on node2
-        gossip_settle_wait_in_ms = 0 if slow_propagation else 3000
-
-        session = self.prepare(consistency_level=ConsistencyLevel.QUORUM,
-                               install_byteman=slow_propagation,
-                               gossip_settle_wait_in_ms=gossip_settle_wait_in_ms)
-
-        node2 = self.cluster.nodelist()[1]
-        if slow_propagation:
-            self.ignore_log_patterns = [r'UnknownColumnFamilyException',
-                                        r'Attempting to mutate non-existant table']
-            if self.cluster.version() >= '4':
-                node2.byteman_submit(['./byteman/4.0/sleep_on_add_view.btm'])
-            else:
-                node2.byteman_submit(['./byteman/pre4.0/sleep_on_add_view.btm'])
-
-        debug("Creating table and inserting data")
+        session = self.prepare(consistency_level=ConsistencyLevel.QUORUM)
 
         session.execute("CREATE TABLE t (id int, v int, PRIMARY KEY (id, v))")
 
@@ -335,25 +273,17 @@ class TestMaterializedViews(Tester):
             for j in xrange(10000):
                 session.execute("INSERT INTO t (id, v) VALUES ({}, {})".format(i, j))
 
-        debug("Creating view")
-
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t WHERE v IS NOT NULL "
                          "AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
         debug("wait for view to build")
         self._wait_for_view("ks", "t_by_v")
 
-        debug("Verifying data is present")
+        debug("wait that all batchlogs are replayed")
+        self._replay_batchlogs()
         for i in xrange(5):
             for j in xrange(10000):
                 assert_one(session, "SELECT * FROM t_by_v WHERE id = {} AND v = {}".format(i, j), [j, i])
-
-        if slow_propagation:
-            debug("Checking that byteman-induced exception was thrown on node2")
-            if self.cluster.version() >= '4':
-                node2.watch_log_for('Attempting to mutate non-existant table', timeout=10)
-            else:
-                node2.watch_log_for('UnknownColumnFamilyException', timeout=10)
 
     def crc_check_chance_test(self):
         """Test that crc_check_chance parameter is properly populated after mv creation and update"""
@@ -547,11 +477,11 @@ class TestMaterializedViews(Tester):
 
         debug("Bootstrapping new node in another dc")
         node4 = new_node(self.cluster, data_center='dc2')
-        start_with_mv_options(node4, wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+        node4.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
 
         debug("Bootstrapping new node in another dc")
         node5 = new_node(self.cluster, remote_debug_port='1414', data_center='dc2')
-        start_with_mv_options(node5, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+        node5.start(jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
 
         if alter_ks_add_dc is not None:
             session.execute(alter_ks_add_dc)
@@ -616,7 +546,7 @@ class TestMaterializedViews(Tester):
             assert_one(session, "SELECT * FROM t_by_v WHERE v = {}".format(-i), [-i, i])
 
         node4 = new_node(self.cluster)
-        start_with_mv_options(node4, wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+        node4.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
 
         session2 = self.patient_exclusive_cql_connection(node4)
 
@@ -680,7 +610,7 @@ class TestMaterializedViews(Tester):
         node4 = new_node(self.cluster)
         node4.set_configuration_options(values={'max_mutation_size_in_kb': 20})  # CASSANDRA-11670
         debug("Start join at {}".format(time.strftime("%H:%M:%S")))
-        start_with_mv_options(node4, wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+        node4.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
 
         session2 = self.patient_exclusive_cql_connection(node4)
 
@@ -733,7 +663,7 @@ class TestMaterializedViews(Tester):
         node4 = new_node(self.cluster)
         node4.set_configuration_options(values={'max_mutation_size_in_kb': 20})  # CASSANDRA-11670
         debug("Start join at {}".format(time.strftime("%H:%M:%S")))
-        start_with_mv_options(node4, wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+        node4.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
 
         session2 = self.patient_exclusive_cql_connection(node4)
 
@@ -771,7 +701,7 @@ class TestMaterializedViews(Tester):
             assert_one(session, "SELECT * FROM t_by_v WHERE v = {}".format(-i), [-i, i])
 
         node4 = new_node(self.cluster)
-        start_with_mv_options(node4, wait_for_binary_proto=True, jvm_args=["-Dcassandra.write_survey=true", "-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
+        node4.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.write_survey=true", "-Dcassandra.migration_task_wait_in_seconds={}".format(MIGRATION_WAIT)])
 
         for i in xrange(1000, 1100):
             session.execute("INSERT INTO t (id, v) VALUES ({id}, {v})".format(id=i, v=-i))
@@ -839,7 +769,7 @@ class TestMaterializedViews(Tester):
         for node in cluster.nodelist():
             remove_perf_disable_shared_mem(node)
 
-        start_with_mv_options(cluster, jvm_args=jvm_args(interceptors=[delaying_write]))
+        cluster.start(jvm_args=jvm_args(interceptors=[delaying_write]))
 
         debug("Creating views")
         session = self.patient_exclusive_cql_connection(node1)
@@ -855,6 +785,7 @@ class TestMaterializedViews(Tester):
             debug("Inserting data")
             for i in xrange(10):
                 session.execute("INSERT INTO t (id, v, v2, v3) VALUES ({v}, {v}, 'a', 3.0)".format(v=i))
+
             intercepted_count = interception.intercepted_count()
 
         debug("Verifying view write lock timed out message was print")
@@ -1015,7 +946,7 @@ class TestMaterializedViews(Tester):
 
         debug('Restarting node')
         node.stop()
-        start_with_mv_options(node, wait_for_binary_proto=True)
+        node.start(wait_for_binary_proto=True)
         session = self.patient_cql_connection(node, consistency_level=ConsistencyLevel.ONE)
 
         # Both the table and its view should have the new schema after restart
@@ -1117,12 +1048,14 @@ class TestMaterializedViews(Tester):
         session = self.prepare(options=options, install_byteman=True)
         node1, node2, node3 = self.cluster.nodelist()
 
-        debug("Slowing down MV build with byteman")
+        debug("Avoid premature MV build finalization with byteman")
         for node in self.cluster.nodelist():
             if self.cluster.version() >= '4':
-                node.byteman_submit(['./byteman/4.0/view_builder_task_sleep.btm'])
+                node.byteman_submit(['./byteman/4.0/skip_view_build_finalization.btm'])
+                node.byteman_submit(['./byteman/4.0/skip_view_build_task_finalization.btm'])
             else:
-                node.byteman_submit(['./byteman/pre4.0/view_builder_task_sleep.btm'])
+                node.byteman_submit(['./byteman/pre4.0/skip_finish_view_build_status.btm'])
+                node.byteman_submit(['./byteman/pre4.0/skip_view_build_update_distributed.btm'])
 
         session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
 
@@ -1137,7 +1070,7 @@ class TestMaterializedViews(Tester):
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
         debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
-        self._wait_for_view_build_start_all_nodes('ks', 't_by_v')
+        self._wait_for_view_build_start(session, 'ks', 't_by_v', wait_minutes=2)
 
         debug("Stop the cluster. Interrupt the MV build process.")
         self.cluster.stop()
@@ -1149,17 +1082,14 @@ class TestMaterializedViews(Tester):
             node.mark_log(filename='debug.log')
 
         debug("Restart the cluster")
-        start_with_mv_options(self.cluster, wait_for_binary_proto=True)
+        self.cluster.start(wait_for_binary_proto=True)
         session = self.patient_cql_connection(node1)
         session.execute("USE ks")
 
         debug("MV shouldn't be built yet.")
-        self.assertNotEqual(session.execute("SELECT COUNT(*) FROM t_by_v")[0][0], 10000)
+        self.assertNotEqual(len(list(session.execute("SELECT COUNT(*) FROM t_by_v"))), 10000)
 
         debug("Wait and ensure the MV build resumed. Waiting up to 2 minutes.")
-        for node in self.cluster.nodelist():
-            node.watch_log_for('Resuming view build', filename='debug.log')
-
         self._wait_for_view("ks", "t_by_v")
 
         debug("Verify all data")
@@ -1172,6 +1102,10 @@ class TestMaterializedViews(Tester):
                 cl=ConsistencyLevel.ALL
             )
 
+        debug("Checking logs to verify that some view build tasks have been resumed")
+        for node in self.cluster.nodelist():
+            self.assertTrue(node.grep_log('Resuming view build', filename='debug.log'))
+
     @since('4.0')
     def test_drop_while_building(self):
         """Test that a parallel MV build is interrupted when the view is removed"""
@@ -1180,7 +1114,7 @@ class TestMaterializedViews(Tester):
         session.execute("CREATE TABLE t (id int PRIMARY KEY, v int, v2 text, v3 decimal)")
 
         debug("Inserting initial data")
-        for i in xrange(5000):
+        for i in xrange(10000):
             session.execute("INSERT INTO t (id, v, v2, v3) VALUES ({v}, {v}, 'a', 3.0) IF NOT EXISTS".format(v=i))
 
         debug("Slowing down MV build with byteman")
@@ -1190,9 +1124,6 @@ class TestMaterializedViews(Tester):
         debug("Create a MV")
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
-
-        debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
-        self._wait_for_view_build_start_all_nodes('ks', 't_by_v')
 
         debug("Drop the MV while it is still building")
         session.execute("DROP MATERIALIZED VIEW t_by_v")
@@ -1217,7 +1148,7 @@ class TestMaterializedViews(Tester):
 
         debug("Verify that the MV has been successfully created")
         self._wait_for_view('ks', 't_by_v')
-        assert_one(session, "SELECT COUNT(*) FROM t_by_v", [5000])
+        assert_one(session, "SELECT COUNT(*) FROM t_by_v", [10000])
 
     @since('4.0')
     def test_drop_with_stopped_build(self):
@@ -1228,7 +1159,7 @@ class TestMaterializedViews(Tester):
         nodes = self.cluster.nodelist()
 
         debug("Inserting initial data")
-        for i in xrange(5000):
+        for i in xrange(10000):
             session.execute("INSERT INTO t (id, v, v2, v3) VALUES ({v}, {v}, 'a', 3.0) IF NOT EXISTS".format(v=i))
 
         debug("Slowing down MV build with byteman")
@@ -1238,9 +1169,6 @@ class TestMaterializedViews(Tester):
         debug("Create a MV")
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
-
-        debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
-        self._wait_for_view_build_start_all_nodes('ks', 't_by_v')
 
         debug("Stopping all running view build tasks with nodetool")
         for node in nodes:
@@ -1276,7 +1204,7 @@ class TestMaterializedViews(Tester):
 
         debug("Verify that the MV has been successfully created")
         self._wait_for_view('ks', 't_by_v')
-        assert_one(session, "SELECT COUNT(*) FROM t_by_v", [5000])
+        assert_one(session, "SELECT COUNT(*) FROM t_by_v", [10000])
 
     @since('4.0')
     def test_resume_stopped_build(self):
@@ -1287,7 +1215,7 @@ class TestMaterializedViews(Tester):
         nodes = self.cluster.nodelist()
 
         debug("Inserting initial data")
-        for i in xrange(5000):
+        for i in xrange(10000):
             session.execute("INSERT INTO t (id, v, v2, v3) VALUES ({v}, {v}, 'a', 3.0) IF NOT EXISTS".format(v=i))
 
         debug("Slowing down MV build with byteman")
@@ -1297,9 +1225,6 @@ class TestMaterializedViews(Tester):
         debug("Create a MV")
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
-
-        debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
-        self._wait_for_view_build_start_all_nodes('ks', 't_by_v')
 
         debug("Stopping all running view build tasks with nodetool")
         for node in nodes:
@@ -1315,17 +1240,17 @@ class TestMaterializedViews(Tester):
             self.check_logs_for_errors()
 
         debug("Check that MV shouldn't be built yet.")
-        self.assertNotEqual(session.execute("SELECT COUNT(*) FROM t_by_v")[0][0], 5000)
+        self.assertNotEqual(len(list(session.execute("SELECT COUNT(*) FROM t_by_v"))), 10000)
 
         debug("Restart the cluster")
         self.cluster.stop()
         marks = [node.mark_log() for node in nodes]
-        start_with_mv_options(self.cluster, wait_for_binary_proto=True)
+        self.cluster.start(wait_for_binary_proto=True)
         session = self.patient_cql_connection(nodes[0])
 
         debug("Verify that the MV has been successfully created")
         self._wait_for_view('ks', 't_by_v')
-        assert_one(session, "SELECT COUNT(*) FROM ks.t_by_v", [5000])
+        assert_one(session, "SELECT COUNT(*) FROM ks.t_by_v", [10000])
 
         debug("Checking logs to verify that the view build has been resumed and completed after restart")
         for node, mark in zip(nodes, marks):
@@ -1630,9 +1555,9 @@ class TestMaterializedViews(Tester):
         self.update_view(session, query, flush)
 
         debug('Starting node2')
-        start_with_mv_options(node2, wait_other_notice=True, wait_for_binary_proto=True)
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
         debug('Starting node3')
-        start_with_mv_options(node3, wait_other_notice=True, wait_for_binary_proto=True)
+        node3.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # For k = 1 & a = 1, We should get a digest mismatch of tombstones and repaired
         query = SimpleStatement("SELECT * FROM mv WHERE k = 1 AND a = 1", consistency_level=ConsistencyLevel.ALL)
@@ -1846,7 +1771,7 @@ class TestMaterializedViews(Tester):
             [1, 1, 'b', 3.0]
         )
 
-        start_with_mv_options(node2, wait_other_notice=True, wait_for_binary_proto=True)
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # We should get a digest mismatch
         query = SimpleStatement("SELECT * FROM t_by_v WHERE v = 1",
@@ -1938,7 +1863,7 @@ class TestMaterializedViews(Tester):
             )
 
         debug('Start node2, and repair')
-        start_with_mv_options(node2, wait_other_notice=True, wait_for_binary_proto=True)
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
         if repair_base:
             node1.nodetool("repair ks t")
         if repair_view:
@@ -2008,7 +1933,7 @@ class TestMaterializedViews(Tester):
             node1.set_configuration_options(values={'write_request_timeout_in_ms': 100})
 
         debug('Restarting node1 with jvm_args={}'.format(jvm_args))
-        start_with_mv_options(node1, wait_other_notice=True, wait_for_binary_proto=True, jvm_args=jvm_args)
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=jvm_args)
 
         debug('Shutdown node2 and node3')
         node2.stop(wait_other_notice=True)
@@ -2025,8 +1950,8 @@ class TestMaterializedViews(Tester):
             )
 
         debug('Restarting node2 and node3')
-        start_with_mv_options(node2, wait_other_notice=True, wait_for_binary_proto=True)
-        start_with_mv_options(node3, wait_other_notice=True, wait_for_binary_proto=True)
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+        node3.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # Just repair the base replica
         debug('Starting repair on node1')
@@ -2081,8 +2006,8 @@ class TestMaterializedViews(Tester):
         node5.stop()
 
         debug('Start nodes 2 and 3')
-        start_with_mv_options(node2)
-        start_with_mv_options(node3, wait_other_notice=True, wait_for_binary_proto=True)
+        node2.start()
+        node3.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         session2 = self.patient_cql_connection(node2)
 
@@ -2111,9 +2036,9 @@ class TestMaterializedViews(Tester):
         time.sleep(5)
 
         debug('Start remaining nodes')
-        start_with_mv_options(node1, wait_other_notice=True, wait_for_binary_proto=True)
-        start_with_mv_options(node4, wait_other_notice=True, wait_for_binary_proto=True)
-        start_with_mv_options(node5, wait_other_notice=True, wait_for_binary_proto=True)
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+        node4.start(wait_other_notice=True, wait_for_binary_proto=True)
+        node5.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         session = self.patient_cql_connection(node1)
 
@@ -2206,10 +2131,10 @@ class TestMaterializedViews(Tester):
 
         # start nodes with different batch size
         debug('Starting nodes')
-        start_with_mv_options(node2, wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(2)])
-        start_with_mv_options(node3, wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(5)])
-        start_with_mv_options(node4, wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(50)])
-        start_with_mv_options(node5, wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(5000)])
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(2)])
+        node3.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(5)])
+        node4.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(50)])
+        node5.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=["-Dcassandra.repair.mutation_repair_rows_per_batch={}".format(5000)])
         self._replay_batchlogs()
 
         debug('repairing base table')
@@ -2222,7 +2147,7 @@ class TestMaterializedViews(Tester):
         debug('rolling restart to check repaired data on each node')
         for node in self.cluster.nodelist():
             debug('starting {}'.format(node.name))
-            start_with_mv_options(node, wait_other_notice=True, wait_for_binary_proto=True)
+            node.start(wait_other_notice=True, wait_for_binary_proto=True)
             session = self.patient_cql_connection(node, consistency_level=ConsistencyLevel.ONE)
             for ck1 in xrange(size):
                 for ck2 in xrange(size):
@@ -2290,8 +2215,8 @@ class TestMaterializedViews(Tester):
         node5.stop()
 
         debug('Start nodes 2 and 3')
-        start_with_mv_options(node2)
-        start_with_mv_options(node3, wait_other_notice=True, wait_for_binary_proto=True)
+        node2.start()
+        node3.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         session2 = self.patient_cql_connection(node2)
         session2.execute('USE ks')
@@ -2321,9 +2246,9 @@ class TestMaterializedViews(Tester):
         time.sleep(5)
 
         debug('Start remaining nodes')
-        start_with_mv_options(node1, wait_other_notice=True, wait_for_binary_proto=True)
-        start_with_mv_options(node4, wait_other_notice=True, wait_for_binary_proto=True)
-        start_with_mv_options(node5, wait_other_notice=True, wait_for_binary_proto=True)
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+        node4.start(wait_other_notice=True, wait_for_binary_proto=True)
+        node5.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # at this point the data isn't repaired so we have an inconsistency.
         # this value should return None
@@ -2345,8 +2270,7 @@ class TestMaterializedViews(Tester):
         """
 
         cluster = self.cluster
-        cluster.populate(3)
-        start_with_mv_options(cluster)
+        cluster.populate(3).start()
         node1 = cluster.nodelist()[0]
         session = self.patient_cql_connection(node1, consistency_level=ConsistencyLevel.QUORUM)
 
@@ -2389,7 +2313,7 @@ class TestMaterializedViews(Tester):
 
             session.execute("CREATE MATERIALIZED VIEW mv AS SELECT * FROM test WHERE "
                             "a = 1 AND b IS NOT NULL AND c = 1 PRIMARY KEY {}".format(mv_primary_key))
-            self._wait_for_view('mvtest', 'mv')
+            time.sleep(3)
 
             assert_all(
                 session, "SELECT a, b, c, d FROM mv",
@@ -2472,7 +2396,7 @@ class TestMaterializedViews(Tester):
 
         cluster = self.cluster
         cluster.populate(3)
-        start_with_mv_options(cluster)
+        cluster.start()
         node1, node2, node3 = self.cluster.nodelist()
         session = self.patient_cql_connection(node1, consistency_level=ConsistencyLevel.QUORUM)
         create_ks(session, 'ks', 3)
@@ -2488,13 +2412,13 @@ class TestMaterializedViews(Tester):
         # drop the base table only in node 3
         node1.stop(wait_other_notice=True)
         node2.stop(wait_other_notice=True)
-        start_with_mv_options(node3)
+        node3.start(wait_for_binary_proto=True)
         session = self.patient_cql_connection(node3, consistency_level=ConsistencyLevel.QUORUM)
         session.execute('DROP TABLE ks.users')
 
         # restart the cluster
         cluster.stop()
-        start_with_mv_options(cluster)
+        cluster.start()
 
         # node3 should have received and ignored the creation of the MV over the dropped table
         self.assertTrue(node3.grep_log('Not adding view users_by_state because the base table'))
@@ -2514,7 +2438,7 @@ class TestMaterializedViews(Tester):
          @jira_ticket CASSANDRA-13069
         """
 
-        self.ignore_log_patterns = [r'Dummy failure', r"Failed to force-recycle all segments"]
+        self.ignore_log_patterns = [r'Dummy failure']
         self.prepare(rf=1, install_byteman=True, options={'hinted_handoff_enabled': False}, enable_batch_commitlog=True)
         node1, node2, node3 = self.cluster.nodelist()
         session = self.patient_exclusive_cql_connection(node1)
@@ -2559,11 +2483,13 @@ class TestMaterializedViews(Tester):
         debug("Missing entries {}".format(missing_entries))
         self.assertTrue(missing_entries > 0, )
 
-        debug('Restarting node1 to ensure commit log is replayed')
-        node1.stop(wait_other_notice=True)
-        start_with_mv_options(node1)
+        debug('Stopping node1 to simulate crash')
+        node1.stop(gently=False, wait_other_notice=True)
+        # Set batchlog.replay_timeout_in_ms=1 so we can ensure batchlog will be replayed below
+        node1.start(jvm_args=["-Dcassandra.batchlog.replay_timeout_in_ms=1"])
 
         debug('Replay batchlogs')
+        time.sleep(0.001)  # Wait batchlog.replay_timeout_in_ms=1 (ms)
         self._replay_batchlogs()
 
         debug('Verify that both the base table entry and view are present after commit and batchlog replay')
@@ -2700,8 +2626,7 @@ class TestMaterializedViewsConsistency(Tester):
 
     def prepare(self, user_table=False):
         cluster = self.cluster
-        cluster.populate(3)
-        start_with_mv_options(cluster)
+        cluster.populate(3).start()
         node2 = cluster.nodelist()[1]
 
         # Keep the status of async requests
@@ -2899,9 +2824,9 @@ class TestMaterializedViewsLockcontention(Tester):
             remove_perf_disable_shared_mem(node)
 
         if self.cluster.version() < '4.0':
-            start_with_mv_options(self.cluster, jvm_args=["-Dcassandra.test.fail_mv_locks_count=64"])
+            self.cluster.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.test.fail_mv_locks_count=64"])
         else:
-            start_with_mv_options(self.cluster, wait_for_binary_proto=True)
+            self.cluster.start(wait_for_binary_proto=True)
 
         session = self.patient_exclusive_cql_connection(self.nodes[0], protocol_version=self.protocol_version)
 
