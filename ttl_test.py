@@ -609,7 +609,7 @@ class TestRecoverNegativeExpirationDate(Tester, ScrubTestMixin):
         self.cluster.stop()
 
         debug("Will run offline scrub on sstable")
-        scrubbed_sstables = self.standalonescrub('ttl_table')
+        scrubbed_sstables = self.launch_standalone_scrub('ks', 'ttl_table', reinsert_overflowed_ttl=True)
 
         debug("Executed offline scrub on " + str(scrubbed_sstables))
 
@@ -619,4 +619,4 @@ class TestRecoverNegativeExpirationDate(Tester, ScrubTestMixin):
         session.execute("USE ks;")
 
         debug("Check that row was recovered")
-        assert_row_count(session, 'ttl_table', 1)
+        assert_all(session, "SELECT * FROM ttl_table;", [[1, 1, None, None]])
