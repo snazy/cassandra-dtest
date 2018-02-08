@@ -3,7 +3,7 @@
 # linter_check ensures your changes will pass on travis.
 # Requires pycodestyle and flake8: pip install pycodestyle flake8
 
-flake8 --ignore=E501,F811,F812,F822,F823,F831,F841,N8,C9 --exclude=thrift_bindings,cassandra-thrift .
+flake8 --ignore=E501,F811,F812,F822,F823,F831,F841,N8,C9 --exclude=thrift_bindings,cassandra-thrift,src,venv .
 flake8_result=$?
 
 # lint all files for everything but line length errors

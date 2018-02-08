@@ -3,6 +3,8 @@
 *.iws
 *.ipr
 *.iml
+# venv created by IntelliJ
+venv
 
 *.pyc
 logs
@@ -10,6 +12,8 @@ last_test_dir
 upgrade
 html/
 doxygen/doxypy-0.4.2/
+# src/ created by 'pip install -r requirements.txt' for git sources
+src/
 
 # pipenv
 .venv/

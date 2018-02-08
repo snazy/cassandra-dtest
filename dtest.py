@@ -159,6 +159,17 @@ def find_libjemalloc():
         return ""
 
 
+def get_dse_version(install_dir):
+    build = os.path.join(install_dir, 'build.xml')
+    with open(build) as f:
+        for line in f:
+            match = re.search('name="base\.dse\.version" value="([0-9.]+)[^"]*"', line)
+            if match:
+                v = LooseVersion(match.group(1))
+                return "{}.{}".format(v.version[0], v.version[1])
+    return None
+
+
 CASSANDRA_LIBJEMALLOC = find_libjemalloc()
 # copy the initial environment variables so we can reset them later:
 initial_environment = copy.deepcopy(os.environ)

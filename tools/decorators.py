@@ -7,7 +7,7 @@ from unittest.case import SkipTest
 from nose.plugins.attrib import attr
 from nose.tools import assert_in, assert_is_instance
 
-from dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD
+from dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, get_dse_version
 
 
 class since(object):
@@ -45,6 +45,46 @@ class since(object):
         def wrapped(obj):
             obj.max_version = self.max_version
             version = obj.cluster.version()
+            msg = self._skip_msg(version)
+            if msg:
+                raise SkipTest(msg)
+            f(obj)
+        return wrapped
+
+    def __call__(self, skippable):
+        if inspect.isclass(skippable):
+            return self._wrap_setUpClass(skippable)
+        return self._wrap_function(skippable)
+
+
+class since_dse(object):
+
+    def __init__(self, dse_version, max_version=None):
+        self.dse_version = LooseVersion(dse_version)
+        self.max_version = max_version
+        if self.max_version is not None:
+            self.max_version = LooseVersion(self.max_version)
+
+    def _skip_msg(self, version):
+        if version < self.dse_version:
+            return "%s < %s" % (version, self.dse_version)
+        if self.max_version and version > self.max_version:
+            return "%s > %s" % (version, self.max_version)
+
+    def _wrap_setUpClass(self, cls):
+        @classmethod
+        @functools.wraps(cls.setUpClass)
+        def wrapped_setUpClass(obj, *args, **kwargs):
+            raise Exception("We do not have a corresponding DSE_VERSION_FROM_BUILD in dtest/ccm yet")
+
+        cls.setUpClass = wrapped_setUpClass
+        return cls
+
+    def _wrap_function(self, f):
+        @functools.wraps(f)
+        def wrapped(obj):
+            obj.max_version = self.max_version
+            version = get_dse_version(obj.cluster.get_install_dir())
             msg = self._skip_msg(version)
             if msg:
                 raise SkipTest(msg)
