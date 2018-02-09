@@ -64,7 +64,7 @@ class TestSCUpgrade(Tester):
         expected = [[name, 'attr', u'name', name] for name in ['Grace', 'Claire', 'Dave', 'Frank', 'Ed', 'Bob', 'Alice']]
         assert_all(session, "SELECT * FROM cols", expected)
 
-    def _upgrade_super_columns_through_versions_test(self, upgrade_path):
+    def _upgrade_super_columns_through_versions_test(self, upgrade_path, drop_cs_after):
         cluster = self.prepare()
         node1 = cluster.nodelist()[0]
         node1.run_cqlsh(cmds="""CREATE KEYSPACE supcols WITH replication = {
@@ -115,14 +115,19 @@ class TestSCUpgrade(Tester):
             self.verify_with_cql(session)
             self.verify_with_thrift()
 
+            if version == drop_cs_after:
+                session.execute("ALTER TABLE supcols.cols DROP COMPACT STORAGE")
+
         cluster.remove(node=node1)
 
     def upgrade_super_columns_through_all_versions_test(self):
         self._upgrade_super_columns_through_versions_test(upgrade_path=['alias:apollo/cassandra-2.1_dse', 'alias:apollo/dse5.0',
-                                                                        'alias:apollo/dse5.1', 'alias:apollo/master'])
+                                                                        'alias:apollo/dse5.1', 'alias:apollo/master'],
+                                                          drop_cs_after='alias:apollo/dse5.1')
 
     def upgrade_super_columns_through_limited_versions_test(self):
-        self._upgrade_super_columns_through_versions_test(upgrade_path=['alias:apollo/dse5.0', 'alias:apollo/master'])
+        self._upgrade_super_columns_through_versions_test(upgrade_path=['alias:apollo/dse5.0', 'alias:apollo/master'],
+                                                          drop_cs_after='alias:apollo/dse5.0')
 
     def upgrade_to_version(self, tag, nodes=None):
         debug('Upgrading to ' + tag)

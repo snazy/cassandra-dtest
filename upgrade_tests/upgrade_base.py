@@ -126,6 +126,33 @@ class UpgradeTester(Tester):
 
         return session
 
+    def drop_compact_storage_on_all_tables(self, node):
+        session = self.patient_exclusive_cql_connection(node)
+        for ks in session.cluster.metadata.keyspaces.values():
+            if not ks.name.startswith('system'):
+                for tab in ks.tables.values():
+                    if tab.is_compact_storage:
+                        debug("Dropping COMPACT STORAGE from {}.{}".format(ks.name, tab.name))
+                        session.execute('ALTER TABLE {}.{} DROP COMPACT STORAGE'.format(ks.name, tab.name))
+        session.cluster.shutdown()
+
+    def has_compact_storage_table(self, node):
+        session = self.patient_exclusive_cql_connection(node)
+        r = False
+        for ks in session.cluster.metadata.keyspaces.values():
+            if not ks.name.startswith('system'):
+                for tab in ks.tables.values():
+                    if tab.is_compact_storage:
+                        r = True
+        session.cluster.shutdown()
+        return r
+
+    def maybe_with_compact_storage(self, continuation=False):
+        current_is_40 = self.cluster.version() >= "4.0"
+        if continuation:
+            return "WITH COMPACT STORAGE AND" if not current_is_40 else "WITH"
+        return "WITH COMPACT STORAGE" if not current_is_40 else ""
+
     def do_upgrade(self, session, use_thrift=False, return_nodes=False, **kwargs):
         """
         Upgrades the first node in the cluster and returns a list of
@@ -160,10 +187,26 @@ class UpgradeTester(Tester):
         debug('upgrading node1 to {}'.format(self.UPGRADE_PATH.upgrade_version))
         switch_jdks(self.UPGRADE_PATH.upgrade_meta.java_version)
 
+        previous_version = node1.get_cassandra_version()
+
+        prev_install_dir = node1.get_install_dir()
         node1.set_install_dir(version=self.UPGRADE_PATH.upgrade_version)
 
         # this is a bandaid; after refactoring, upgrades should account for protocol version
         new_version_from_build = get_version_from_build(node1.get_install_dir())
+
+        # Since 4.0 / DSE 6.0, we have to DROP COMPACT STORAGE on all tables, _before_ the upgrade.
+        # However, there is no reliable way to check the version-from-build before it's been applied.
+        # In this case, we have to put node1 back to the previous version, start it again, execute the
+        # DROP COMPACT STORAGE, and set the install dir again.
+        if new_version_from_build >= '4.0' > previous_version and self.has_compact_storage_table(node2):
+            debug('Dropping COMPACT STORAGE from some table(s) for the upgrade from {} to {}...'.format(previous_version, new_version_from_build))
+            node1.set_install_dir(install_dir=prev_install_dir)
+            node1.start(wait_for_binary_proto=True, wait_other_notice=True)
+            self.drop_compact_storage_on_all_tables(node1)
+            node1.drain()
+            node1.stop(gently=True)
+            node1.set_install_dir(version=self.UPGRADE_PATH.upgrade_version)
 
         # Check if a since annotation with a max_version was set on this test.
         # The since decorator can only check the starting version of the upgrade,

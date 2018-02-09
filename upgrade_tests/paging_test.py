@@ -460,8 +460,8 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
                 c int,
                 v text,
                 PRIMARY KEY (k, c)
-            ) WITH COMPACT STORAGE;
-        """)
+            ) {};
+        """.format(self.maybe_with_compact_storage()))
 
         for is_upgraded, cursor in self.do_upgrade(cursor):
             debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
@@ -507,8 +507,8 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
                 c2 int,
                 v text,
                 PRIMARY KEY (k, c1, c2)
-            ) WITH COMPACT STORAGE;
-        """)
+            ) {};
+        """.format(self.maybe_with_compact_storage()))
 
         for is_upgraded, cursor in self.do_upgrade(cursor):
             debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
