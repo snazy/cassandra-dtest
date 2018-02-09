@@ -1163,6 +1163,21 @@ class TestAuthOneNode(ReusableClusterTester, AuthMixin):
 
         assert_unauthorized(bob, "LIST ALL PERMISSIONS OF cathy", "You are not authorized to view cathy's permissions")
 
+        if with_describe:  # >= DSE 6.0
+            """
+            @jira_ticket DB-531
+            """
+            cassandra.execute("CREATE ROLE humans")
+            cassandra.execute("GRANT humans TO cathy")
+
+            cassandra.execute("GRANT DESCRIBE ON ALL ROLES TO bob")
+            bob.execute("LIST ALL PERMISSIONS OF cathy")
+
+            cathy = self.get_session(user='cathy', password='12345')
+            assert_unauthorized(cathy, "LIST ALL PERMISSIONS OF bob", "You are not authorized to view bob's permissions")
+            cassandra.execute("GRANT DESCRIBE ON ALL ROLES TO humans")
+            cathy.execute("LIST ALL PERMISSIONS OF bob")
+
     def type_auth_test(self):
         """
         * Launch a one node cluster
