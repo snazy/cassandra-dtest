@@ -27,7 +27,7 @@ import ccmlib.repository
 import dse
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
-from ccmlib.common import get_version_from_build, is_win
+from ccmlib.common import get_version_from_build, get_install_dir_from_cluster_conf, get_dse_version, is_win
 from dse import ConsistencyLevel
 from dse.cluster import Cluster as PyCluster
 from dse.cluster import EXEC_PROFILE_DEFAULT, ExecutionProfile, NoHostAvailable
@@ -118,6 +118,29 @@ def get_sha(repo_dir):
             raise
 
 
+def get_dse_version_from_build(install_dir=None, node_path=None):
+    if install_dir is None and node_path is not None:
+        install_dir = get_install_dir_from_cluster_conf(node_path)
+    if install_dir is not None:
+        # Binary cassandra installs will have a 0.version.txt file
+        version_file = os.path.join(install_dir, '0.version.txt')
+        if os.path.exists(version_file):
+            with open(version_file) as f:
+                return LooseVersion(f.read().strip())
+        # For DSE look for a dse*.jar and extract the version number
+        dse_version = get_dse_version(install_dir)
+        if (dse_version is not None):
+            return LooseVersion(dse_version)
+        # Source cassandra installs we can read from build.xml
+        build = os.path.join(install_dir, 'build.xml')
+        with open(build) as f:
+            for line in f:
+                match = re.search('name="base\.dse\.version" value="([0-9.]+)[^"]*"', line)
+                if match:
+                    return LooseVersion(match.group(1))
+    raise Exception("Cannot find DSE version")
+
+
 # There are times when we want to know the C* version we're testing against
 # before we call Tester.setUp. In the general case, we can't know that -- the
 # test method could use any version it wants for self.cluster. However, we can
@@ -131,9 +154,11 @@ if _cassandra_version_slug:
     # fetch but don't build the specified C* version
     ccm_repo_cache_dir, _ = ccmlib.repository.setup(_cassandra_version_slug)
     CASSANDRA_VERSION_FROM_BUILD = get_version_from_build(ccm_repo_cache_dir)
+    DSE_VERSION_FROM_BUILD = get_dse_version_from_build(ccm_repo_cache_dir)
     CASSANDRA_GITREF = get_sha(ccm_repo_cache_dir)  # will be set None when not a git repo
 else:
     CASSANDRA_VERSION_FROM_BUILD = get_version_from_build(APOLLO_DIR)
+    DSE_VERSION_FROM_BUILD = get_dse_version_from_build(APOLLO_DIR)
     CASSANDRA_GITREF = get_sha(APOLLO_DIR)
 
 
@@ -157,17 +182,6 @@ def find_libjemalloc():
     except Exception as exc:
         print "Failed to run script to prelocate libjemalloc ({}): {}".format(script, exc)
         return ""
-
-
-def get_dse_version(install_dir):
-    build = os.path.join(install_dir, 'build.xml')
-    with open(build) as f:
-        for line in f:
-            match = re.search('name="base\.dse\.version" value="([0-9.]+)[^"]*"', line)
-            if match:
-                v = LooseVersion(match.group(1))
-                return "{}.{}".format(v.version[0], v.version[1])
-    return None
 
 
 CASSANDRA_LIBJEMALLOC = find_libjemalloc()

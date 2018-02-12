@@ -1,6 +1,6 @@
 from collections import namedtuple
 
-from dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD,
+from dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD, DSE_VERSION_FROM_BUILD,
                    RUN_STATIC_UPGRADE_MATRIX, debug)
 
 # UpgradePath's contain data about upgrade paths we wish to test
@@ -41,23 +41,26 @@ def _get_version_family():
     cassandra-2.1_dse -> 2.1.x
     dse5.0 -> 3.0.x
     dse5.1 -> 3.x
+    dse6.0 -> 4.0
     master -> 4.0
     """
 
-    current_version = CASSANDRA_VERSION_FROM_BUILD
+    current_version = DSE_VERSION_FROM_BUILD
 
     version_family = 'unknown'
-    if current_version.vstring.startswith('2.1'):
+    if current_version.vstring.startswith('4.8'):
         version_family = 'cassandra-2.1_dse'
-    elif current_version.vstring.startswith('3.0'):
+    elif current_version.vstring.startswith('5.0'):
         version_family = 'dse5.0'
-    elif current_version > '3.0' and current_version < '4.0':
+    elif current_version.vstring.startswith('5.1'):
         version_family = 'dse5.1'
-    elif current_version == '4.0':
+    elif current_version.vstring.startswith('6.0'):
+        version_family = 'dse6.0'
+    elif current_version.vstring.startswith('6.1'):
         version_family = 'master'
-    elif current_version > '4.0':
+    elif current_version > '6.1':
         # when this occurs, it's time to update this manifest a bit!
-        raise RuntimeError("4.0+ not yet supported on upgrade tests!")
+        raise RuntimeError("DSE >6.1 not yet supported on upgrade tests!")
 
     return version_family
 
@@ -123,6 +126,8 @@ indev_dse_5_0 = VersionMeta(name='indev_dse_5_0', family='dse5.0', variant='inde
 
 indev_dse_5_1 = VersionMeta(name='indev_dse_5_1', family='dse5.1', variant='indev', version='alias:apollo/dse5.1', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
+indev_dse_6_0 = VersionMeta(name='indev_dse_6_0', family='dse6.0', variant='indev', version='alias:apollo/dse6.0', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+
 indev_master = VersionMeta(name='indev_master', family='master', variant='indev', version='alias:apollo/master', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
 # MANIFEST maps a VersionMeta representing a line/variant to a list of other VersionMeta's representing supported upgrades
@@ -141,9 +146,11 @@ MANIFEST = {
 
     indev_cassandra_2_1_dse: [indev_dse_5_0, indev_dse_5_1],
 
-    indev_dse_5_0: [indev_dse_5_1, indev_master],
+    indev_dse_5_0: [indev_dse_5_1, indev_dse_6_0, indev_master],
 
-    indev_dse_5_1: [indev_master]
+    indev_dse_5_1: [indev_dse_6_0, indev_master],
+
+    indev_dse_6_0: [indev_master]
 }
 
 # Local env and custom path testing instructions. Use these steps to REPLACE the normal upgrade test cases with your own.

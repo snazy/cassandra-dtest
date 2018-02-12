@@ -139,15 +139,17 @@ class TestCQL(UpgradeTester):
             # Queries
             assert_one(cursor, "SELECT firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000", ['Frodo', 'Baggins'])
 
-            assert_one(cursor, "SELECT * FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000", [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins'])
+            columns = "userid, age, firstname, lastname" if self.compact_storage_dropped else "*"
+
+            assert_one(cursor, "SELECT {} FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000".format(columns), [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins'])
 
             # FIXME There appears to be some sort of problem with reusable cells
             # when executing this query.  It's likely that CASSANDRA-9705 will
             # fix this, but I'm not 100% sure.
-            assert_one(cursor, "SELECT * FROM users WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479", [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'])
+            assert_one(cursor, "SELECT {} FROM users WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479".format(columns), [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'])
 
-            assert_all(cursor, "SELECT * FROM users", [[UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'],
-                                                       [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins']])
+            assert_all(cursor, "SELECT {} FROM users".format(columns), [[UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'],
+                                                                        [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins']])
 
             # Test batch inserts
             cursor.execute("""
@@ -159,8 +161,8 @@ class TestCQL(UpgradeTester):
                 APPLY BATCH
             """)
 
-            assert_all(cursor, "SELECT * FROM users", [[UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 37, None, None],
-                                                       [UUID('550e8400-e29b-41d4-a716-446655440000'), 36, None, None]])
+            assert_all(cursor, "SELECT {} FROM users".format(columns), [[UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 37, None, None],
+                                                                        [UUID('550e8400-e29b-41d4-a716-446655440000'), 36, None, None]])
 
     def dynamic_cf_test(self):
         """ Test non-composite dynamic CF syntax """
@@ -196,8 +198,11 @@ class TestCQL(UpgradeTester):
 
             assert_all(cursor, "SELECT time FROM clicks", [[24], [12], [128], [24], [12], [42]])
 
-            # Check we don't allow empty values for url since this is the full underlying cell name (#6152)
-            assert_invalid(cursor, "INSERT INTO clicks (userid, url, time) VALUES (810e8500-e29b-41d4-a716-446655440000, '', 42)")
+            if not self.compact_storage_dropped:
+                # Check we don't allow empty values for url since this is the full underlying cell name (#6152)
+                assert_invalid(cursor, "INSERT INTO clicks (userid, url, time) VALUES (810e8500-e29b-41d4-a716-446655440000, '', 42)")
+            else:
+                cursor.execute("INSERT INTO clicks (userid, url, time) VALUES (810e8500-e29b-41d4-a716-446655440000, '', 42)")
 
     def dense_cf_test(self):
         """ Test composite 'dense' CF syntax """
@@ -223,9 +228,13 @@ class TestCQL(UpgradeTester):
             cursor.execute("INSERT INTO connections (userid, ip, port, time) VALUES (550e8400-e29b-41d4-a716-446655440000, '192.168.0.2', 90, 42)")
             cursor.execute("UPDATE connections SET time = 24 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.2' AND port = 80")
 
-            # we don't have to include all of the clustering columns (see CASSANDRA-7990)
-            cursor.execute("INSERT INTO connections (userid, ip, time) VALUES (f47ac10b-58cc-4372-a567-0e02b2c3d479, '192.168.0.3', 42)")
-            cursor.execute("UPDATE connections SET time = 42 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.4'")
+            if not self.compact_storage_dropped:
+                # we don't have to include all of the clustering columns (see CASSANDRA-7990)
+                cursor.execute("INSERT INTO connections (userid, ip, time) VALUES (f47ac10b-58cc-4372-a567-0e02b2c3d479, '192.168.0.3', 42)")
+                cursor.execute("UPDATE connections SET time = 42 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.4'")
+            else:
+                assert_invalid(cursor, "INSERT INTO connections (userid, ip, time) VALUES (f47ac10b-58cc-4372-a567-0e02b2c3d479, '192.168.0.3', 42)")
+                assert_invalid(cursor, "UPDATE connections SET time = 42 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.4'")
 
             # Queries
             assert_all(cursor, "SELECT ip, port, time FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000",
@@ -239,11 +248,12 @@ class TestCQL(UpgradeTester):
 
             assert_none(cursor, "SELECT ip, port, time FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000 and ip > '192.168.0.2'")
 
-            assert_one(cursor, "SELECT ip, port, time FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'",
-                       ['192.168.0.3', None, 42])
+            if not self.compact_storage_dropped:
+                assert_one(cursor, "SELECT ip, port, time FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'",
+                           ['192.168.0.3', None, 42])
 
-            assert_one(cursor, "SELECT ip, port, time FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.4'",
-                       ['192.168.0.4', None, 42])
+                assert_one(cursor, "SELECT ip, port, time FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.4'",
+                           ['192.168.0.4', None, 42])
 
             # Deletion
             cursor.execute("DELETE time FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000 AND ip = '192.168.0.2' AND port = 80")
@@ -254,8 +264,11 @@ class TestCQL(UpgradeTester):
             cursor.execute("DELETE FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
             assert_none(cursor, "SELECT * FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
 
-            cursor.execute("DELETE FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
-            assert_none(cursor, "SELECT * FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
+            if not self.compact_storage_dropped:
+                cursor.execute("DELETE FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
+                assert_none(cursor, "SELECT * FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
+            else:
+                assert_invalid(cursor, "DELETE FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
 
     def sparse_cf_test(self):
         """ Test composite 'sparse' CF syntax """
@@ -1693,7 +1706,9 @@ class TestCQL(UpgradeTester):
                 for c in range(0, 2):
                     cursor.execute(q, (k, c))
 
-            query = "SELECT * FROM test2"
+            columns = "k, v" if self.compact_storage_dropped else "*"
+
+            query = "SELECT {} FROM test2".format(columns)
             assert_all(cursor, query, [[x, y] for x in range(0, 2) for y in range(0, 2)])
 
     def no_clustering_test(self):
@@ -2462,7 +2477,7 @@ class TestCQL(UpgradeTester):
     def multi_in_test(self):
         self.__multi_in(False)
 
-    @since('2.2')
+    @since('2.2', max_version='4.0')
     def multi_in_compact_test(self):
         self.__multi_in(True)
 
@@ -2686,8 +2701,10 @@ class TestCQL(UpgradeTester):
             debug("Querying {} node".format("upgraded" if is_upgraded else "old"))
             cursor.execute("TRUNCATE bar")
 
+            columns = "id, i" if self.compact_storage_dropped else "*"
+
             cursor.execute("INSERT INTO bar (id, i) VALUES (1, 2);")
-            assert_one(cursor, "SELECT * FROM bar", [1, 2])
+            assert_one(cursor, "SELECT {} FROM bar".format(columns), [1, 2])
 
     def query_compact_tables_during_upgrade_test(self):
         """
@@ -4017,7 +4034,7 @@ class TestCQL(UpgradeTester):
 
         cursor.execute("CREATE INDEX ON test(v)")
 
-        for is_upgraded, cursor in self.do_upgrade(cursor):
+        for is_upgraded, cursor, node in self.do_upgrade(cursor, return_nodes=True):
             debug("Querying {} node".format("upgraded" if is_upgraded else "old"))
             cursor.execute("TRUNCATE test")
 
@@ -4028,8 +4045,9 @@ class TestCQL(UpgradeTester):
             assert_all(cursor, "SELECT * FROM test WHERE v = 1", [[0, 0, 42, 1], [0, 1, 42, 1]])
             assert_all(cursor, "SELECT p, s FROM test WHERE v = 1", [[0, 42], [1, 42]])
             assert_all(cursor, "SELECT p FROM test WHERE v = 1", [[0], [1]])
-            # We don't support that
-            assert_invalid(cursor, "SELECT s FROM test WHERE v = 1")
+            if node.get_cassandra_version() < '3.11':
+                # We don't support that
+                assert_invalid(cursor, "SELECT s FROM test WHERE v = 1")
 
     @since('2.1')
     def static_columns_with_distinct_test(self):
@@ -4894,9 +4912,11 @@ class TestCQL(UpgradeTester):
             assert_all(cursor, "SELECT v FROM test WHERE k=0 AND v > 0 AND v <= 4 LIMIT 2", [[1], [2]])
             assert_all(cursor, "SELECT v FROM test WHERE k=0 AND v > -1 AND v <= 4 LIMIT 2", [[0], [1]])
 
-            assert_all(cursor, "SELECT * FROM test WHERE k IN (0, 1, 2) AND v > 0 AND v <= 4 LIMIT 2", [[0, 1], [0, 2]])
-            assert_all(cursor, "SELECT * FROM test WHERE k IN (0, 1, 2) AND v > -1 AND v <= 4 LIMIT 2", [[0, 0], [0, 1]])
-            assert_all(cursor, "SELECT * FROM test WHERE k IN (0, 1, 2) AND v > 0 AND v <= 4 LIMIT 6", [[0, 1], [0, 2], [0, 3], [1, 1], [1, 2], [1, 3]])
+            columns = "k, v" if self.compact_storage_dropped else "*"
+
+            assert_all(cursor, "SELECT {} FROM test WHERE k IN (0, 1, 2) AND v > 0 AND v <= 4 LIMIT 2".format(columns), [[0, 1], [0, 2]])
+            assert_all(cursor, "SELECT {} FROM test WHERE k IN (0, 1, 2) AND v > -1 AND v <= 4 LIMIT 2".format(columns), [[0, 0], [0, 1]])
+            assert_all(cursor, "SELECT {} FROM test WHERE k IN (0, 1, 2) AND v > 0 AND v <= 4 LIMIT 6".format(columns), [[0, 1], [0, 2], [0, 3], [1, 1], [1, 2], [1, 3]])
 
             # This doesn't work -- see #7059
             # assert_all(cursor, "SELECT * FROM test WHERE v > 1 AND v <= 3 LIMIT 6 ALLOW FILTERING", [[1, 2], [1, 3], [0, 2], [0, 3], [2, 2], [2, 3]])

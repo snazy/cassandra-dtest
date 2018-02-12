@@ -44,6 +44,8 @@ class UpgradeTester(Tester):
     __metaclass__ = ABCMeta
     NODES, RF, __test__, CL, UPGRADE_PATH = 2, 1, False, None, None
 
+    compact_storage_dropped = False
+
     # known non-critical bug during teardown:
     # https://issues.apache.org/jira/browse/CASSANDRA-12340
     if CASSANDRA_VERSION_FROM_BUILD < '2.2':
@@ -207,6 +209,7 @@ class UpgradeTester(Tester):
             node1.drain()
             node1.stop(gently=True)
             node1.set_install_dir(version=self.UPGRADE_PATH.upgrade_version)
+            self.compact_storage_dropped = True
 
         # Check if a since annotation with a max_version was set on this test.
         # The since decorator can only check the starting version of the upgrade,

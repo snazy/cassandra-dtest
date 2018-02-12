@@ -105,6 +105,7 @@ def _validate_dense_thrift(client, cf='dense_super_1'):
         assert_equal(cosc.super_column.columns[0].value, 'value1')
 
 
+@since('2.1', max_version='3.X')
 class UpgradeSuperColumnsThrough(Tester):
     def upgrade_to_version(self, tag, nodes=None):
         debug('Upgrading to ' + tag)
@@ -266,7 +267,7 @@ class UpgradeSuperColumnsThrough(Tester):
         _validate_sparse_cql(cursor, cf='sparse_super_2')
 
 
-@since('2.1', max_version='4.0.0')
+@since('2.1', max_version='3.X')
 class TestThrift(UpgradeTester):
     """
     Verify dense and sparse supercolumn functionality with and without renamed columns

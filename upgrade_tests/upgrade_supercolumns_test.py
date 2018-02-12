@@ -122,11 +122,11 @@ class TestSCUpgrade(Tester):
 
     def upgrade_super_columns_through_all_versions_test(self):
         self._upgrade_super_columns_through_versions_test(upgrade_path=['alias:apollo/cassandra-2.1_dse', 'alias:apollo/dse5.0',
-                                                                        'alias:apollo/dse5.1', 'alias:apollo/master'],
+                                                                        'alias:apollo/dse5.1', 'alias:apollo/dse6.0'],
                                                           drop_cs_after='alias:apollo/dse5.1')
 
     def upgrade_super_columns_through_limited_versions_test(self):
-        self._upgrade_super_columns_through_versions_test(upgrade_path=['alias:apollo/dse5.0', 'alias:apollo/master'],
+        self._upgrade_super_columns_through_versions_test(upgrade_path=['alias:apollo/dse5.0', 'alias:apollo/dse6.0'],
                                                           drop_cs_after='alias:apollo/dse5.0')
 
     def upgrade_to_version(self, tag, nodes=None):

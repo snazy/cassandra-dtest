@@ -1,7 +1,7 @@
 from ccmlib.node import TimeoutError
 from dse.query import (SimpleStatement, ConsistencyLevel)
 
-from dtest import (Tester, debug, get_dse_version)
+from dtest import (Tester, debug, get_dse_version_from_build)
 from tools.assertions import assert_all
 from tools.decorators import since_dse
 
@@ -50,13 +50,16 @@ class TestFeatureUpgrade(Tester):
 
     # Mapping of current version to the branch of the previous version.
     # The general_* upgrade tests will fail, if there is no
-    _previous_dse_version_branches = {'6.0': "alias:apollo/dse5.1"}
-    _release_version_for_dse_version = {'6.0': '4.0'}
+    _previous_dse_version_branches = {'6.0': "alias:apollo/dse5.1",
+                                      '6.1': "alias:apollo/dse6.0"}
+    _release_version_for_dse_version = {'6.0': '4.0',
+                                        '6.1': '4.0'}
 
     def _get_dse_version(self, install_dir=None):
         if not install_dir:
             install_dir = self.cluster.get_install_dir()
-        return get_dse_version(install_dir)
+        ver = get_dse_version_from_build(install_dir)
+        return "{}.{}".format(ver.version[0], ver.version[1])
 
     def _get_previous_version_branch(self):
         dse_version = self._get_dse_version()

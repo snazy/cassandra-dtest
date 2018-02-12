@@ -7,7 +7,7 @@ from unittest.case import SkipTest
 from nose.plugins.attrib import attr
 from nose.tools import assert_in, assert_is_instance
 
-from dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, get_dse_version
+from dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, get_dse_version_from_build
 
 
 class since(object):
@@ -84,7 +84,7 @@ class since_dse(object):
         @functools.wraps(f)
         def wrapped(obj):
             obj.max_version = self.max_version
-            version = get_dse_version(obj.cluster.get_install_dir())
+            version = get_dse_version_from_build(obj.cluster.get_install_dir())
             msg = self._skip_msg(version)
             if msg:
                 raise SkipTest(msg)

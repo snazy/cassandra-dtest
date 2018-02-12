@@ -105,6 +105,7 @@ class TestStorageEngineUpgrade(Tester):
         """
         self.upgrade_with_clustered_table()
 
+    @since('2.0', max_version='3.X')
     def upgrade_with_clustered_compact_table_test(self):
         """
         Validates we can do basic slice queries (forward and reverse ones) on legacy sstables for a COMPACT table
@@ -119,6 +120,7 @@ class TestStorageEngineUpgrade(Tester):
         """
         self.upgrade_with_unclustered_table()
 
+    @since('2.0', max_version='3.X')
     def upgrade_with_unclustered_compact_table_test(self):
         """
         Validates we can do basic name queries on legacy sstables for a COMPACT table without clustering.
