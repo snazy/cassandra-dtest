@@ -2,6 +2,7 @@ import os
 import time
 from collections import OrderedDict
 from distutils import dir_util
+from distutils.version import LooseVersion
 
 from dse import ConsistencyLevel, InvalidRequest
 from dse.query import SimpleStatement
@@ -569,8 +570,8 @@ class TestDistributedTTL(Tester):
 
 class TestRecoverNegativeExpirationDate(Tester, ScrubTestMixin):
 
-    @since('3.0', max_version='3.99')
-    def recover_negative_expiration_date_sstables_with_scrub(self):
+    @since('2.1')
+    def recover_negative_expiration_date_sstables_with_scrub_test(self):
         """
         @jira_ticket CASSANDRA-14092
         Check that row with negative overflowed ttl is recovered by offline scrub
@@ -592,7 +593,9 @@ class TestRecoverNegativeExpirationDate(Tester, ScrubTestMixin):
         """
         session.execute(query)
 
-        version = '3.0' if self.cluster.version() >= '3.0' and self.cluster.version() < '3.11' else '3.11'
+        version = '2.1' if self.cluster.version() < LooseVersion('3.0') else \
+                  ('3.0' if self.cluster.version() < LooseVersion('3.11') else '3.11')
+
         corrupt_sstable_dir = os.path.join('sstables', 'ttl_test', version)
         table_dir = self.get_table_paths('ttl_table')[0]
         debug("Copying sstables from {} into {}".format(corrupt_sstable_dir, table_dir))
@@ -600,7 +603,7 @@ class TestRecoverNegativeExpirationDate(Tester, ScrubTestMixin):
 
         debug("Load corrupted sstable")
         node.nodetool('refresh ks ttl_table')
-        node.watch_log_for('Loading new SSTables and building secondary indexes for ks/ttl_table', timeout=10)
+        node.watch_log_for('Loading new SSTables', timeout=10)
 
         debug("Check that there are no rows present")
         assert_row_count(session, 'ttl_table', 0)
@@ -609,9 +612,11 @@ class TestRecoverNegativeExpirationDate(Tester, ScrubTestMixin):
         self.cluster.stop()
 
         debug("Will run offline scrub on sstable")
-        scrubbed_sstables = self.launch_standalone_scrub('ks', 'ttl_table', reinsert_overflowed_ttl=True)
+        scrubbed_sstables = self.launch_standalone_scrub('ks', 'ttl_table',
+                                                         reinsert_overflowed_ttl=True,
+                                                         no_validate=True)
 
-        debug("Executed offline scrub on " + str(scrubbed_sstables))
+        debug("Executed offline scrub on" + str(scrubbed_sstables))
 
         debug("Starting node again")
         self.cluster.start(wait_for_binary_proto=True)
