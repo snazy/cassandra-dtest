@@ -339,3 +339,37 @@ class TestWriteFailures(Tester):
         mbean = make_mbean('metrics', type='Storage', name='TotalHints')
         with JolokiaAgent(node) as jmx:
             return jmx.read_attribute(mbean, 'Count')
+
+    @since('3.11')
+    def test_success_with_failing_node(self):
+        """
+        Verify that a single node consistently writing to fail will not result in a failed write if the other replicas
+        write successfully.
+        @jira_ticket DB-1717
+        """
+        num_nodes = 3
+        cluster = self.cluster
+        debug("Creating and starting a {}-node cluster".format(num_nodes))
+        cluster.populate(nodes=num_nodes).start(wait_for_binary_proto=True)
+
+        ks_name = "ks"
+        node = cluster.nodelist()[0]
+        debug("Restarting node 0 to set it up so that it always fails writes")
+        node.stop()
+        node.start(wait_for_binary_proto=True, jvm_args=["-Dcassandra.test.fail_writes_ks=" + ks_name])
+
+        cf_name = "t1"
+        debug("Creating a keyspace and a table (replicated on all nodes)")
+        setupCql = """
+            CREATE KEYSPACE {ks_name} WITH REPLICATION = {{'class' : 'SimpleStrategy', 'replication_factor': {num_nodes} }};
+            CREATE TABLE {ks_name}.{cf_name} (tid varchar PRIMARY KEY, data varchar);
+        """.format(ks_name=ks_name, num_nodes=num_nodes, cf_name=cf_name)
+        node.run_cqlsh(setupCql)
+        time.sleep(1)
+
+        debug("Executing some QUORUM writes that are expected to succeed (only node 0 should fail to write)")
+        session = self.patient_cql_connection(node, consistency_level=ConsistencyLevel.QUORUM)
+        for i in range(1, 2 * num_nodes):
+            writeCql = "UPDATE {ks_name}.{cf_name} SET data='Some data' WHERE tid='key{index}'" \
+                .format(ks_name=ks_name, cf_name=cf_name, index=i)
+            session.execute(writeCql)
