@@ -663,3 +663,17 @@ class TestNodeSyncTool(Tester):
 
         self.assertNotIn("Starting NodeSync tracing on /{}".format(node2.address()), stdout)
         self.assertNotIn("Stopped NodeSync tracing on /{}".format(node2.address()), stdout)
+
+    def test_disabled_jmx(self):
+        """
+        Tests that commands requiring JMX show a meaningful error if JMX is not enabled in a target node
+        @jira_ticket DB-1710
+        :return:
+        """
+        self._prepare_cluster(keyspaces=1, tables_per_keyspace=1, nodesync_enabled=True)
+        self.session.execute("DELETE jmx_port FROM system.local WHERE key='local'")
+        nodesync_tool(self.cluster, ['validation', 'submit', 'k1.t1', '(0,1]'],
+                      expected_stderr=['/127.0.0.1: failed for ranges [(0,1]], there are no more replicas to try: '
+                                       'Unable to read the JMX port of node 127.0.0.1, '
+                                       'this could be because JMX is not enabled in that node '
+                                       'or it\'s running a version without NodeSync support'])
