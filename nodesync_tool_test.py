@@ -42,8 +42,8 @@ class TestNodeSyncTool(Tester):
 
         return self.session
 
-    def _restart_cluster(self):
-        self.cluster.stop()
+    def _restart_cluster(self, gently=True):
+        self.cluster.stop(gently=gently)
         self.cluster.start(wait_for_binary_proto=True)
         node1 = self.cluster.nodelist()[0]
         self.session = self.patient_cql_connection(node1)
@@ -417,7 +417,7 @@ class TestNodeSyncTool(Tester):
         set_rate(rate=4000)
 
         # restart the cluster to get rid of byteman and the slowed down validations
-        self._restart_cluster()
+        self._restart_cluster(gently=False)
 
         # submit a bunch of validations and check that the rate is restored when all of them have finished
         set_rate(rate=5000)
@@ -569,11 +569,11 @@ class TestNodeSyncTool(Tester):
         nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
                       expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
-        # try to cancel a validation residing on a down node
+        # try to cancel a validation residing on a down node that gets unnoticed by the driver
         uuid = submit_validation()
-        node1.stop(wait_other_notice=True)  # will remove its proposers
+        node1.stop(wait_other_notice=True, gently=False)  # will remove its proposers
         nodesync_tool(self.cluster, args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
-                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
+                      expected_stderr=['Error: The cancellation has failed in nodes: [/127.0.0.1]'])
 
     def test_quoted_arg_with_spaces(self):
         """
