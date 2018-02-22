@@ -141,10 +141,10 @@ MANIFEST = {
     indev_2_0_x: [indev_cassandra_2_1_dse],
     current_2_0_x: [indev_cassandra_2_1_dse],
 
-    indev_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0, indev_dse_5_1],
-    current_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0, indev_dse_5_1],
+    indev_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0],
+    current_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0],
 
-    indev_cassandra_2_1_dse: [indev_dse_5_0, indev_dse_5_1],
+    indev_cassandra_2_1_dse: [indev_dse_5_0],
 
     indev_dse_5_0: [indev_dse_5_1, indev_dse_6_0, indev_master],
 
