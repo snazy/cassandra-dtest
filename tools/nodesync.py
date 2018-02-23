@@ -32,7 +32,7 @@ def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=No
     """
     Runs the nodesync command line tool with the specified arguments, ensuring the specified expected command output.
 
-    @param cluster the cluste on which to run the tool
+    @param cluster the cluster on which to run the tool
     @param args The arguments to be passed to nodesync
     @param expected_stdout A list of text lines that should be contained by the command stdout
     @param expected_stderr A list of text lines that should be contained by the command stderr
