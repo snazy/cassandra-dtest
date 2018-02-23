@@ -259,16 +259,19 @@ class TestCQL(UpgradeTester):
             cursor.execute("DELETE time FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000 AND ip = '192.168.0.2' AND port = 80")
 
             res = list(cursor.execute("SELECT * FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000"))
-            assert_length_equal(res, 2)
+            if not self.compact_storage_dropped:
+                assert_length_equal(res, 2)
+            else:
+                # [Row(userid=UUID('550e8400-e29b-41d4-a716-446655440000'), ip=u'192.168.0.1', port=80, time=42),
+                #  Row(userid=UUID('550e8400-e29b-41d4-a716-446655440000'), ip=u'192.168.0.2', port=80, time=None),
+                #  Row(userid=UUID('550e8400-e29b-41d4-a716-446655440000'), ip=u'192.168.0.2', port=90, time=42)]
+                assert_length_equal(res, 3)
 
             cursor.execute("DELETE FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
             assert_none(cursor, "SELECT * FROM connections WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
 
-            if not self.compact_storage_dropped:
-                cursor.execute("DELETE FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
-                assert_none(cursor, "SELECT * FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
-            else:
-                assert_invalid(cursor, "DELETE FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
+            cursor.execute("DELETE FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
+            assert_none(cursor, "SELECT * FROM connections WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479 AND ip = '192.168.0.3'")
 
     def sparse_cf_test(self):
         """ Test composite 'sparse' CF syntax """
@@ -1706,7 +1709,7 @@ class TestCQL(UpgradeTester):
                 for c in range(0, 2):
                     cursor.execute(q, (k, c))
 
-            columns = "k, v" if self.compact_storage_dropped else "*"
+            columns = "k, c" if self.compact_storage_dropped else "*"
 
             query = "SELECT {} FROM test2".format(columns)
             assert_all(cursor, query, [[x, y] for x in range(0, 2) for y in range(0, 2)])
