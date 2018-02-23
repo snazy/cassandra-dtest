@@ -105,16 +105,16 @@ indev_2_0_x = None  # None if release not likely
 current_2_0_x = VersionMeta(name='current_2_0_x', family='2.0.x', variant='current', version='2.0.17', min_proto_v=1, max_proto_v=2, java_versions=(7,))
 
 indev_2_1_x = VersionMeta(name='indev_2_1_x', family='2.1.x', variant='indev', version='github:apache/cassandra-2.1', min_proto_v=1, max_proto_v=3, java_versions=(7, 8))
-current_2_1_x = VersionMeta(name='current_2_1_x', family='2.1.x', variant='current', version='2.1.17', min_proto_v=1, max_proto_v=3, java_versions=(7, 8))
+current_2_1_x = VersionMeta(name='current_2_1_x', family='2.1.x', variant='current', version='2.1.20', min_proto_v=1, max_proto_v=3, java_versions=(7, 8))
 
 indev_2_2_x = VersionMeta(name='indev_2_2_x', family='2.2.x', variant='indev', version='github:apache/cassandra-2.2', min_proto_v=1, max_proto_v=4, java_versions=(7, 8))
-current_2_2_x = VersionMeta(name='current_2_2_x', family='2.2.x', variant='current', version='2.2.9', min_proto_v=1, max_proto_v=4, java_versions=(7, 8))
+current_2_2_x = VersionMeta(name='current_2_2_x', family='2.2.x', variant='current', version='2.2.12', min_proto_v=1, max_proto_v=4, java_versions=(7, 8))
 
 indev_3_0_x = VersionMeta(name='indev_3_0_x', family='3.0.x', variant='indev', version='github:apache/cassandra-3.0', min_proto_v=3, max_proto_v=4, java_versions=(8,))
-current_3_0_x = VersionMeta(name='current_3_0_x', family='3.0.x', variant='current', version='3.0.12', min_proto_v=3, max_proto_v=4, java_versions=(8,))
+current_3_0_x = VersionMeta(name='current_3_0_x', family='3.0.x', variant='current', version='3.0.16', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 
 indev_3_x = VersionMeta(name='indev_3_x', family='3.x', variant='indev', version='github:apache/cassandra-3.11', min_proto_v=3, max_proto_v=4, java_versions=(8,))
-current_3_x = VersionMeta(name='current_3_x', family='3.x', variant='current', version='3.10', min_proto_v=3, max_proto_v=4, java_versions=(8,))
+current_3_x = VersionMeta(name='current_3_x', family='3.x', variant='current', version='3.11.2', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 
 indev_trunk = VersionMeta(name='indev_trunk', family='trunk', variant='indev', version='github:apache/trunk', min_proto_v=3, max_proto_v=4, java_versions=(8,))
 
@@ -138,11 +138,8 @@ indev_master = VersionMeta(name='indev_master', family='master', variant='indev'
 #   3) Nodes upgraded to version B can read data stored by the predecessor version A, and from a data standpoint will function the same as if they always ran version B.
 #   4) If a new sstable format is present in version B, writes will occur in that format after upgrade. Running sstableupgrade on version B will proactively convert version A sstables to version B.
 MANIFEST = {
-    indev_2_0_x: [indev_cassandra_2_1_dse],
-    current_2_0_x: [indev_cassandra_2_1_dse],
 
-    indev_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0],
-    current_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0],
+    # Upgrade paths from DSE to DSE
 
     indev_cassandra_2_1_dse: [indev_dse_5_0],
 
@@ -150,7 +147,29 @@ MANIFEST = {
 
     indev_dse_5_1: [indev_dse_6_0, indev_master],
 
-    indev_dse_6_0: [indev_master]
+    indev_dse_6_0: [indev_master],
+
+    # Upgrade paths from OSS to DSE
+    # Only testing upgrade from OSS indev_ and not testing upgrade from OSS current_ since at least the
+    # 2.0, 2.1, 3.0, 3.x branches are EOL, critical bugfix only or bugfix only - i.e. stable branches.
+    # Testing both current_ and index_ is therefore just duplicate effort.
+
+    indev_2_0_x: [indev_cassandra_2_1_dse],
+    # current_2_0_x: [indev_cassandra_2_1_dse],
+
+    indev_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0],
+    # current_2_1_x: [indev_cassandra_2_1_dse, indev_dse_5_0],
+
+    indev_2_2_x: [indev_dse_5_0, indev_dse_5_1],
+    # current_2_2_x: [indev_dse_5_0, indev_dse_5_1],
+
+    indev_3_0_x: [indev_dse_5_0, indev_dse_5_1, indev_dse_6_0],
+    # current_3_0_x: [indev_dse_5_0, indev_dse_5_1, indev_dse_6_0],
+
+    indev_3_x: [indev_dse_5_1, indev_dse_6_0],
+    # current_3_x: [indev_dse_5_1, indev_dse_6_0],
+
+    indev_trunk: [indev_master]
 }
 
 # Local env and custom path testing instructions. Use these steps to REPLACE the normal upgrade test cases with your own.
