@@ -1,0 +1,32 @@
+#
+# Prevent processing of schema migrations
+#
+
+RULE do not process migration-request verbs
+CLASS org.apache.cassandra.db.MigrationRequestVerbHandler
+METHOD doVerb
+AT ENTRY
+IF TRUE
+DO
+    return;
+ENDRULE
+
+
+RULE do not process definitions-update verbs
+CLASS org.apache.cassandra.db.DefinitionsUpdateVerbHandler
+METHOD doVerb
+AT ENTRY
+IF TRUE
+DO
+    return;
+ENDRULE
+
+
+RULE do not process migration tasks
+CLASS org.apache.cassandra.service.MigrationTask
+METHOD runMayThrow
+AT ENTRY
+IF TRUE
+DO
+    return;
+ENDRULE

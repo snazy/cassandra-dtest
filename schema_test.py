@@ -1,9 +1,13 @@
 import time
 
+import datetime
+
+from dse import ConsistencyLevel
 from dse.concurrent import execute_concurrent_with_args
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtest import Tester
+from dtest import Tester, DSE_VERSION_FROM_BUILD, debug
 from tools.assertions import assert_all, assert_invalid, assert_one, assert_none, assert_some
 from tools.data import create_ks, create_cf
 from tools.decorators import since
@@ -235,6 +239,195 @@ class TestSchema(Tester):
         session = self.patient_cql_connection(node)
         assert_none(session, "SELECT * FROM system.size_estimates WHERE keyspace_name='system_auth' AND table_name='bad_table'")
         assert_none(session, "SELECT * FROM system.size_estimates WHERE keyspace_name='bad_keyspace'")
+
+    @since('3.0')
+    def schema_migration_concurrent_requests_test(self):
+        """
+        Simulates schema-changes with concurrent reads + writes.
+        When the schema-change is not fully propagated but reads + writes against "previously" known columns still happen.
+
+        The test basically simulates a schema change (an ALTER TABLE ADD) in a live cluster, where schema-migrations
+        naturally take some time to propagate. DML statements (SELECT, INSERT; UPDATE, DELETE) must succeed in any
+        case. To verify that, we "halt" schema migration on the nodes using a byteman script.
+
+        Without the fix for DB-1649, this dtest errors out with a node logging unexpected errors like:
+            java.lang.RuntimeException: Unknown column add_s_tiny during deserialization
+                at org.apache.cassandra.db.Columns$Serializer.deserialize(Columns.java:452)
+                at org.apache.cassandra.db.filter.ColumnFilter$Serializer.deserialize(ColumnFilter.java:504)
+                at org.apache.cassandra.db.ReadCommand$Serializer.deserialize(ReadCommand.java:801)
+                at org.apache.cassandra.db.ReadCommand$Serializer.deserialize(ReadCommand.java:738)
+
+        This test uses ConsistencyLevel.ALL to ensure that both nodes are involved in the operations.
+
+        @jira_ticket DB-1649
+        """
+        cluster = self.cluster
+        cluster.populate(2, install_byteman=True).start()
+        node1, node2 = cluster.nodelist()
+
+        session1, session2 = [self.patient_exclusive_cql_connection(node, schema_timeout=2) for node in (node1, node2)]
+
+        debug("Creating schema...")
+
+        create_ks(session1, 'ks', 2)
+        session1.execute("CREATE TABLE ks.complex_table ("
+                         "pk int,"
+                         "ck int,"
+                         "s_tiny tinyint static,"
+                         "s_int int static,"
+                         "s_text text static,"
+                         "s_map map<text, text> static,"
+                         "s_timestamp timestamp static,"
+                         "r_tiny tinyint,"
+                         "r_int int,"
+                         "r_text text,"
+                         "r_map map<text, text>,"
+                         "r_timestamp timestamp,"
+                         "PRIMARY KEY (pk, ck))")
+
+        debug("Preparing statements")
+
+        non_prepared_insert = "INSERT INTO ks.complex_table(pk, ck," \
+                              "s_tiny, s_int, s_text, s_map, s_timestamp," \
+                              "r_tiny, r_int, r_text, r_map, r_timestamp) " \
+                              "VALUES ({}, {}, " \
+                              "{}, {}, {}, {}, {}, " \
+                              "{}, {}, {}, {}, {})"
+        prepared_insert = non_prepared_insert.format("?", "?",
+                                                     "?", "?", "?", "?", "?",
+                                                     "?", "?", "?", "?", "?")
+        non_prepared_select = "SELECT pk, ck, " \
+                              "s_tiny, s_int, s_text, s_map, s_timestamp," \
+                              "r_tiny, r_int, r_text, r_map, r_timestamp " \
+                              "FROM ks.complex_table WHERE pk = {}"
+        prepared_select = non_prepared_select.format("?")
+
+        non_prepared_delete = "DELETE FROM ks.complex_table WHERE pk={}"
+        prepared_delete = non_prepared_delete.format("?")
+
+        pstmt_insert1 = session1.prepare(prepared_insert)
+        pstmt_select1 = session1.prepare(prepared_select)
+        pstmt_delete1 = session1.prepare(prepared_delete)
+        pstmt_insert2 = session2.prepare(prepared_insert)
+        pstmt_select2 = session2.prepare(prepared_select)
+        pstmt_delete2 = session2.prepare(prepared_delete)
+        for pstmt in (pstmt_insert1, pstmt_insert2, pstmt_select1, pstmt_select2, pstmt_delete1, pstmt_delete2):
+            pstmt.consistency_level = ConsistencyLevel.ALL
+
+        schema_version_1 = session1.execute("SELECT schema_version FROM system.local")[0][0]
+        schema_version_2 = session2.execute("SELECT schema_version FROM system.local")[0][0]
+        self.assertEqual(schema_version_1, schema_version_2)
+
+        debug("Insert, verify, delete...")
+
+        self._schema_migration_concurrent_requests_insert(node1, session1, non_prepared_insert, pstmt_insert1)
+        self._schema_migration_concurrent_requests_verify(node1, session1, non_prepared_select, pstmt_select1)
+        self._schema_migration_concurrent_requests_delete(node1, session1, non_prepared_delete, pstmt_delete1)
+        self._schema_migration_concurrent_requests_insert(node2, session2, non_prepared_insert, pstmt_insert2)
+        self._schema_migration_concurrent_requests_verify(node2, session2, non_prepared_select, pstmt_select2)
+        self._schema_migration_concurrent_requests_delete(node2, session2, non_prepared_delete, pstmt_delete2)
+
+        self._schema_migration_concurrent_requests_check_errors(msg="after initial insert-verify-delete")
+
+        debug("columns from 1: {}".format([row[0] for row in session1.execute("SELECT column_name FROM system_schema.columns WHERE keyspace_name='ks' AND table_name='complex_table'")]))
+        debug("columns from 2: {}".format([row[0] for row in session2.execute("SELECT column_name FROM system_schema.columns WHERE keyspace_name='ks' AND table_name='complex_table'")]))
+
+        debug("Injecting byteman script to prevent processing of schema-migrations")
+        if DSE_VERSION_FROM_BUILD >= '6.0':
+            script = ['./byteman/dse6.0/prevent_schema_migration.btm']
+        else:
+            script = ['./byteman/pre4.0/prevent_schema_migration.btm']
+        [node.byteman_submit(script) for node in (node1, node2)]
+
+        for column, ddl in [["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_s_tiny tinyint static"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_s_int int static"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_s_text text static"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_s_map map<text, text> static"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_s_timestamp timestamp static"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_r_tiny tinyint"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_r_int int"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_r_text text"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_r_map map<text, text>"],
+                            ["add_s_tiny", "ALTER TABLE ks.complex_table ADD add_r_timestamp timestamp"]]:
+            debug("Altering table (adding column) ... {}".format(ddl))
+            session1.execute(ddl)
+
+            schema_version_1_ddl = session1.execute("SELECT schema_version FROM system.local")[0][0]
+            schema_version_2_ddl = session2.execute("SELECT schema_version FROM system.local")[0][0]
+            self.assertNotEqual(schema_version_1_ddl, schema_version_2_ddl)
+            self.assertEqual(schema_version_2, schema_version_2_ddl)
+
+            columns_1 = self._schema_migration_concurrent_requests_columns(session1)
+            columns_2 = self._schema_migration_concurrent_requests_columns(session2)
+            debug("columns from {}: {}".format(node1.name, columns_1))
+            debug("columns from {}: {}".format(node2.name, columns_2))
+            self.assertIn(column, columns_1)
+            self.assertNotIn(column, columns_2)
+
+            debug("Insert, verify, delete against {} - not having updated schema...".format(node2.name))
+
+            self._schema_migration_concurrent_requests_insert(node2, session2, non_prepared_insert, pstmt_insert2)
+            self._schema_migration_concurrent_requests_verify(node2, session2, non_prepared_select, pstmt_select2)
+            self._schema_migration_concurrent_requests_verify(node1, session1, non_prepared_select, pstmt_select1)
+            self._schema_migration_concurrent_requests_delete(node2, session2, non_prepared_delete, pstmt_delete2)
+
+            debug("Insert, verify, delete against {} - with updated schema...".format(node1.name))
+
+            self._schema_migration_concurrent_requests_insert(node1, session1, non_prepared_insert, pstmt_insert1)
+            self._schema_migration_concurrent_requests_verify(node2, session2, non_prepared_select, pstmt_select2)
+            self._schema_migration_concurrent_requests_verify(node1, session1, non_prepared_select, pstmt_select1)
+            self._schema_migration_concurrent_requests_delete(node1, session1, non_prepared_delete, pstmt_delete1)
+
+    def _schema_migration_concurrent_requests_check_errors(self, msg=''):
+        if self.check_logs_for_errors():
+            self.fail('Unexpected error in log ({}), see stdout'.format(msg))
+
+    def _schema_migration_concurrent_requests_columns(self, session):
+        return [row[0] for row in session.execute("SELECT column_name FROM system_schema.columns WHERE keyspace_name='ks' AND table_name='complex_table'")]
+
+    def _schema_migration_concurrent_requests_insert(self, node, session, non_prepared_insert, pstmt_insert):
+        debug("Insert rows against {}...".format(node.name))
+        for i in range(0, 20):
+            cql = non_prepared_insert.format(i, i,
+                                             i, i, u"'{}'".format(i), "{{'{}': '{}'}}".format(i, i), i * 1000,
+                                             i, i, u"'{}'".format(i), "{{'{}': '{}'}}".format(i, i), i * 1000)
+            session.execute(SimpleStatement(cql, consistency_level=ConsistencyLevel.ALL))
+        self._schema_migration_concurrent_requests_check_errors(msg="after insert w/ unprepared statement against {}".format(node.name))
+        for i in range(20, 40):
+            i_as_str = str(i)
+            session.execute(pstmt_insert, (i, i,
+                                           i, i, i_as_str, {i_as_str: i_as_str}, i * 1000,
+                                           i, i, i_as_str, {i_as_str: i_as_str}, i * 1000))
+        self._schema_migration_concurrent_requests_check_errors(msg="after insert w/ prepared statement against {}".format(node.name))
+
+    def _schema_migration_concurrent_requests_verify(self, node, session, non_prepared_select, pstmt_select):
+        debug("Verifying rows against {}...".format(node.name))
+        for i in range(0, 40):
+            assert_one(session, non_prepared_select.format(i), cl=ConsistencyLevel.ALL,
+                       expected=self._schema_migration_concurrent_requests_row(i))
+        self._schema_migration_concurrent_requests_check_errors(msg="after verify w/ unprepared statement against {}".format(node.name))
+        for i in range(0, 40):
+            rows = session.execute(pstmt_select, [i])
+            expected = self._schema_migration_concurrent_requests_row(i)
+            self.assertEqual([list(row) for row in rows], [expected])
+        self._schema_migration_concurrent_requests_check_errors(msg="after verify w/ prepared statement against {}".format(node.name))
+
+    def _schema_migration_concurrent_requests_delete(self, node, session, non_prepared_delete, pstmt_delete):
+        debug("Deleting rows against {}".format(node.name))
+        for i in range(0, 20):
+            session.execute(SimpleStatement(non_prepared_delete.format(i), consistency_level=ConsistencyLevel.ALL))
+        self._schema_migration_concurrent_requests_check_errors(msg="after delete w/ unprepared statement against {}".format(node.name))
+        for i in range(20, 40):
+            session.execute(pstmt_delete, [i])
+        self._schema_migration_concurrent_requests_check_errors(msg="after delete w/ prepared statement against {}".format(node.name))
+
+    def _schema_migration_concurrent_requests_row(self, i):
+        i_as_str = str(i)
+        map = {i_as_str: i_as_str}
+        dt = datetime.datetime.utcfromtimestamp(i)
+        return [i, i,
+                i, i, i_as_str, map, dt,
+                i, i, i_as_str, map, dt]
 
     def prepare(self):
         cluster = self.cluster
