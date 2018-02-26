@@ -204,6 +204,7 @@ class TestArchiveCommitlog(SnapshotTester):
             # Copy files from the snapshot dir to existing temp dir
             distutils.dir_util.copy_tree(os.path.join(node.get_path(), 'data{0}'.format(x), ks), tmpdir)
             tmpdirs.append(tmpdir)
+        tmpdirs.append(base_tmpdir)
 
         return tmpdirs
 
@@ -352,6 +353,8 @@ class TestArchiveCommitlog(SnapshotTester):
 
             self.assertNotEqual(set(os.listdir(tmp_commitlog)) - set(os.listdir(commitlog_dir)),
                                 set())
+
+            session.cluster.shutdown()
 
             cluster.flush()
             cluster.compact()
