@@ -74,6 +74,7 @@ class TestCounters(Tester):
         session = self.patient_cql_connection(node1, consistency_level=ConsistencyLevel.ALL)
         assert_one(session, "SELECT COUNT(*) FROM test.test", [1000])
 
+    @since('3.0')
     def counter_leader_with_partial_view_test(self):
         """
         Test leader election with a starting node.
@@ -86,7 +87,7 @@ class TestCounters(Tester):
         """
         cluster = self.cluster
 
-        cluster.populate(3, use_vnodes=True, install_byteman=True)
+        cluster.populate(3, install_byteman=True)
         nodes = cluster.nodelist()
         # Have node 1 and 3 cheat a bit during the leader election for a counter mutation; note that cheating
         # takes place iff there is an actual chance for node 2 to be picked.
