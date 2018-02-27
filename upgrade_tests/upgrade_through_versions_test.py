@@ -16,7 +16,7 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from six import print_
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug
+from dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug, get_dse_version_from_build_safe
 from tools.misc import new_node
 from tools.sslkeygen import generate_ssl_stores
 from upgrade_base import switch_jdks
@@ -25,7 +25,7 @@ from upgrade_manifest import (build_upgrade_pairs, current_2_0_x,
                               indev_2_2_x, indev_3_x)
 
 
-def data_writer(tester, to_verify_queue, verification_done_queue, rewrite_probability=0):
+def data_writer(tester, to_verify_queue, verification_done_queue, rewrite_probability=0, reconnect_interval=None, user='', password=''):
     """
     Process for writing/rewriting data continuously.
 
@@ -36,7 +36,8 @@ def data_writer(tester, to_verify_queue, verification_done_queue, rewrite_probab
     Intended to be run using multiprocessing.
     """
     # 'tester' is a cloned object so we shouldn't be inappropriately sharing anything with another process
-    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version)
+    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version,
+                                            user=user, password=password)
 
     prepared = session.prepare("UPDATE cf SET v=? WHERE k=?")
     prepared.consistency_level = ConsistencyLevel.QUORUM
@@ -45,12 +46,22 @@ def data_writer(tester, to_verify_queue, verification_done_queue, rewrite_probab
         # need to close queue gracefully if possible, or the data_checker process
         # can't seem to empty the queue and test failures result.
         to_verify_queue.close()
+        debug("data-writer stopped...")
         exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
+    debug("data-writer running...")
+
+    next_reconnect = time.time() + reconnect_interval if reconnect_interval else 0
     while True:
         try:
+            if reconnect_interval and next_reconnect < time.time():
+                session, next_reconnect = _do_reconnect(tester, "data writer", reconnect_interval,
+                                                        session, user, password)
+                prepared = session.prepare("UPDATE cf SET v=? WHERE k=?")
+                prepared.consistency_level = ConsistencyLevel.QUORUM
+
             key = None
 
             if (rewrite_probability > 0) and (random.randint(0, 100) <= rewrite_probability):
@@ -64,16 +75,30 @@ def data_writer(tester, to_verify_queue, verification_done_queue, rewrite_probab
 
             val = uuid.uuid4()
 
-            session.execute(prepared, (val, key))
+            # Try the write up to 5 times - error out if the 3rd try fails
+            for x in xrange(0, 5):
+                try:
+                    session.execute(prepared, (val, key))
+                    break
+                except Exception as e:
+                    # During a rolling-upgrade, we expect some Timeout or OperationTimedOut exceptions.
+                    # Somehow, also some Unavailable exceptions happen.
+                    if x == 4:
+                        # Let the data-write fail after the fifth Timeout/OperationTimedOut/Unavailable in a row
+                        debug("Got 5th error in a row: {} - failing".format(e))
+                        raise e
+                    debug("Error writing data: {}".format(e))
+                    time.sleep(0.1)
 
             to_verify_queue.put_nowait((key, val,))
-        except Exception:
-            debug("Error in data writer process!")
+        except Exception as e:
+            debug("Error in data writer process! \n"
+                  "{}".format(e))
             to_verify_queue.close()
             raise
 
 
-def data_checker(tester, to_verify_queue, verification_done_queue):
+def data_checker(tester, to_verify_queue, verification_done_queue, reconnect_interval=None, user='', password=''):
     """
     Process for checking data continuously.
 
@@ -84,7 +109,8 @@ def data_checker(tester, to_verify_queue, verification_done_queue):
     Intended to be run using multiprocessing.
     """
     # 'tester' is a cloned object so we shouldn't be inappropriately sharing anything with another process
-    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version)
+    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version,
+                                            user=user, password=password)
 
     prepared = session.prepare("SELECT v FROM cf WHERE k=?")
     prepared.consistency_level = ConsistencyLevel.QUORUM
@@ -93,25 +119,43 @@ def data_checker(tester, to_verify_queue, verification_done_queue):
         # need to close queue gracefully if possible, or the data_checker process
         # can't seem to empty the queue and test failures result.
         verification_done_queue.close()
+        debug("data-verifier stopped...")
         exit(0)
+
+    debug("data-verifier running...")
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
+    next_reconnect = time.time() + reconnect_interval if reconnect_interval else 0
     while True:
         try:
+            if reconnect_interval and next_reconnect < time.time():
+                session, next_reconnect = _do_reconnect(tester, "data verifier", reconnect_interval,
+                                                        session, user, password)
+                prepared = session.prepare("SELECT v FROM cf WHERE k=?")
+                prepared.consistency_level = ConsistencyLevel.QUORUM
+
             # here we could block, but if the writer process terminates early with an empty queue
             # we would end up blocking indefinitely
             (key, expected_val) = to_verify_queue.get_nowait()
 
-            actual_val = session.execute(prepared, (key,))[0][0]
-        except Empty:
-            time.sleep(0.1)  # let's not eat CPU if the queue is empty
-            continue
-        except Exception:
-            debug("Error in data verifier process!")
-            verification_done_queue.close()
-            raise
-        else:
+            # Try the read up to 5 times - error out if the 3rd try fails
+            for x in xrange(0, 5):
+                try:
+                    actual_val = session.execute(prepared, (key,))[0][0]
+                    break
+                except Exception as e:
+                    # During a rolling-upgrade, we expect some Timeout or OperationTimedOut exceptions.
+                    # Somehow, also some Unavailable exceptions happen.
+                    if x == 4:
+                        # Let the data-verifier fail after the fifth Timeout/OperationTimedOut/Unavailable in a row
+                        debug("Got 5th error in a row: {} - failing".format(e))
+                        raise e
+                    debug("Error verifying data: {}".format(e))
+                    time.sleep(0.1)
+
+            tester.assertEqual(expected_val, actual_val, "Data did not match expected value!")
+
             try:
                 verification_done_queue.put_nowait(key)
             except Full:
@@ -120,11 +164,17 @@ def data_checker(tester, to_verify_queue, verification_done_queue):
                 # and allow dropping some rewritables because we don't want to
                 # rewrite rows in the same sequence as originally written
                 pass
+        except Empty:
+            time.sleep(0.1)  # let's not eat CPU if the queue is empty
+            continue
+        except Exception as e:
+            debug("Error in data verifier process! \n"
+                  "{}".format(e))
+            verification_done_queue.close()
+            raise
 
-        tester.assertEqual(expected_val, actual_val, "Data did not match expected value!")
 
-
-def counter_incrementer(tester, to_verify_queue, verification_done_queue, rewrite_probability=0):
+def counter_incrementer(tester, to_verify_queue, verification_done_queue, rewrite_probability=0, reconnect_interval=None, user=None, password=None):
     """
     Process for incrementing counters continuously.
 
@@ -135,7 +185,8 @@ def counter_incrementer(tester, to_verify_queue, verification_done_queue, rewrit
     Intended to be run using multiprocessing.
     """
     # 'tester' is a cloned object so we shouldn't be inappropriately sharing anything with another process
-    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version)
+    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version,
+                                            user=user, password=password)
 
     prepared = session.prepare("UPDATE countertable SET c = c + 1 WHERE k1=?")
     prepared.consistency_level = ConsistencyLevel.QUORUM
@@ -144,12 +195,22 @@ def counter_incrementer(tester, to_verify_queue, verification_done_queue, rewrit
         # need to close queue gracefully if possible, or the data_checker process
         # can't seem to empty the queue and test failures result.
         to_verify_queue.close()
+        debug("counter-incrementer stopped...")
         exit(0)
+
+    debug("counter-incrementer running...")
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
+    next_reconnect = time.time() + reconnect_interval if reconnect_interval else 0
     while True:
         try:
+            if reconnect_interval and next_reconnect < time.time():
+                session, next_reconnect = _do_reconnect(tester, "counter incrementer", reconnect_interval,
+                                                        session, user, password)
+                prepared = session.prepare("UPDATE countertable SET c = c + 1 WHERE k1=?")
+                prepared.consistency_level = ConsistencyLevel.QUORUM
+
             key = None
             count = 0  # this will get set to actual last known count if we do a re-write
 
@@ -162,7 +223,20 @@ def counter_incrementer(tester, to_verify_queue, verification_done_queue, rewrit
 
             key = key or uuid.uuid4()
 
-            session.execute(prepared, (key))
+            # Try the increment up to 5 times - error out if the 3rd try fails
+            for x in xrange(0, 5):
+                try:
+                    session.execute(prepared, (key))
+                    break
+                except Exception as e:
+                    # During a rolling-upgrade, we expect some Timeout or OperationTimedOut exceptions.
+                    # Somehow, also some Unavailable exceptions happen.
+                    if x == 4:
+                        # Let the data-verifier fail after the fifth Timeout/OperationTimedOut/Unavailable in a row
+                        debug("Got 5th error in a row: {} - failing".format(e))
+                        raise e
+                    debug("Error incrementing: {}".format(e))
+                    time.sleep(0.1)
 
             to_verify_queue.put_nowait((key, count + 1,))
         except Exception:
@@ -171,7 +245,7 @@ def counter_incrementer(tester, to_verify_queue, verification_done_queue, rewrit
             raise
 
 
-def counter_checker(tester, to_verify_queue, verification_done_queue):
+def counter_checker(tester, to_verify_queue, verification_done_queue, user=None, password=None):
     """
     Process for checking counters continuously.
 
@@ -182,7 +256,8 @@ def counter_checker(tester, to_verify_queue, verification_done_queue):
     Intended to be run using multiprocessing.
     """
     # 'tester' is a cloned object so we shouldn't be inappropriately sharing anything with another process
-    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version)
+    session = tester.patient_cql_connection(tester.node1, keyspace="upgrade", protocol_version=tester.protocol_version,
+                                            user=user, password=password)
 
     prepared = session.prepare("SELECT c FROM countertable WHERE k1=?")
     prepared.consistency_level = ConsistencyLevel.QUORUM
@@ -220,6 +295,21 @@ def counter_checker(tester, to_verify_queue, verification_done_queue):
                 # and allow dropping some rewritables because we don't want to
                 # rewrite rows in the same sequence as originally written
                 pass
+
+
+def _do_reconnect(tester, name, reconnect_interval, session, user, password):
+    for i in range(0, 150):  # that's up to 5 minutes, which should really be enough even for the small dtest CI instances
+        try:
+            session.cluster.shutdown()
+            debug("{} {}: connecting to {}...".format(time.ctime(), name, [node.name for node in tester.nodes]))
+            session = tester.patient_cql_connection(tester.nodes, keyspace="upgrade", timeout=2,
+                                                    protocol_version=tester.protocol_version,
+                                                    user=user, password=password)
+            next_reconnect = time.time() + reconnect_interval
+            return session, next_reconnect
+        except Exception as e:  # there can be exceptions from the driver and from dtest infra as well (e.g. ConnectionException + DriverException)
+            debug("{} {}: {} while trying to connect ...".format(time.ctime(), name, e))
+    tester.fail("{} {}: Could not establish a connection to any node after 150 tries".format(time.ctime(), name))
 
 
 @attr("resource-intensive")
@@ -291,7 +381,20 @@ class UpgradeTester(Tester):
         """
         self.upgrade_scenario(rolling=True, internode_ssl=True)
 
-    def upgrade_scenario(self, populate=True, create_schema=True, rolling=False, after_upgrade_call=(), internode_ssl=False):
+    def parallel_upgrade_with_auth_test(self):
+        """
+        Offline upgrade test, with authentication+authorization enabled.
+        """
+        self.upgrade_scenario(with_auth=True, reconnect_interval=2)
+
+    def rolling_upgrade_with_auth_test(self):
+        """
+        Rolling upgrade test, with authentication+authorization enabled.
+        """
+        self.upgrade_scenario(rolling=True, with_auth=True, reconnect_interval=2)
+
+    def upgrade_scenario(self, populate=True, create_schema=True, rolling=False, after_upgrade_call=(),
+                         internode_ssl=False, with_auth=False, user=None, password=None, reconnect_interval=None):
         # Record the rows we write as we go:
         self.row_values = set()
         cluster = self.cluster
@@ -300,6 +403,25 @@ class UpgradeTester(Tester):
                                                'enable_scripted_user_defined_functions': 'true'})
         elif cluster.version() >= '2.2':
             cluster.set_configuration_options({'enable_user_defined_functions': 'true'})
+        if with_auth:
+            cluster.set_configuration_options({'authenticator': 'PasswordAuthenticator',
+                                               'authorizer': 'CassandraAuthorizer',
+                                               'permissions_validity_in_ms': '2000'})
+            if cluster.version() >= '2.2':
+                cluster.set_configuration_options({'roles_validity_in_ms': '2000'})
+            if cluster.version() < '3.0':
+                # When a DSE 5.x node starts up, it creates the new auth tables and converts the data.
+                # Since the schema change does not make it from DSE 5.x to 4.8 (different messaging version),
+                # the 4.8 nodes will error out with an `UnknownColumnFamilyException`. This will happen until
+                # the _last_ upgraded node has started.
+                # This works as designed and described in `NEWS.txt` in the upgrading section for C* 2.2.
+                #
+                # We blindly check for version < 3.0 here, because at the time of adding this, DSE 4.8 was the
+                # oldest supported version and possible/supported upgrade path is to DSE 5.0 (technically also
+                # 5.1).
+                self.ignore_log_patterns = (
+                    "org.apache.cassandra.db.UnknownColumnFamilyException"
+                )
 
         if internode_ssl:
             debug("***using internode ssl***")
@@ -311,19 +433,43 @@ class UpgradeTester(Tester):
             debug('Creating cluster (%s)' % self.test_version_metas[0].version)
             cluster.populate(3)
             [node.start(use_jna=True, wait_for_binary_proto=True) for node in cluster.nodelist()]
+            if with_auth:
+                time.sleep(15)  # sleep some time to let the authentication stuff startup
         else:
             debug("Skipping cluster creation (should already be built)")
 
         # add nodes to self for convenience
+        self.nodes = cluster.nodelist()
         for i, node in enumerate(cluster.nodelist(), 1):
             node_name = 'node' + str(i)
             setattr(self, node_name, node)
 
+        if with_auth:
+            user = 'elani'
+            password = 'giant schnauzer'
+
         if create_schema:
+            session = self.patient_cql_connection(self.node1, protocol_version=self.protocol_version,
+                                                  user='cassandra', password='cassandra')
+
             if rolling:
-                self._create_schema_for_rolling()
+                self._create_schema_for_rolling(session)
             else:
-                self._create_schema()
+                self._create_schema(session)
+
+            if with_auth:
+                debug("Setting up auth stuff...")
+                session.execute("ALTER KEYSPACE system_auth WITH replication = {'class':'SimpleStrategy', 'replication_factor':3}")
+                session.cluster.refresh_schema_metadata()
+                debug("Repairing all nodes...")
+                [node.nodetool('repair') for node in self.cluster.nodelist()]
+                # sleep to let the auth caches expire
+                time.sleep(3)
+
+                session.execute("CREATE USER {} WITH password '{}'".format(user, password))
+                session.execute("GRANT SELECT ON KEYSPACE {} TO {}".format('upgrade', user))
+                session.execute("GRANT MODIFY ON KEYSPACE {} TO {}".format('upgrade', user))
+            session.cluster.shutdown()
         else:
             debug("Skipping schema creation (should already be built)")
         time.sleep(5)  # sigh...
@@ -332,7 +478,16 @@ class UpgradeTester(Tester):
 
         if rolling:
             # start up processes to write and verify data
-            write_proc, verify_proc, verification_queue = self._start_continuous_write_and_verify(wait_for_rowcount=5000)
+            debug("Starting continuous write+verify...")
+            write_proc, verify_proc, verification_queue = self._start_continuous_write_and_verify(wait_for_rowcount=5000, reconnect_interval=reconnect_interval,
+                                                                                                  user=user, password=password)
+
+            # let the processes run for a bit
+            time.sleep(20)
+
+            if self.check_logs_for_errors():
+                # There should be no errors at all during a "simple" upgrade
+                return
 
             # upgrade through versions
             for version_meta in self.test_version_metas[1:]:
@@ -343,9 +498,18 @@ class UpgradeTester(Tester):
                     # possibly "speed past" in an overly fast upgrade test
                     time.sleep(60)
 
-                    self.upgrade_to_version(version_meta, partial=True, nodes=(node,))
+                    if self.check_logs_for_errors():
+                        # There should be no errors at all during a "simple" upgrade
+                        return
+
+                    self.upgrade_to_version(version_meta, with_auth=with_auth, partial=True, nodes=(node,))
 
                     self._check_on_subprocs(self.subprocs)
+
+                    if self.check_logs_for_errors():
+                        # There should be no errors at all during a "simple" upgrade
+                        return
+
                     debug('Successfully upgraded %d of %d nodes to %s' %
                           (num + 1, len(self.cluster.nodelist()), version_meta.version))
 
@@ -362,15 +526,23 @@ class UpgradeTester(Tester):
         else:
             # upgrade through versions
             for version_meta in self.test_version_metas[1:]:
-                self._write_values()
-                self._increment_counters()
+                self._write_values(user=user, password=password)
+                self._increment_counters(user=user, password=password)
 
-                self.upgrade_to_version(version_meta)
+                if self.check_logs_for_errors():
+                    # There should be no errors at all before a "simple" upgrade
+                    return
+
+                self.upgrade_to_version(version_meta, with_auth=with_auth)
                 self.cluster.set_install_dir(version=version_meta.version)
 
-                self._check_values()
-                self._check_counters()
-                self._check_select_count()
+                if self.check_logs_for_errors():
+                    # There should be no errors at all after a "simple" upgrade
+                    return
+
+                self._check_values(user=user, password=password)
+                self._check_counters(user=user, password=password)
+                self._check_select_count(user=user, password=password)
 
             # run custom post-upgrade callables
         for call in after_upgrade_call:
@@ -411,7 +583,7 @@ class UpgradeTester(Tester):
                     debug("Error terminating subprocess. There could be a lingering process.")
                     pass
 
-    def upgrade_to_version(self, version_meta, partial=False, nodes=None):
+    def upgrade_to_version(self, version_meta, with_auth=False, partial=False, nodes=None):
         """
         Upgrade Nodes - if *partial* is True, only upgrade those nodes
         that are specified by *nodes*, otherwise ignore *nodes* specified
@@ -429,9 +601,25 @@ class UpgradeTester(Tester):
             node.watch_log_for("DRAINED")
             node.stop(wait_other_notice=False)
 
+        previous_dse_version = get_dse_version_from_build_safe(nodes[0].get_install_dir())
+        previous_version = nodes[0].get_cassandra_version()
+        previous_before_rbac = previous_version < '2.2'
+
         for node in nodes:
             node.set_install_dir(version=version_meta.version)
             debug("Set new cassandra dir for %s: %s" % (node.name, node.get_install_dir()))
+
+        current_dse_version = get_dse_version_from_build_safe(nodes[0].get_install_dir())
+        current_version = nodes[0].get_cassandra_version()
+        current_with_rbac = current_version >= '2.2'
+
+        debug("Upgrading {} from OSS {}/DSE {} to OSS {}/DSE {}".format([node.name for node in nodes],
+                                                                        previous_version, previous_dse_version,
+                                                                        current_version, current_dse_version))
+
+        if with_auth and not previous_before_rbac and current_with_rbac:
+            debug("Adding roles_validity_in_ms to cassandra.yaml for {}".format([node.name for node in nodes]))
+            [node.set_configuration_options({'roles_validity_in_ms': '2000'}) for node in nodes]
 
         # hacky? yes. We could probably extend ccm to allow this publicly.
         # the topology file needs to be written before any nodes are started
@@ -440,11 +628,13 @@ class UpgradeTester(Tester):
 
         # Restart nodes on new version
         for node in nodes:
-            debug('Starting %s on new version (%s)' % (node.name, version_meta.version))
+            debug("Starting {} on new version ({}/OSS {}/DSE {})".format(node.name, version_meta.version, current_version, current_dse_version))
             # Setup log4j / logback again (necessary moving from 2.0 -> 2.1):
             node.set_log_level("INFO")
             node.start(wait_other_notice=240, wait_for_binary_proto=True)
+            debug("Node {} started. Running 'nodetool upgradesstables'...".format(node.name))
             node.nodetool('upgradesstables -a')
+            debug("'nodetool upgradesstables' completed on {}.".format(node.name))
 
     def _log_current_ver(self, current_version_meta):
         """
@@ -456,12 +646,10 @@ class UpgradeTester(Tester):
             "Current upgrade path: {}".format(
                 vers[:curr_index] + ['***' + current_version_meta.version + '***'] + vers[curr_index + 1:]))
 
-    def _create_schema_for_rolling(self):
+    def _create_schema_for_rolling(self, session):
         """
         Slightly different schema variant for testing rolling upgrades with quorum reads/writes.
         """
-        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version)
-
         session.execute("CREATE KEYSPACE upgrade WITH replication = {'class':'SimpleStrategy', 'replication_factor':3};")
 
         session.execute('use upgrade')
@@ -474,10 +662,9 @@ class UpgradeTester(Tester):
                 c counter,
                 PRIMARY KEY (k1)
                 );""")
+        session.cluster.refresh_schema_metadata()
 
-    def _create_schema(self):
-        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version)
-
+    def _create_schema(self, session):
         session.execute("CREATE KEYSPACE upgrade WITH replication = {'class':'SimpleStrategy', 'replication_factor':2};")
 
         session.execute('use upgrade')
@@ -491,18 +678,23 @@ class UpgradeTester(Tester):
                 c counter,
                 PRIMARY KEY (k1, k2)
                 );""")
+        session.cluster.refresh_schema_metadata()
 
-    def _write_values(self, num=100):
-        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version)
+    def _write_values(self, num=100, user=None, password=None):
+        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version,
+                                              user=user, password=password)
         session.execute("use upgrade")
         for i in xrange(num):
             x = len(self.row_values) + 1
             session.execute("UPDATE cf SET v='%d' WHERE k=%d" % (x, x))
             self.row_values.add(x)
 
-    def _check_values(self, consistency_level=ConsistencyLevel.ALL):
+        session.cluster.shutdown()
+
+    def _check_values(self, consistency_level=ConsistencyLevel.ALL, user=None, password=None):
         for node in self.cluster.nodelist():
-            session = self.patient_cql_connection(node, protocol_version=self.protocol_version)
+            session = self.patient_cql_connection(node, protocol_version=self.protocol_version,
+                                                  user=user, password=password)
             session.execute("use upgrade")
             for x in self.row_values:
                 query = SimpleStatement("SELECT k,v FROM cf WHERE k=%d" % x, consistency_level=consistency_level)
@@ -510,6 +702,8 @@ class UpgradeTester(Tester):
                 k, v = result[0]
                 self.assertEqual(x, k)
                 self.assertEqual(str(x), v)
+
+            session.cluster.shutdown()
 
     def _wait_until_queue_condition(self, label, queue, opfunc, required_len, max_wait_s=600):
         """
@@ -541,7 +735,8 @@ class UpgradeTester(Tester):
         else:
             raise RuntimeError("Ran out of time waiting for queue size ({}) to be '{}' to {}. Aborting.".format(qsize, opfunc.__name__, required_len))
 
-    def _start_continuous_write_and_verify(self, wait_for_rowcount=0, max_wait_s=600):
+    def _start_continuous_write_and_verify(self, wait_for_rowcount=0, max_wait_s=600,
+                                           reconnect_interval=None, user='', password=''):
         """
         Starts a writer process, a verifier process, a queue to track writes,
         and a queue to track successful verifications (which are rewrite candidates).
@@ -555,7 +750,8 @@ class UpgradeTester(Tester):
         # queue of verified writes, which are update candidates
         verification_done_queue = Queue(maxsize=500)
 
-        writer = Process(target=data_writer, args=(self, to_verify_queue, verification_done_queue, 25))
+        writer = Process(target=data_writer, name='data_writer', args=(self, to_verify_queue, verification_done_queue, 25,
+                                                                       reconnect_interval, user, password))
         # daemon subprocesses are killed automagically when the parent process exits
         writer.daemon = True
         self.subprocs.append(writer)
@@ -564,7 +760,8 @@ class UpgradeTester(Tester):
         if wait_for_rowcount > 0:
             self._wait_until_queue_condition('rows written (but not verified)', to_verify_queue, operator.ge, wait_for_rowcount, max_wait_s=max_wait_s)
 
-        verifier = Process(target=data_checker, args=(self, to_verify_queue, verification_done_queue))
+        verifier = Process(target=data_checker, name='data_verifier', args=(self, to_verify_queue, verification_done_queue,
+                                                                            reconnect_interval, user, password))
         # daemon subprocesses are killed automagically when the parent process exits
         verifier.daemon = True
         self.subprocs.append(verifier)
@@ -572,7 +769,8 @@ class UpgradeTester(Tester):
 
         return writer, verifier, to_verify_queue
 
-    def _start_continuous_counter_increment_and_verify(self, wait_for_rowcount=0, max_wait_s=600):
+    def _start_continuous_counter_increment_and_verify(self, wait_for_rowcount=0, max_wait_s=600,
+                                                       reconnect_interval=None, user='', password=''):
         """
         Starts a counter incrementer process, a verifier process, a queue to track writes,
         and a queue to track successful verifications (which are re-increment candidates).
@@ -584,7 +782,8 @@ class UpgradeTester(Tester):
         # queue of verified writes, which are update candidates
         verification_done_queue = Queue(maxsize=500)
 
-        incrementer = Process(target=data_writer, args=(self, to_verify_queue, verification_done_queue, 25))
+        incrementer = Process(target=data_writer, name='counter_writer', args=(self, to_verify_queue, verification_done_queue, 25,
+                                                                               reconnect_interval, user, password))
         # daemon subprocesses are killed automagically when the parent process exits
         incrementer.daemon = True
         self.subprocs.append(incrementer)
@@ -593,7 +792,8 @@ class UpgradeTester(Tester):
         if wait_for_rowcount > 0:
             self._wait_until_queue_condition('counters incremented (but not verified)', to_verify_queue, operator.ge, wait_for_rowcount, max_wait_s=max_wait_s)
 
-        count_verifier = Process(target=data_checker, args=(self, to_verify_queue, verification_done_queue))
+        count_verifier = Process(target=data_checker, name='counter_verifier', args=(self, to_verify_queue, verification_done_queue,
+                                                                                     reconnect_interval, user, password))
         # daemon subprocesses are killed automagically when the parent process exits
         count_verifier.daemon = True
         self.subprocs.append(count_verifier)
@@ -601,9 +801,10 @@ class UpgradeTester(Tester):
 
         return incrementer, count_verifier, to_verify_queue
 
-    def _increment_counters(self, opcount=25000):
+    def _increment_counters(self, opcount=25000, user=None, password=None):
         debug("performing {opcount} counter increments".format(opcount=opcount))
-        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version)
+        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version,
+                                              user=user, password=password)
         session.execute("use upgrade;")
 
         update_counter_query = ("UPDATE countertable SET c = c + 1 WHERE k1='{key1}' and k2={key2}")
@@ -629,9 +830,12 @@ class UpgradeTester(Tester):
 
         self.assertLess(fail_count, 100, "Too many counter increment failures")
 
-    def _check_counters(self):
+        session.cluster.shutdown()
+
+    def _check_counters(self, user=None, password=None):
         debug("Checking counter values...")
-        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version)
+        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version,
+                                              user=user, password=password)
         session.execute("use upgrade;")
 
         for key1 in self.expected_counts.keys():
@@ -650,9 +854,12 @@ class UpgradeTester(Tester):
 
                 self.assertEqual(actual_value, expected_value)
 
-    def _check_select_count(self, consistency_level=ConsistencyLevel.ALL):
+        session.cluster.shutdown()
+
+    def _check_select_count(self, consistency_level=ConsistencyLevel.ALL, user=None, password=None):
         debug("Checking SELECT COUNT(*)")
-        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version)
+        session = self.patient_cql_connection(self.node2, protocol_version=self.protocol_version,
+                                              user=user, password=password)
         session.execute("use upgrade;")
 
         expected_num_rows = len(self.row_values)
@@ -665,6 +872,8 @@ class UpgradeTester(Tester):
             self.assertEqual(actual_num_rows, expected_num_rows, "SELECT COUNT(*) returned %s when expecting %s" % (actual_num_rows, expected_num_rows))
         else:
             self.fail("Count query did not return")
+
+        session.cluster.shutdown()
 
 
 class BootstrapMixin(object):
@@ -716,8 +925,9 @@ class BootstrapMixin(object):
         self._multidc_schema_create()
         self.upgrade_scenario(populate=False, create_schema=False, after_upgrade_call=(self._bootstrap_new_node_multidc,))
 
-    def _multidc_schema_create(self):
-        session = self.patient_cql_connection(self.cluster.nodelist()[0], protocol_version=self.protocol_version)
+    def _multidc_schema_create(self, user=None, password=None):
+        session = self.patient_cql_connection(self.cluster.nodelist()[0], protocol_version=self.protocol_version,
+                                              user=user, password=password)
 
         if self.cluster.version() >= '1.2':
             # DDL for C* 1.2+
@@ -740,6 +950,8 @@ class BootstrapMixin(object):
                 c counter,
                 PRIMARY KEY (k1, k2)
                 );""")
+
+        session.cluster.shutdown()
 
 
 def create_upgrade_class(clsname, version_metas, protocol_version,

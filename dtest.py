@@ -119,6 +119,13 @@ def get_sha(repo_dir):
 
 
 def get_dse_version_from_build(install_dir=None, node_path=None):
+    dse_version = get_dse_version_from_build_safe(install_dir=install_dir, node_path=node_path)
+    if not dse_version:
+        raise Exception("Cannot find DSE version")
+    return dse_version
+
+
+def get_dse_version_from_build_safe(install_dir=None, node_path=None):
     if install_dir is None and node_path is not None:
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
@@ -138,7 +145,7 @@ def get_dse_version_from_build(install_dir=None, node_path=None):
                 match = re.search('name="base\.dse\.version" value="([0-9.]+)[^"]*"', line)
                 if match:
                     return LooseVersion(match.group(1))
-    raise Exception("Cannot find DSE version")
+    return None
 
 
 # There are times when we want to know the C* version we're testing against
@@ -473,7 +480,16 @@ class Tester(TestCase):
     def _create_session(self, node, keyspace, user, password, compression, protocol_version,
                         port=None, ssl_opts=None, execution_profiles=None, schema_timeout=10, **kwargs):
 
-        node_ip = get_ip_from_node(node)
+        # up to here, 'node' can be either a single node or a list of nodes
+
+        if isinstance(node, list):
+            node_ips = [get_ip_from_node(n) for n in node]
+            node = node[0]
+        else:
+            node_ips = [get_ip_from_node(node)]
+
+        # since here, 'node' refers to the single given node or the first node of the list
+
         if not port:
             port = get_port_from_node(node)
 
@@ -488,7 +504,7 @@ class Tester(TestCase):
         profiles = {EXEC_PROFILE_DEFAULT: make_execution_profile(**kwargs)
                     } if not execution_profiles else execution_profiles
 
-        cluster = PyCluster([node_ip],
+        cluster = PyCluster(node_ips,
                             auth_provider=auth_provider,
                             compression=compression,
                             protocol_version=protocol_version,
