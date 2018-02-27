@@ -5,7 +5,7 @@ import time
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 
-from dtest import PRINT_DEBUG, Tester, debug
+from dtest import PRINT_DEBUG, Tester, debug, get_dse_version_from_build
 from tools.assertions import assert_length_equal, assert_one, assert_none
 from tools.data import create_ks, rows_to_list
 from tools.decorators import since
@@ -15,7 +15,8 @@ class TestReadRepair(Tester):
 
     def setUp(self):
         Tester.setUp(self)
-        self.cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+        self.cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
+                                                       'dynamic_snitch': False})
         self.cluster.populate(3).start()
 
     @since('3.0')
@@ -39,6 +40,7 @@ class TestReadRepair(Tester):
         session = self.patient_cql_connection(self.cluster.nodelist()[0])
         session.execute("""CREATE KEYSPACE alter_rf_test
                            WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};""")
+        session.cluster.refresh_schema_metadata()
         session.execute("CREATE TABLE alter_rf_test.t1 (k int PRIMARY KEY, a int, b int);")
         session.execute("INSERT INTO alter_rf_test.t1 (k, a, b) VALUES (1, 1, 1);")
         cl_one_stmt = SimpleStatement("SELECT * FROM alter_rf_test.t1 WHERE k=1",
@@ -87,8 +89,18 @@ class TestReadRepair(Tester):
             debug("Checking " + n.name)
             session = self.patient_exclusive_cql_connection(n)
             res = rows_to_list(session.execute(cl_one_stmt))
+
+            if len(res) == 0 and get_dse_version_from_build(install_dir=n.get_install_dir()) >= '6.0':
+                # TPC (see DB-1771): With TPC, background read-repairs really happen in the background.
+                # This means, that the original read (the one above) returns the _unrepaired_ row. Before
+                # TPC, the "background" read-repair returned the already repaired row.
+                time.sleep(2)  # 2 seconds, to be really safe even with the tiny openstack instances running the dtests.
+                debug("Re-issuing read after empty row")
+                res = rows_to_list(session.execute(cl_one_stmt))
+
             # Column a must be 1 everywhere, and column b must be either 1 or None everywhere
-            self.assertIn(res[0][:2], [[1, 1], [1, None]])
+            self.assertNotEqual([], res, msg='Got an unexpected empty row from {}'.format(n.name))
+            self.assertIn(res[0][:2], [[1, 1], [1, None]], msg='Got an unexpected row from {}'.format(n.name))
 
         # Now query selecting all columns
         query = "SELECT * FROM alter_rf_test.t1 WHERE k=1"
@@ -97,11 +109,11 @@ class TestReadRepair(Tester):
 
         if cl_all:
             # result of the read repair query at cl=ALL should contain all columns
-            assert_one(session, query, [1, 1, 1], cl=cl)
+            assert_one(read_repair_session, query, [1, 1, 1], cl=cl)
         else:
             # With background read repair at CL=ONE, result may or may not be correct
             stmt = SimpleStatement(query, consistency_level=cl)
-            session.execute(stmt)
+            read_repair_session.execute(stmt)
 
         # Check all replica is fully up to date
         debug("Re-running SELECTs at CL ONE to verify read repair")
