@@ -66,6 +66,7 @@ class TestCqlTracing(Tester):
                 age int
             );
         """)
+        session.cluster.refresh_schema_metadata()
 
         out, err, _ = node1.run_cqlsh('TRACING ON')
         self.assertIn('Tracing is enabled', out)
@@ -101,6 +102,8 @@ class TestCqlTracing(Tester):
         self.assertIn(' 127.0.0.3 ', out)
         self.assertIn('Request complete ', out)
         self.assertIn(" Frodo |  Baggins", out)
+
+        return out
 
     @attr("smoke-test")
     @since('2.2')
@@ -204,17 +207,27 @@ class TestCqlTracing(Tester):
         """
 
         session = self.prepare(random_partitioner=True)
-        self.trace(session)
+        read_trace = self.trace(session)
 
         node1 = self.cluster.nodelist()[0]
 
+        # expect 0 digest mismatches
+        read_repair_blocking_count = self._get_read_repair_blocking_count(node1)
+        if read_repair_blocking_count > 0:
+            debug("MBean reports {} blocking read-repairs, checking trace output".format(read_repair_blocking_count))
+            # This might be a false positive, the blocking RR might be cause by something else.
+            # Need to check the trace output as well.
+            self.assertNotIn("Digest mismatch", read_trace,
+                             "RepairedBlocking reports {} and found 'Digest mismatch' in trace".format(read_repair_blocking_count))
+
+    def _get_read_repair_blocking_count(self, node):
         rr_count = make_mbean('metrics', type='ReadRepair', name='RepairedBlocking')
-        with JolokiaAgent(node1) as jmx:
+        with JolokiaAgent(node) as jmx:
             # the MBean may not have been initialized, in which case Jolokia agent will return
             # a HTTP 404 response. If we receive such, we know that no digest mismatch was reported
             # If we are able to read the MBean attribute, assert that the count is 0
             if jmx.has_mbean(rr_count):
-                # expect 0 digest mismatches
-                self.assertEqual(0, jmx.read_attribute(rr_count, 'Count'))
+                return jmx.read_attribute(rr_count, 'Count')
             else:
                 pass
+        return 0
