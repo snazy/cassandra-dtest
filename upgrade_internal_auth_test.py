@@ -77,6 +77,11 @@ class TestAuthUpgrade(Tester):
         cluster.seeds.remove(node1)
         cluster.remove(node1)
 
+        self._check_and_mark_errors_in_log()
+
+        # check logs for errors, with UnknownColumnFamilyException excluded
+        self.ignore_log_patterns = self._ignore_log_patterns_21
+
         replacement_address = node1.address()
         replacement_node = Node('replacement', cluster=self.cluster, auto_bootstrap=True,
                                 thrift_interface=(replacement_address, 9160), storage_interface=(replacement_address, 7000),
