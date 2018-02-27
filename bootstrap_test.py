@@ -658,23 +658,37 @@ class TestBootstrap(BaseBootstrapTest):
 
         node1, = cluster.nodelist()
 
+        debug("Popuplating data...")
         node1.stress(['write', 'n=500K', 'no-warmup', '-schema', 'replication(factor=1)',
                       '-rate', 'threads=10'])
 
+        # Using RING_DELAY of 60 seconds here to artificially delay the startup of node2,
+        # because interleaving of node2's and node3's join/bootstrap is important for this test.
+
         node2 = new_node(cluster)
-        node2.start(wait_other_notice=True)
+        debug("Starting node2 with RING_DELAY of 60 seconds")
+        node2.start(wait_other_notice=True, jvm_args=['-Dcassandra.ring_delay_ms=60000'])
+        debug("Node2 started")
+
+        debug("Wait until node2 is joining/bootstrapping...")
+        node2.watch_log_for("waiting for ring information", timeout=90)
+        # The duration from this point to where whe check node3's log file _must not_ exceed RING_DELAY
 
         node3 = new_node(cluster, remote_debug_port='2003')
         try:
+            debug("Node3 starting...")
             node3.start(wait_other_notice=False, verbose=False)
         except NodeError:
             pass  # node doesn't start as expected
 
-        time.sleep(.5)
-        node2.watch_log_for("Starting listening for CQL clients")
+        debug("Check for '{}' in node3's log...".format(bootstrap_error))
+        node3.watch_log_for(bootstrap_error, timeout=60)
 
-        node3.watch_log_for(bootstrap_error)
+        debug("Wait for node2 to finish startup...")
+        # DSE 5.0+ don't need such a long timeout, but C* 2.1 does
+        node2.watch_log_for("Starting listening for CQL clients", timeout=180)
 
+        debug("Checking whether bootstrap replicated the data to node2...")
         session = self.patient_exclusive_cql_connection(node2)
 
         # Repeat the select count(*) query, to help catch
