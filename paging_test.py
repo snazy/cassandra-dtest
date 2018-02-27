@@ -3188,7 +3188,7 @@ class TestPagingDatasetChanges(BasePagingTester, PageAssertionMixin):
         super(TestPagingDatasetChanges, self).tearDown()
         for node in self.cluster.nodelist():
             if not node.is_running():
-                node.start()
+                node.start(wait_for_binary_proto=True)
 
     def test_data_change_impacting_earlier_page(self):
         session = self.prepare()
@@ -3263,6 +3263,7 @@ class TestPagingDatasetChanges(BasePagingTester, PageAssertionMixin):
         session = self.prepare()
         create_ks(session, 'test_paging_size', 2)
         session.execute("CREATE TABLE paging_test ( id int, mytext text, PRIMARY KEY (id, mytext) )")
+        session.cluster.refresh_schema_metadata()
 
         def random_txt(text):
             return unicode(uuid.uuid4())
