@@ -457,13 +457,16 @@ class TestCommitLog(Tester):
         if not hasattr(self, 'ignore_log_patterns'):
             self.ignore_log_patterns = []
 
-        expected_error = "Exiting due to error while processing commit log during initialization."
+        expected_error = "Replay stopped. If you wish to override this error and continue starting the node ignoring " \
+                         "commit log replay problems, specify -Dcassandra.commitlog.ignorereplayerrors=true on the command line"
+
         self.ignore_log_patterns.append(expected_error)
         node = self.node1
         self.assertIsInstance(node, Node)
         node.set_configuration_options({'commit_failure_policy': 'stop', 'commitlog_sync_period_in_ms': 1000})
         self.cluster.start()
 
+        debug("populating data")
         cursor = self.patient_cql_connection(self.cluster.nodelist()[0])
         create_ks(cursor, 'ks', 1)
         cursor.execute("CREATE TABLE ks.tbl (k INT PRIMARY KEY, v INT)")
@@ -474,14 +477,18 @@ class TestCommitLog(Tester):
         results = list(cursor.execute("SELECT * FROM ks.tbl"))
         self.assertEqual(len(results), 10)
 
+        cursor.cluster.shutdown()
+
         # with the commitlog_sync_period_in_ms set to 1000,
         # this sleep guarantees that the commitlog data is
         # actually flushed to disk before we kill -9 it
         time.sleep(1)
 
+        debug("stopping node")
         node.stop(gently=False)
 
         # check that ks.tbl hasn't been flushed
+        debug("verify that table's not been flushed")
         path = node.get_path()
         for data_dir in node.data_directories():
             ks_dir = os.path.join(data_dir, 'ks')
@@ -490,6 +497,7 @@ class TestCommitLog(Tester):
             self.assertEqual(sstables, 0)
 
         # modify the commit log crc values
+        debug("corrupting commit log")
         cl_dir = os.path.join(path, 'commitlogs')
         self.assertTrue(len(os.listdir(cl_dir)) > 0)
         for cl in os.listdir(cl_dir):
@@ -514,9 +522,12 @@ class TestCommitLog(Tester):
                 crc = struct.unpack('>i', f.read(4))[0]
                 self.assertEqual(crc, 123456)
 
+        debug("starting node to see it fail to startup")
         mark = node.mark_log()
-        node.start()
-        node.watch_log_for(expected_error, from_mark=mark)
+        node.start(wait_other_notice=False)
+        debug("verifying the expected commitlog startup error")
+        node.watch_log_for(expected_error, from_mark=mark, timeout=30)
+        debug("verifying it did not start up")
         with self.assertRaises(TimeoutError):
             node.wait_for_binary_interface(from_mark=mark, timeout=20)
         self.assertFalse(node.is_running())
