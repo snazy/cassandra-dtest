@@ -49,7 +49,7 @@ class TestWriteFailures(Tester):
     def tearDown(self):
         super(TestWriteFailures, self).tearDown()
 
-    def _prepare_cluster(self, start_rpc=False):
+    def _prepare_cluster(self, start_rpc=False, with_compact_storage=False):
         self.cluster.populate(3)
 
         if start_rpc:
@@ -66,7 +66,9 @@ class TestWriteFailures(Tester):
             """ % (KEYSPACE, self.replication_factor))
         session.set_keyspace(KEYSPACE)
 
-        session.execute("CREATE TABLE IF NOT EXISTS mytable (key text PRIMARY KEY, value text)")
+        compact_storage = " WITH COMPACT STORAGE" if with_compact_storage else ""
+
+        session.execute("CREATE TABLE IF NOT EXISTS mytable (key text PRIMARY KEY, value text){}".format(compact_storage))
         session.execute("CREATE TABLE IF NOT EXISTS countertable (key uuid PRIMARY KEY, value counter)")
 
         for idx in self.failing_nodes:
@@ -237,7 +239,7 @@ class TestWriteFailures(Tester):
         """
         A thrift client receives a TimedOutException
         """
-        self._prepare_cluster(start_rpc=True)
+        self._prepare_cluster(start_rpc=True, with_compact_storage=True)
         self.expected_expt = thrift_types.TimedOutException
 
         client = get_thrift_client()
