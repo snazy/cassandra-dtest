@@ -387,7 +387,7 @@ class TestMaterializedViews(Tester):
         assert_invalid(
             session,
             "ALTER TABLE ks.users DROP state;",
-            "Cannot drop column state on base table with materialized views."
+            "Cannot drop column state on base table users with materialized views."
         )
 
     def drop_table_test(self):
