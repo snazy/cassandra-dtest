@@ -1,0 +1,9 @@
+RULE inject replica write failure
+CLASS org.apache.cassandra.net.MessagingService
+METHOD receiveRequestInternal
+AT ENTRY
+IF NOT flagged("done") && $1.verb().toString().contains("WRITES")
+DO
+   flag("done");
+   throw new java.util.concurrent.RejectedExecutionException()
+ENDRULE

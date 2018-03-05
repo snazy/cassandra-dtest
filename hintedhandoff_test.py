@@ -1,7 +1,7 @@
 import os
 import time
 
-from dse import ConsistencyLevel
+from dse import ConsistencyLevel, WriteFailure
 from nose.plugins.attrib import attr
 
 from dtest import DISABLE_VNODES, Tester
@@ -198,3 +198,32 @@ class TestHintedHandoff(Tester):
         time.sleep(5)
         for x in xrange(0, 100):
             query_c1c2(session, x, ConsistencyLevel.ONE)
+
+    @since('4.0')
+    def hintedhandoff_on_replica_failure_test(self):
+        self.ignore_log_patterns = ["RejectedExecutionException"]
+        self.cluster.populate(2, install_byteman=True)
+
+        [node1, node2] = self.cluster.nodelist()
+        node1.start(wait_for_binary_proto=True, wait_other_notice=True)
+        node2.start(wait_for_binary_proto=True, wait_other_notice=True)
+
+        session = self.patient_cql_connection(node1)
+        create_ks(session, 'ks', 2)
+        create_c1c2_table(self, session)
+
+        # For some reason, the insert could go to any node, so we need to inject both:
+        # this is not an issue as the rule will trigger only on the replica, and only once.
+        node1.byteman_submit(['./byteman/4.0/write_receive_failure.btm'])
+        node2.byteman_submit(['./byteman/4.0/write_receive_failure.btm'])
+
+        try:
+            insert_c1c2(session, n=1, consistency=ConsistencyLevel.ALL)
+            self.fail("Expected WriteFailure")
+        except WriteFailure as ex1:
+            self.cluster.wait_for_any_log("Finished hinted", timeout=30)
+
+        node1.stop(wait_other_notice=True)
+        session = self.patient_cql_connection(node2)
+        session.execute('USE ks')
+        query_c1c2(session, 0, ConsistencyLevel.ONE)
