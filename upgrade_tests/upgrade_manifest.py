@@ -198,14 +198,14 @@ def _have_common_proto(origin_meta, destination_meta):
     return origin_meta.max_proto_v >= destination_meta.min_proto_v
 
 
-def build_upgrade_pairs():
+def build_upgrade_pairs(custom_manifest={}):
     """
     Using the manifest (above), builds a set of valid upgrades, according to current testing practices.
 
     Returns a list of UpgradePath's.
     """
     valid_upgrade_pairs = []
-    manifest = OVERRIDE_MANIFEST or MANIFEST
+    manifest = custom_manifest or OVERRIDE_MANIFEST or MANIFEST
 
     for origin_meta, destination_metas in manifest.items():
         for destination_meta in destination_metas:

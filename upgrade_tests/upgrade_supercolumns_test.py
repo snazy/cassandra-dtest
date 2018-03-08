@@ -1,17 +1,49 @@
 import os
 from collections import OrderedDict
+from unittest import skipUnless
 
+from nose.tools import assert_equal, assert_not_in
 from pycassa.columnfamily import ColumnFamily
 from pycassa.pool import ConnectionPool
 
-from dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
+from dtest import CASSANDRA_VERSION_FROM_BUILD, RUN_STATIC_UPGRADE_MATRIX, Tester, debug
+from dse.query import dict_factory
+from dse.util import OrderedMap
+from thrift_bindings.v22 import Cassandra
+from thrift_bindings.v22.Cassandra import (Column, ColumnParent, SuperColumn, ConsistencyLevel)
+from thrift_tests import get_thrift_client, _i64
 from tools.assertions import assert_all
+from upgrade_manifest import build_upgrade_pairs, MANIFEST, indev_dse_5_1
+from upgrade_base import UpgradeTester
 
 # Use static supercolumn data to reduce total test time and avoid driver issues connecting to C* 1.2.
 # The data contained in the SSTables is (name, {'attr': {'name': name}}) for the name in NAMES.
 SCHEMA_PATH = os.path.join("./", "upgrade_tests", "supercolumn-data", "cassandra-2.0", "schema-2.0.cql")
 TABLES_PATH = os.path.join("./", "upgrade_tests", "supercolumn-data", "cassandra-2.0", "supcols", "cols")
 NAMES = ["Alice", "Bob", "Claire", "Dave", "Ed", "Frank", "Grace"]
+
+
+def _create_super_cf(name):
+    return Cassandra.KsDef('keyspace1', 'org.apache.cassandra.locator.SimpleStrategy', {'replication_factor': '1'},
+                           cf_defs=[Cassandra.CfDef('keyspace1', name, column_type='Super', subcomparator_type='LongType')])
+
+
+def _insert_supercolumn_data(client, cf_name):
+    columns = [SuperColumn(name='sc1', columns=[Column(_i64(1), 'value1', 0)]),
+               SuperColumn(name='sc2',
+                           columns=[Column(_i64(2), 'value2', 0), Column(_i64(3), 'value3', 0)])]
+
+    for column in columns:
+        for subcolumn in column.columns:
+            client.insert('key', ColumnParent(cf_name, column.name), subcolumn, ConsistencyLevel.ONE)
+
+
+def _validate_cql_empty_selector(cursor, ks='keyspace1', cf='sc'):
+    rows = list(cursor.execute('SELECT "" FROM {}.{}'.format(ks, cf)))
+    orderedmap_rows = [{k: OrderedMap(v) for k, v in row.items()} for row in rows]
+    assert_equal(orderedmap_rows,
+                 [{"": OrderedMap({1: 'value1'})},
+                  {"": OrderedMap({2: 'value2', 3: 'value3'})}])
 
 
 class TestSCUpgrade(Tester):
@@ -156,3 +188,45 @@ class TestSCUpgrade(Tester):
             node.set_log_level("INFO")
             node.start(wait_other_notice=True, wait_for_binary_proto=True)
             node.nodetool('upgradesstables -a')
+
+
+class SuperColumnDropCompactStorageTest(UpgradeTester):
+    # Compact Storage
+    def supercolumn_drop_compact_storage_upgrade_test(self):
+        cluster = self.prepare()
+        node = self.cluster.nodelist()[0]
+        node.nodetool("enablethrift")
+
+        host, port = node.network_interfaces['thrift']
+        client = get_thrift_client(host, port)
+
+        client.transport.open()
+
+        cf_name = 'sc'
+
+        client.system_add_keyspace(_create_super_cf(cf_name))
+
+        client.set_keyspace('keyspace1')
+
+        _insert_supercolumn_data(client, cf_name)
+
+        cursor = self.patient_cql_connection(node, row_factory=dict_factory)
+
+        cursor.execute("ALTER TABLE {}.{} DROP COMPACT STORAGE".format('keyspace1', cf_name))
+
+        _validate_cql_empty_selector(cursor, cf=cf_name)
+
+        for is_upgraded, cursor in self.do_upgrade(cursor):
+            cursor = self.patient_cql_connection(node, row_factory=dict_factory)
+
+            _validate_cql_empty_selector(cursor, cf=cf_name)
+
+
+for path in build_upgrade_pairs({indev_dse_5_1: MANIFEST[indev_dse_5_1]}):
+    gen_class_name = SuperColumnDropCompactStorageTest.__name__ + path.name
+    assert_not_in(gen_class_name, globals())
+    spec = {'UPGRADE_PATH': path,
+            '__test__': True}
+
+    upgrade_applies_to_env = RUN_STATIC_UPGRADE_MATRIX or path.upgrade_meta.matches_current_env_version_family
+    globals()[gen_class_name] = skipUnless(upgrade_applies_to_env, 'test not applicable to env.')(type(gen_class_name, (SuperColumnDropCompactStorageTest,), spec))
