@@ -4,9 +4,11 @@ import time
 from dse import ConsistencyLevel, WriteFailure
 from nose.plugins.attrib import attr
 
-from dtest import DISABLE_VNODES, Tester
+from dtest import DISABLE_VNODES, Tester, debug
 from tools.data import create_c1c2_table, create_ks, insert_c1c2, query_c1c2
 from tools.decorators import no_vnodes, since
+from tools.jmxutils import (JolokiaAgent, make_mbean,
+                            remove_perf_disable_shared_mem)
 
 
 @since('3.0')
@@ -227,3 +229,38 @@ class TestHintedHandoff(Tester):
         session = self.patient_cql_connection(node2)
         session.execute('USE ks')
         query_c1c2(session, 0, ConsistencyLevel.ONE)
+
+    @since('4.0')
+    def hintedhandoff_localhost_test(self):
+        """
+        @jira_ticket: DB-1832
+        Should not write hints for localhost
+        """
+        self.ignore_log_patterns = ["InternalRequestExecutionException"]
+        self.cluster.populate(1)
+
+        [node1] = self.cluster.nodelist()
+        for node in self.cluster.nodelist():
+            remove_perf_disable_shared_mem(node)  # necessary for jmx
+        node1.start(wait_for_binary_proto=True, wait_other_notice=True, jvm_args=["-Dcassandra.test.fail_writes_ks=ks"])
+
+        session = self.patient_cql_connection(node1)
+        create_ks(session, 'ks', 1)
+        create_c1c2_table(self, session)
+
+        try:
+            insert_c1c2(session, n=1, consistency=ConsistencyLevel.ALL)
+            self.fail("Expected WriteFailure")
+        except WriteFailure as e:
+            pass
+        hint_size = self._get_hint_size(node)
+        debug("hint size {}".format(hint_size))
+        self.assertEquals(0, hint_size, msg="Expect no hints written from localhost, but got {}".format(hint_size))
+
+        debug("grep hinted handoff log to {}".format(node1.address()))
+        self.assertFalse(node1.grep_log('Finished hinted handoff of file .* to endpoint /{}'.format(node1.address()), filename='system.log'), msg='Found log items for localhost hints')
+
+    def _get_hint_size(self, node):
+        mbean = make_mbean('metrics', type='Storage', name='TotalHints')
+        with JolokiaAgent(node) as jmx:
+            return jmx.read_attribute(mbean, 'Count')
