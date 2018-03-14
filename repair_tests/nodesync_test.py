@@ -138,32 +138,100 @@ class TestNodeSync(SingleTableNodeSyncTester):
         # wait 10s for error
         time.sleep(10)
 
-    def test_cannot_run_repair_on_nodesync_enabled_table(self):
-        """
-        * Check that ordinary repair cannot be run on NodeSync enabled table
-        @jira_ticket APOLLO-966
-        """
-        self.ignore_log_patterns = [
-            'Cannot run both full and incremental repair, choose either --full or -inc option.']
-        self.prepare(nodes=2, rf=2)
-        self.create_table(nodesync=False)
+    def create_and_populate(self, ks, table):
+        debug("Creating and populating {}.{} without NodeSync".format(ks, table))
+        self.session.execute("CREATE KEYSPACE IF NOT EXISTS " + ks + " WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': '2'};")
+        self.session.execute("CREATE TABLE {}.{} (k int PRIMARY KEY)".format(ks, table))
+        for i in xrange(0, 1000):
+            self.session.execute("INSERT INTO {}.{} (k) VALUES ({})".format(ks, table, i))
 
-        node1 = self.node(1)
-        # Check there is no problem executing repair on ks.table
-        debug("Running repair on ks.t")
-        node1.nodetool('repair ks t')
+    def test_legacy_repair_on_nodesync_enabled_table(self):
+        """
+        * Check that error is thrown when table-level repair is run on table with NodeSync enabled
+        * Check that keyspace and global level repair skips tables with NodeSync enabled
+        @jira_ticket APOLLO-966 / DB-1667
+        """
 
-        # Now enable NodeSync - Check cannot run anti-entropy repair on NodeSync enabled table
-        debug("Enabling nodesync on ks.t - cannot run repair")
-        self.enable_nodesync()
+        debug("Starting cluster")
+        cluster = self.cluster
+        cluster.populate(2).start()
+        node1 = cluster.nodelist()[0]
+        self.session = self.patient_cql_connection(node1)
+        self.create_and_populate('ks1', 't1')
+
+        # Check there is no problem executing repair on ks1.t1
+        debug("Running table-level repair on ks1.t1 - should work fine")
+        node1.nodetool('repair ks1 t1')
+
+        # Now enable NodeSync  on ks1.t1- Check cannot run anti-entropy repair on NodeSync enabled table
+        debug("Enabling nodesync on ks1.t1 - can no longer run table-level repair")
+        enable_nodesync(self.session, 'ks1', 't1')
+        mark = node1.mark_log()
         with self.assertRaises(ToolError) as ctx:
-            node1.nodetool('repair ks t')
+            node1.nodetool('repair ks1 t1')
+        self.assertIn('Cannot run anti-entropy repair on tables with NodeSync enabled', ctx.exception.stderr)
+        self.assertFalse(node1.grep_log('are consistent for t1', from_mark=mark))
+
+        mark = node1.mark_log()
+        # Check there is no problem executing keyspace repair with 1 NS-enabled table
+        debug("Running keyspace-level repair on ks1 - should skip repair on table t1")
+        stdout, stderr, _ = node1.nodetool('repair ks1')
+        self.assertIn('Skipping anti-entropy repair on tables with NodeSync enabled: [ks1.t1].', stdout)
+        self.assertFalse(node1.grep_log('are consistent for t', from_mark=mark))
+
+        # Check there is no problem executing keyspace-repair with multiple tables
+        mark = node1.mark_log()
+        self.create_and_populate('ks1', 't2')
+
+        debug("Running keyspace-level repair on ks1 - should skip repair only on ks1.t1")
+        stdout, stderr, _ = node1.nodetool('repair ks1')
+        self.assertIn('Skipping anti-entropy repair on tables with NodeSync enabled: [ks1.t1].', stdout)
+        self.assertFalse(node1.grep_log('are consistent for t1', from_mark=mark), "Should not repair t1")
+        self.assertTrue(node1.grep_log('are consistent for t2', from_mark=mark), "Should repair t2")
+
+        # Check table-repair with multiple tables fails if any of them has nodesync enabled
+        debug("Running table-level repair on tables t1 and t2 - should fail")
+        with self.assertRaises(ToolError) as ctx:
+            node1.nodetool('repair ks1 t2 t1')
         self.assertIn('Cannot run anti-entropy repair on tables with NodeSync enabled', ctx.exception.stderr)
 
-        # Now disable NodeSync on ks.t table - no problem in running repair
-        debug("Disabling nodesync on ks.t - can run repair again")
-        self.disable_nodesync()
-        node1.nodetool('repair ks t')
+        # Check that keyspace-level repair does not fail on keyspace without nodesync enabled
+        self.create_and_populate('ks2', 't3')
+
+        # Check there is no problem executing repair on ks2.t
+        debug("Running repair on ks2.t3 - should work fine")
+        node1.nodetool('repair ks2 t3')
+
+        # Check that node-level repair does not fail when there is a table with nodesync
+        debug("Running all-tables repair - should skip repair only on ks1.t1")
+        mark = node1.mark_log()
+        stdout, stderr, _ = node1.nodetool('repair')
+        self.assertIn('Skipping anti-entropy repair on tables with NodeSync enabled: [ks1.t1].', stdout)
+        self.assertFalse(node1.grep_log('are consistent for t1', from_mark=mark), "Should not repair t1")
+        self.assertTrue(node1.grep_log('are consistent for t2', from_mark=mark), "Should repair t2")
+        self.assertTrue(node1.grep_log('are consistent for t3', from_mark=mark), "Should repair t3")
+
+        # Enable nodesync on table ks1.t2
+        debug("Enable NodeSync on t2 and run all-tables repair - should skip repair on both ks1.t1 and ks1.t2")
+        enable_nodesync(self.session, 'ks1', 't2')
+        mark = node1.mark_log()
+        stdout, stderr, _ = node1.nodetool('repair')
+        self.assertIn('Skipping anti-entropy repair on tables with NodeSync enabled: [ks1.t1, ks1.t2].', stdout)
+        self.assertFalse(node1.grep_log('are consistent for t1', from_mark=mark), "Should not repair t1")
+        self.assertFalse(node1.grep_log('are consistent for t2', from_mark=mark), "Should not repair t2")
+        self.assertTrue(node1.grep_log('are consistent for t3', from_mark=mark), "Should repair t3")
+
+        debug("Running subrange repair on table t2 - should fail")
+        mark = node1.mark_log()
+        with self.assertRaises(ToolError) as ctx:
+            node1.nodetool('repair -st 0 -et 1000 ks1 t2')
+        self.assertIn('Cannot run anti-entropy repair on tables with NodeSync enabled', ctx.exception.stderr)
+        self.assertFalse(node1.grep_log('are consistent for t2', from_mark=mark))
+
+        # Now disable NodeSync on ks1.t1 table - no problem in running table-level repair again
+        debug("Disabling nodesync on ks1.t1 - can run table-level repair again")
+        disable_nodesync(self.session, 'ks1', 't1')
+        node1.nodetool('repair ks1 t1')
 
     def test_basic_validation(self):
         """
