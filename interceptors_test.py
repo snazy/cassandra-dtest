@@ -9,10 +9,10 @@ import time
 from dse import ConsistencyLevel, OperationTimedOut, WriteTimeout
 from dse.query import SimpleStatement
 
-from dtest import Tester
+from dtest import Tester, FlakyRetryPolicy
 from tools.assertions import assert_all
 from tools.decorators import since
-from tools.interceptors import (Direction, Type, Verb, delaying_interceptor,
+from tools.interceptors import (Direction, Locality, Type, Verb, delaying_interceptor,
                                 dropping_interceptor, fake_write_interceptor)
 from tools.preparation import get_local_reads_properties, prepare
 
@@ -29,15 +29,21 @@ def _create_table(session, guarantee_local_reads=False):
     session.execute(cmd)
 
 
-def _insert(session, values, cl=ConsistencyLevel.ALL):
+def _insert(session, values, cl=ConsistencyLevel.ALL, rp=None):
     query = "INSERT INTO test(k, v) VALUES (0, %i)"
     for v in values:
-        session.execute(SimpleStatement(query % v, consistency_level=cl))
+        if rp is None:
+            session.execute(SimpleStatement(query % v, consistency_level=cl))
+        else:
+            session.execute(SimpleStatement(query % v, consistency_level=cl, retry_policy=rp))
 
 
 def _assert(session, expected, cl=ConsistencyLevel.ALL):
     query = "SELECT v FROM test WHERE k=0"
     assert_all(session, query, [[x] for x in expected], cl=cl)
+
+
+no_retry_policy = FlakyRetryPolicy(max_retries=0)
 
 
 @since('4.0')
@@ -52,14 +58,14 @@ class InterceptorsTester(Tester):
         Test of the interceptor dropping messages
         """
         interceptor = dropping_interceptor(Verb.WRITES)
-        # Only drop received requests: this is to make the test less fragile.
-        # If we weren't doing so, the number of intercepted message would vary
-        # based on whether node3 is the coordinator of our intercepted inserts
-        # or not. Only dropped received request guarantees we'll only drop 1
-        # message below.
-        interceptor.intercept(types=Type.REQUEST, directions=Direction.RECEIVING)
-        session = prepare(self, nodes=3, rf=3, interceptors=interceptor)
+        # Only drop received local requests: this is to make the test less fragile.
+        # If we weren't doing so, the number of intercepted message would vary based on
+        # whether node3 is the coordinator of our intercepted inserts or not. Only
+        # dropping just received local requests guarantees we'll only drop 1 message below.
+        interceptor.intercept(types=Type.REQUEST, directions=Direction.RECEIVING, localities=Locality.LOCAL)
+        session = prepare(self, nodes=3, rf=3, interceptors=interceptor, byteman=True)
         node1, node2, node3 = self.cluster.nodelist()
+        node3.byteman_submit(['./byteman/4.0/prevent_default_role_setup_write.btm'])
 
         _create_table(session)
 
@@ -70,7 +76,9 @@ class InterceptorsTester(Tester):
         # Start the interceptor and check we do timeout (we use CL.ALL)
         with interceptor.enable(node3) as interception:
             with self.assertRaises((OperationTimedOut, WriteTimeout)):
-                _insert(session, range(5, 10))
+                # Disable the retry policy used by default on dtests, as its triggering will result in unexpected
+                # additional inserts that will later fail the interception count assert.
+                _insert(session, range(5, 10), cl=ConsistencyLevel.ALL, rp=no_retry_policy)
 
             # We'll have timeout on the very first insert, so only one message
             # should have been intercepted

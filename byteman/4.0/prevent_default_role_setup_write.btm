@@ -1,0 +1,12 @@
+#
+# Prevent system table writes initiated as part of setting up default roles, by acting as if default roles have already
+# been set up. This is done in order to control exactly the number of expected, intercepted, and dropped writes.
+#
+RULE simulate default roles already set up
+CLASS org.apache.cassandra.auth.CassandraRoleManager
+METHOD hasExistingRoles
+AT ENTRY
+IF TRUE
+DO
+    return true;
+ENDRULE
