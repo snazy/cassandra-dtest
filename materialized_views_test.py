@@ -120,24 +120,27 @@ class TestMaterializedViews(Tester):
         else:
             return 'system.views_builds_in_progress'
 
-    def _wait_for_view(self, ks, view):
+    def _wait_for_view(self, ks, view, attempts=50):
         debug("waiting for view")
 
         def _view_build_finished(node):
             s = self.patient_exclusive_cql_connection(node)
             query = "SELECT * FROM %s WHERE keyspace_name='%s' AND view_name='%s'" % \
                     (self._build_progress_table(), ks, view)
+            built_views_query = "SELECT view_name FROM %s WHERE keyspace_name='%s' AND view_name='%s'" % \
+                                ("system.built_views", ks, view)
+            built_views_result = list(s.execute(built_views_query))
             result = list(s.execute(query))
-            return len(result) == 0
+            return len(built_views_result) == 1 and len(result) == 0
 
         for node in self.cluster.nodelist():
             if node.is_running():
-                attempts = 50  # 1 sec per attempt, so 50 seconds total
+                # 1 sec per attempt, so 50 seconds total by default
                 while attempts > 0 and not _view_build_finished(node):
                     time.sleep(1)
                     attempts -= 1
                 if attempts <= 0:
-                    raise RuntimeError("View {}.{} build not finished after 50 seconds.".format(ks, view))
+                    raise RuntimeError("View {}.{} build not finished after {} seconds.".format(ks, view, attempts))
 
     def _wait_for_view_build_start(self, session, ks, view, wait_minutes=2):
         """Wait for the start of a MV build, ensuring that it has saved some progress"""
@@ -1204,7 +1207,7 @@ class TestMaterializedViews(Tester):
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
         debug("Verify that the MV has been successfully created")
-        self._wait_for_view('ks', 't_by_v')
+        self._wait_for_view('ks', 't_by_v', 75)
         assert_one(session, "SELECT COUNT(*) FROM t_by_v", [10000])
 
     @since('4.0')
