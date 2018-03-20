@@ -1,0 +1,9 @@
+RULE sleep 2 seconds at OutboundTcpConnection.writeConnected() to 127.0.0.3
+CLASS org.apache.cassandra.net.OutboundTcpConnection
+METHOD writeConnected
+BIND target = $0.poolReference.endPoint()
+AT ENTRY
+IF target.equals(InetAddress.getByName("127.0.0.3")) AND $1.message.verb.toString().equals("MUTATION")
+DO
+  Thread.sleep(2000);
+ENDRULE

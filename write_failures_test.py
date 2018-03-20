@@ -257,60 +257,77 @@ class TestWriteFailures(Tester):
     @since('3.0')
     def test_cross_dc_rtt(self):
         """
-        Verify cross_dc_rtt_in_ms is applied and reduces hints
+        Verify cross_dc_rtt_in_ms is applied and reduces hints.
+        Creates 2 DCs (2 nodes + 1 node) and injects byteman script to DC1 coordinator's
+        OutbountTCPConnection.writeConnected() to delay write requests to DC2 node3 in
+        order to simulate cross dc latency.
+
         @jira_ticket APOLLO-854
         """
         debug("prepare cluster")
-        self.cluster.populate(nodes=[2, 2], install_byteman=True)
+        self.cluster.populate(nodes=[2, 1], install_byteman=True)
         self.cluster.set_configuration_options(
             values={'hinted_handoff_enabled': True,
                     'write_request_timeout_in_ms': 1000,
-                    'cross_dc_rtt_in_ms': 6000}
+                    'cross_dc_rtt_in_ms': 2000}
         )
-        node1, _, node3, _ = self.cluster.nodelist()
+        node1, _, node3 = self.cluster.nodelist()
         for node in self.cluster.nodelist():
             remove_perf_disable_shared_mem(node)  # necessary for jmx
         self.cluster.start()
         session = self.patient_exclusive_cql_connection(node1)  # node1 is coordinator with whitelist policy
 
         debug("prepare schema")
-        create_ks(session, 'ks', {'dc1': 2, 'dc2': 2})
+        create_ks(session, 'ks', {'dc1': 2, 'dc2': 1})
         session.execute("CREATE TABLE t (id int PRIMARY KEY, v int)  WITH speculative_retry = 'NONE'")
 
-        debug("install byteman to dc2 - node3 to delay write request for 5 seconds")
-        script_version = '4x' if self.cluster.version() >= '4' else '3x'
-        node3.byteman_submit(['./byteman/delay_write_request_{}.btm'.format(script_version)])
+        debug("install byteman to dc1 - node1 to delay write request for 2 seconds")
+        script_version = '4.0' if self.cluster.version() >= '4' else 'pre4.0'
+        node1.byteman_submit(['./byteman/{}/delay_write_request.btm'.format(script_version)])
 
         # no hints generated
         hint_size = self._get_hint_size(node1)
         debug("hint size {}".format(hint_size))
         self.assertEquals(0, hint_size)
 
-        debug("test with CL ALL with cross_dc_rtt_in_ms=6000")
+        # WriteTimeout because coordinator cannot get DC2 response within write_request_timeout_in_ms,
+        # but due to cross_dc_rtt_in_ms, write handler will wait for DC2 response at the background
+        # within write_request_timeout_in_ms + cross_dc_rtt_in_ms and no hints generated
+        debug("test with CL ALL with cross_dc_rtt_in_ms=2000, expect WriteTimeout but no hints written")
         t_request, hint_size = self._exec_insert(session, node1, cl=ConsistencyLevel.ALL)
         self.assertTrue(1 <= t_request <= 2)
-        self.assertEquals(0, hint_size)
+        self.assertEquals(0, hint_size, "Expect no hints are written")
 
-        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=6000")
+        # No WriteTimeout because coordinator can get DC1 responses within write_request_timeout_in_ms,
+        # and due to cross_dc_rtt_in_ms, write handler will wait for DC2 response at the background
+        # within write_request_timeout_in_ms + cross_dc_rtt_in_ms and no hints generated
+        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=2000, expect no WriteTimeout and no hints written")
         t_request, hint_size = self._exec_insert(session, node1)
         self.assertTrue(t_request < 1)
-        self.assertEquals(0, hint_size)
+        self.assertEquals(0, hint_size, "Expect no hints are written")
 
-        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=1000")
+        # No WriteTimeout because coordinator can get DC1 responses within write_request_timeout_in_ms,
+        # since write_request_timeout_in_ms + cross_dc_rtt_in_ms(500) is less than cross dc delay, write handler
+        # wont wait for DC2 response at the background and 1 hint is written
+        debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=500, expect no WriteTimeout and 1 hint is written")
         for node in self.cluster.nodelist():
-            self._set_cross_dc_rtt_in_ms(node, 1000)
+            self._set_cross_dc_rtt_in_ms(node, 500)
         t_request, hint_size = self._exec_insert(session, node1)
         self.assertTrue(t_request < 1)
-        self.assertNotEquals(0, hint_size)
+        self.assertEquals(1, hint_size, "Expect 1 hint is written")
 
+        # No WriteTimeout because coordinator can get DC1 responses within write_request_timeout_in_ms,
+        # since write_request_timeout_in_ms + cross_dc_rtt_in_ms(0) is less than cross dc delay, write handler
+        # wont wait for DC2 response at the background and 1 hint is written
         debug("test with CL LOCAL_QUORUM with cross_dc_rtt_in_ms=0")
         for node in self.cluster.nodelist():
             self._set_cross_dc_rtt_in_ms(node, 0)
         t_request, hint_size_2 = self._exec_insert(session, node1)
         self.assertTrue(t_request < 1)
-        self.assertEquals(hint_size * 2, hint_size_2)
+        self.assertEquals(1, hint_size_2, "Expect 1 hint is written")
 
-    def _exec_insert(self, session, node, sleep=8, cl=ConsistencyLevel.LOCAL_QUORUM):
+    def _exec_insert(self, session, node, sleep=3, cl=ConsistencyLevel.LOCAL_QUORUM):
+        before_hint_size = self._get_hint_size(node)
         t_start = time.time()
         try:
             session.execute(SimpleStatement("INSERT INTO ks.t(id) VALUES(1)",
@@ -327,8 +344,8 @@ class TestWriteFailures(Tester):
         # wait for cross dc rtt
         time.sleep(sleep)
 
-        hint_size = self._get_hint_size(node)
-        debug("hint size {}".format(hint_size))
+        hint_size = self._get_hint_size(node) - before_hint_size
+        debug("hint written {}".format(hint_size))
 
         return t_request, hint_size
 

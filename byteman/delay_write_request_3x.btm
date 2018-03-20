@@ -1,8 +1,0 @@
-RULE sleep 5 seconds at IncomingTcpConnection.receiveMessage()
-CLASS org.apache.cassandra.net.IncomingTcpConnection
-METHOD receiveMessage
-AT ENTRY
-IF TRUE
-DO
-  Thread.sleep(5000);
-ENDRULE
