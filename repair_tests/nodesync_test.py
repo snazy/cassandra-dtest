@@ -10,6 +10,7 @@ from tools.misc import new_node
 from tools.nodesync import (nodesync_opts, assert_all_segments, not_validated, enable_nodesync,
                             disable_nodesync, read_nodesync_status)
 from tools.preparation import prepare, config_opts, jvm_args
+from tools.assertions import assert_one
 
 
 class SingleTableNodeSyncTester(Tester):
@@ -467,3 +468,45 @@ class TestNodeSync(SingleTableNodeSyncTester):
         node1 = self.node(1)
         self.assertFalse(node1.grep_log("NodeSync doesn't seem to be able to sustain the configured rate"),
                          "Should not print not able to sustain rate warning.")
+
+    def test_concurrent_alter_table(self):
+        """
+        @jira_ticket DB-1830 NodeSync should include newly added column for validation.
+        """
+        # DB-1649, coordinator has new column but replicas don't when schema is not fully propagated
+        self.ignore_log_patterns = ['MessageDeserializationException']
+        options = {'hinted_handoff_enabled': 'false'}
+        debug("Starting 3-node cluster with rf=2")
+        self.prepare(nodes=3, rf=2, options=options)
+        self.session.execute("ALTER KEYSPACE system_distributed WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 2 };")
+
+        debug("Prepare some data and verify that is's validated")
+        self.create_table()
+        self.do_inserts()
+        self.assert_all_segments()
+
+        debug("Add column and populate data into new column")
+        self.session.execute("ALTER TABLE ks.t ADD new_value int")
+        self.session.cluster.control_connection.wait_for_schema_agreement()
+        for node in self.cluster.nodelist():
+            self.assertTrue(node.grep_log('Updating NodeSync state for ks.t following table update', filename='debug.log'),
+                            "Expected to find log about updating medatadata")
+        for i in range(0, 1000):
+            self.session.execute("UPDATE ks.t SET new_value = 1 WHERE k = {}".format(i))
+        self.assert_all_segments()
+
+        # Easier for us to verify data with rf=3
+        debug("Increasing Keyspace ks rf to 3")
+        self.session.execute("ALTER KEYSPACE ks WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 3 };")
+        self.assert_all_segments()
+
+        debug("Verify new column is repaired by nodesync on each single node")
+        self.session.execute("ALTER TABLE ks.t WITH nodesync={ 'enabled' : 'false' }")
+        self.cluster.stop()
+        for node in self.cluster.nodelist():
+            debug("Verifying {}".format(node.name))
+            node.start(wait_for_binary_proto=True)
+            session = self.patient_cql_connection(node)
+            for i in range(0, 1000):
+                assert_one(session, "SELECT new_value FROM ks.t WHERE k = {}".format(i), [1])
+            node.stop(wait_for_binary_proto=True)
