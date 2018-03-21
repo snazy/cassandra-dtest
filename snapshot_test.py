@@ -9,7 +9,7 @@ from dse.concurrent import execute_concurrent_with_args
 
 from dtest import (Tester, cleanup_cluster, create_ccm_cluster, debug,
                    get_test_path)
-from tools.assertions import assert_one
+from tools.assertions import assert_one, assert_all
 from tools.data import create_ks
 from tools.decorators import since
 from tools.files import replace_in_file, safe_mkdtemp
@@ -185,6 +185,55 @@ class TestSnapshot(SnapshotTester):
         # Clean up
         debug("removing snapshot_dir: " + snapshot_dir)
         shutil.rmtree(snapshot_dir)
+
+    @since('3.0')
+    def test_snapshot_and_restore_mv(self):
+        """
+        @jira_ticket DB-1828
+
+        Able to snapshot and restore materialized view
+        """
+        cluster = self.cluster
+        cluster.populate(1).start()
+        node1, = cluster.nodelist()
+        session = self.patient_cql_connection(node1)
+
+        # Create base, view and insert some data
+        create_ks(session, 'ks', 1)
+        session.execute("CREATE TABLE ks.cf (k1 int, k2 int, b int, PRIMARY KEY(k1, k2))")
+        session.execute("CREATE MATERIALIZED VIEW ks.mv AS SELECT * FROM ks.cf WHERE k1 = 1 AND k2 IS NOT NULL PRIMARY KEY(k2, k1)")
+        session.execute("INSERT INTO ks.cf (k1, k2, b) VALUES (1, 1, 1)")
+        session.execute("INSERT INTO ks.cf (k1, k2, b) VALUES (2, 2, 2)")
+        assert_all(session, "SELECT * FROM ks.cf", [[1, 1, 1], [2, 2, 2]])
+        assert_one(session, "SELECT * FROM ks.mv", [1, 1, 1])
+
+        # Take a snapshot and drop the table
+        base_snapshot_dir = self.make_snapshot(node1, 'ks', 'cf', 'basic')
+        view_snapshot_dir = self.make_snapshot(node1, 'ks', 'mv', 'basic-view')
+        session.execute("DROP MATERIALIZED VIEW mv")
+        session.execute("DROP TABLE cf")
+
+        # Restore base and view schema, then data from snapshot
+        self.restore_snapshot_schema(base_snapshot_dir, node1, 'ks', 'cf')
+        self.restore_snapshot_schema(view_snapshot_dir, node1, 'ks', 'mv')
+        self.restore_snapshot(base_snapshot_dir, node1, 'ks', 'cf')
+        self.restore_snapshot(view_snapshot_dir, node1, 'ks', 'mv')
+        node1.nodetool('refresh ks cf')
+        node1.nodetool('refresh ks mv')
+        assert_all(session, "SELECT * FROM ks.cf", [[1, 1, 1], [2, 2, 2]])
+        assert_one(session, "SELECT * FROM ks.mv", [1, 1, 1])
+
+        # Test MV
+        session.execute("INSERT INTO ks.cf (k1, k2, b) VALUES (1, 5, 5)")
+        session.execute("INSERT INTO ks.cf (k1, k2, b) VALUES (5, 5, 5)")  # skipped
+        assert_all(session, "SELECT * FROM ks.mv", [[5, 1, 5], [1, 1, 1]])
+        session.execute("DROP MATERIALIZED VIEW mv")
+
+        # Clean up
+        debug("removing base snapshot_dir: " + base_snapshot_dir)
+        shutil.rmtree(base_snapshot_dir)
+        debug("removing view snapshot_dir: " + view_snapshot_dir)
+        shutil.rmtree(view_snapshot_dir)
 
 
 class TestArchiveCommitlog(SnapshotTester):
