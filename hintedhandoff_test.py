@@ -234,7 +234,7 @@ class TestHintedHandoff(Tester):
     def hintedhandoff_localhost_test(self):
         """
         @jira_ticket: DB-1832
-        Should not write hints for localhost
+        Verify hints are written for localhost on timeout or failure
         """
         self.ignore_log_patterns = ["InternalRequestExecutionException"]
         self.cluster.populate(1)
@@ -248,17 +248,14 @@ class TestHintedHandoff(Tester):
         create_ks(session, 'ks', 1)
         create_c1c2_table(self, session)
 
-        try:
-            insert_c1c2(session, n=1, consistency=ConsistencyLevel.ALL)
-            self.fail("Expected WriteFailure")
-        except WriteFailure as e:
-            pass
+        with self.assertRaises(WriteFailure):
+            insert_c1c2(session, n=1)
         hint_size = self._get_hint_size(node)
         debug("hint size {}".format(hint_size))
-        self.assertEquals(0, hint_size, msg="Expect no hints written from localhost, but got {}".format(hint_size))
+        self.assertEquals(1, hint_size, msg="Expect 1 hints written for localhost, but got {}".format(hint_size))
 
         debug("grep hinted handoff log to {}".format(node1.address()))
-        self.assertFalse(node1.grep_log('Finished hinted handoff of file .* to endpoint /{}'.format(node1.address()), filename='system.log'), msg='Found log items for localhost hints')
+        node1.watch_log_for('Finished hinted handoff of file .* to endpoint /{}'.format(node1.address()), filename='system.log')
 
     def _get_hint_size(self, node):
         mbean = make_mbean('metrics', type='Storage', name='TotalHints')
