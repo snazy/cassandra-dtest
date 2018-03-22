@@ -130,8 +130,7 @@ class TestDynamicEndpointSnitch(Tester):
         cluster.start(wait_for_binary_proto=30, wait_other_notice=True)
 
         des = make_mbean('db', type='DynamicEndpointSnitch')
-        read_stage = make_mbean('metrics', type='ThreadPools', path='request',
-                                scope='ReadStage', name='CompletedTasks')
+        read_latency = make_mbean('metrics', type='Table', keyspace='snitchtestks', scope='tbl1', name='ReadLatency')
         session = self.patient_exclusive_cql_connection(coordinator_node)
         session.execute("CREATE KEYSPACE snitchtestks WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 3, 'dc2': 3}")
         session.execute("CREATE TABLE snitchtestks.tbl1 (key int PRIMARY KEY) WITH speculative_retry = 'NONE' AND dclocal_read_repair_chance = 0.0")
@@ -154,7 +153,7 @@ class TestDynamicEndpointSnitch(Tester):
                 snitchable_count = 0
 
                 for x in range(0, 300):
-                    degraded_reads_before = bad_jmx.read_attribute(read_stage, 'Value')
+                    degraded_reads_before = bad_jmx.read_attribute(read_latency, 'Count')
                     scores_before = jmx.read_attribute(des, 'Scores')
                     assert_true(no_cross_dc(scores_before, [node4, node5, node6]),
                                 "Cross DC scores were present: " + str(scores_before))
@@ -170,10 +169,10 @@ class TestDynamicEndpointSnitch(Tester):
                         # If the DES correctly routed the read around the degraded node,
                         # it shouldn't have another completed read request in metrics
                         assert_equal(degraded_reads_before,
-                                     bad_jmx.read_attribute(read_stage, 'Value'))
+                                     bad_jmx.read_attribute(read_latency, 'Count'))
                     else:
-                        # sleep to give dynamic snitch time to recalculate scores
-                        time.sleep(.1)
+                        # sleep to give dynamic snitch time to recalculate scores and update latency metrics
+                        time.sleep(2)
 
                 # check that most reads were snitchable, with some
                 # room allowed in case score recalculation is slow
