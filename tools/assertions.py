@@ -299,13 +299,13 @@ def assert_length_equal(object_with_length, expected_length, additional_error_te
                                                                                         additional_error_text if additional_error_text else ''))
 
 
-def assert_not_running(node):
+def assert_not_running(node, timeout=10):
     """
     Assert that a given node is not running
     @param node The node to check status
     """
     attempts = 0
-    while node.is_running() and attempts < 10:
+    while node.is_running() and attempts < timeout:
         sleep(1)
         attempts = attempts + 1
 

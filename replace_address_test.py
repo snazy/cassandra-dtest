@@ -11,7 +11,7 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, TRACE, Tester,
-                   debug)
+                   debug, get_dse_version_from_build)
 from tools.assertions import (assert_all, assert_bootstrap_state,
                               assert_not_running)
 from tools.data import rows_to_list
@@ -75,6 +75,7 @@ class BaseReplaceAddressTest(Tester):
             session.execute("""ALTER KEYSPACE system_auth
                             WITH replication = {'class':'SimpleStrategy',
                             'replication_factor':2};""")
+            session.cluster.shutdown()
         else:
             self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'FailureDetector.* unknown endpoint']  # APOLLO-59
 
@@ -124,6 +125,7 @@ class BaseReplaceAddressTest(Tester):
             session = self.patient_cql_connection(self.query_node)
             query = SimpleStatement('select * from {}'.format(table), consistency_level=cl)
             session.execute(query)
+            session.cluster.shutdown()
 
     def _insert_data(self, n='1k', rf=3, whitelist=False):
         debug("Inserting {} entries with rf={} with stress...".format(n, rf))
@@ -135,7 +137,9 @@ class BaseReplaceAddressTest(Tester):
         debug("Fetching initial data from {} on {} with CL={} and LIMIT={}".format(table, self.query_node.name, cl, limit))
         session = self.patient_cql_connection(self.query_node)
         query = SimpleStatement('select * from {} LIMIT {}'.format(table, limit), consistency_level=cl)
-        return rows_to_list(session.execute(query))
+        result = rows_to_list(session.execute(query))
+        session.cluster.shutdown()
+        return result
 
     def _verify_data(self, initial_data, table='keyspace1.standard1', cl=ConsistencyLevel.ONE, limit=10000,
                      restart_nodes=False):
@@ -306,7 +310,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         debug("Waiting for replace to fail")
         self.replacement_node.watch_log_for("java.lang.UnsupportedOperationException: Cannot replace a live node...")
         self.replacement_node.mark_log_for_errors()
-        assert_not_running(self.replacement_node)
+        assert_not_running(self.replacement_node, timeout=60)
 
     @attr('resource-intensive')
     def replace_nonexistent_node_test(self):
@@ -320,7 +324,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
 
         debug("Waiting for replace to fail")
         self.replacement_node.watch_log_for("java.lang.RuntimeException: Cannot replace_address /127.0.0.5 because it doesn't exist in gossip")
-        assert_not_running(self.replacement_node)
+        assert_not_running(self.replacement_node, timeout=60)
 
     @since('3.0.11')
     def fail_without_replace_test(self):
@@ -458,7 +462,10 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         debug("Submitting byteman script to make stream fail")
 
         # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
-        if self.cluster.version() < '4.0':
+        if get_dse_version_from_build(self.cluster.get_install_dir()) >= '6.0':
+            self.query_node.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
+            self._do_replace(jvm_option='replace_address_first_boot')
+        elif self.cluster.version() < '4.0':
             self.query_node.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
             self._do_replace(jvm_option='replace_address_first_boot',
                              opts={'streaming_socket_timeout_in_ms': 1000})
@@ -499,7 +506,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
             self.replacement_node.start(jvm_args=["-Dcassandra.replace_address_first_boot={}".format(self.replaced_node.address())],
                                         wait_for_binary_proto=True)
         else:
-            raise RuntimeError('invalid mode value {mode}'.format(mode))
+            raise RuntimeError('invalid mode value {}'.format(mode))
 
         # check if bootstrap succeeded
         assert_bootstrap_state(self, self.replacement_node, 'COMPLETED')
@@ -527,7 +534,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
 
         # replace should fail due to insufficient replicas
         self.replacement_node.watch_log_for("Unable to find sufficient sources for streaming range")
-        assert_not_running(self.replacement_node)
+        assert_not_running(self.replacement_node, timeout=60)
 
     def multi_dc_replace_with_rf1_test(self):
         """
