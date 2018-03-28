@@ -7,7 +7,7 @@ from unittest.case import SkipTest
 from nose.plugins.attrib import attr
 from nose.tools import assert_in, assert_is_instance
 
-from dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, get_dse_version_from_build
+from dtests.dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, get_dse_version_from_build
 
 
 class since(object):

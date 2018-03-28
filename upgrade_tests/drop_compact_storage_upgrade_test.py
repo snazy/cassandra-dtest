@@ -1,4 +1,4 @@
-from dtest import Tester, debug
+from dtests.dtest import Tester, debug
 from tools.assertions import assert_true
 from tools.decorators import since
 

@@ -2,7 +2,8 @@ import re
 import time
 
 from ccmlib.node import TimeoutError
-from dtest import Tester, debug
+
+from dtests.dtest import Tester, debug
 
 
 class TestSchemaAgreementUpgrade(Tester):

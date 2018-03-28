@@ -9,7 +9,7 @@ from dse import InvalidRequest
 from dse.query import SimpleStatement, dict_factory, named_tuple_factory
 from nose.tools import assert_not_in
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, debug, run_scenarios
+from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, debug, run_scenarios
 from tools.assertions import assert_read_timeout_or_failure
 from tools.data import rows_to_list
 from tools.datahelp import create_rows, flatten_into_set, parse_data_into_dicts

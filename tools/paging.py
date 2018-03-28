@@ -1,11 +1,11 @@
 import time
 import traceback
+from threading import Condition, Thread
 
 from dse.cluster import ContinuousPagingOptions
-from tools.datahelp import flatten_into_set
-from dtest import debug
 
-from threading import Condition, Thread
+from dtests.dtest import debug
+from tools.datahelp import flatten_into_set
 
 
 class Page(object):

@@ -2,7 +2,7 @@ import random
 import time
 from threading import Thread
 
-from dtest import debug
+from dtests.dtest import debug
 
 
 class InterruptBootstrap(Thread):

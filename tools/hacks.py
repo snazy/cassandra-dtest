@@ -8,7 +8,7 @@ import time
 from dse.concurrent import execute_concurrent
 from nose.tools import assert_less_equal
 
-import dtest
+from dtests import dtest
 from tools.funcutils import get_rate_limited_function
 
 

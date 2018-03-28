@@ -8,11 +8,11 @@ from threading import Thread
 from unittest import skip, skipIf
 
 from ccmlib.node import ToolError
-from nose.plugins.attrib import attr
-
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
-from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
+from nose.plugins.attrib import attr
+
+from dtests.dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
 from incremental_repair_test import get_repair_options
 from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2, rows_to_list
 from tools.decorators import no_vnodes, since

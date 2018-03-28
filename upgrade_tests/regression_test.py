@@ -10,7 +10,7 @@ from unittest import skipUnless
 from dse import ConsistencyLevel as CL
 from nose.tools import assert_not_in
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, debug
+from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, debug
 from tools.decorators import since
 from tools.jmxutils import JolokiaAgent, make_mbean
 from upgrade_base import UpgradeTester

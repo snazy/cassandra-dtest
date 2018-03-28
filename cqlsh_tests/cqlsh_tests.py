@@ -16,7 +16,7 @@ from dse import InvalidRequest
 from dse.concurrent import execute_concurrent_with_args
 
 from cqlsh_tools import monkeypatch_driver, unmonkeypatch_driver
-from dtest import Tester, debug
+from dtests.dtest import Tester, debug
 from tools.assertions import assert_all, assert_none
 from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
                         rows_to_list)

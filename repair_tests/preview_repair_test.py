@@ -3,7 +3,7 @@ import time
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 
-from dtest import Tester
+from dtests.dtest import Tester
 from tools.decorators import no_vnodes, since
 
 

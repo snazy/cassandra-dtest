@@ -1,4 +1,4 @@
-from bootstrap_test import BaseBootstrapTest
+from dtests.bootstrap_test import BaseBootstrapTest
 from tools.decorators import no_vnodes, since
 
 

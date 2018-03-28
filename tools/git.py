@@ -1,6 +1,6 @@
 import subprocess
 
-from dtest import CASSANDRA_DIR, debug
+from dtests.dtest import CASSANDRA_DIR, debug
 
 
 def cassandra_git_branch(cdir=None):

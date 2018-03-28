@@ -5,13 +5,13 @@ from unittest import skipUnless
 
 from cassandra.query import dict_factory
 from nose.tools import assert_equal, assert_not_in
+from thrift_tests import _i64, get_thrift_client
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug
+from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug
 from thrift_bindings.v22 import Cassandra
 from thrift_bindings.v22.Cassandra import (Column, ColumnDef,
                                            ColumnParent, ConsistencyLevel,
                                            SlicePredicate, SliceRange)
-from thrift_tests import _i64, get_thrift_client
 from tools.assertions import assert_length_equal
 from tools.decorators import since
 from upgrade_base import UpgradeTester
