@@ -751,7 +751,7 @@ class TestBootstrap(BaseBootstrapTest):
         tWaithUntil = time.time() + grace_time
         while len(node1.get_sstables_via_sstableutil("keyspace1", "standard1", sstabletype="tmp")) > 0:
             if time.time() >= tWaithUntil:
-                self.fail("Temporary sstables after stress run did not disappear within {} seconds", grace_time)
+                self.fail("Temporary sstables after stress run did not disappear within {} seconds".format(grace_time))
 
             # wait a little while and retry the check
             time.sleep(1)
