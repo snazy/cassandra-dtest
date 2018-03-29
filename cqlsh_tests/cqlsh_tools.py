@@ -73,8 +73,8 @@ def monkeypatch_driver():
     dse.cqltypes.CassandraType.support_empty_values = True
 
     if hasattr(dse, 'deserializers'):
-        cache['DesDateType'] = dse.deserializers.DesDateType
-        del dse.deserializers.DesDateType
+        cache['DesDateType'] = dse.deserializers.DesDateType  # pylint: disable=no-member
+        del dse.deserializers.DesDateType  # pylint: disable=no-member
 
     return cache
 
@@ -89,4 +89,4 @@ def unmonkeypatch_driver(cache):
     dse.cqltypes.CassandraType.support_empty_values = cache['support_empty_values']
 
     if hasattr(dse, 'deserializers'):
-        dse.deserializers.DesDateType = cache['DesDateType']
+        dse.deserializers.DesDateType = cache['DesDateType']  # pylint: disable=no-member

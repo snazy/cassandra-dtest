@@ -289,7 +289,7 @@ class Runner(threading.Thread):
 
     def check(self):
         if self.__error is not None:
-            raise self.__error
+            raise self.__error  #pylint: disable=raising-bad-type
 
 
 def make_execution_profile(retry_policy=FlakyRetryPolicy(), consistency_level=ConsistencyLevel.ONE, **kwargs):

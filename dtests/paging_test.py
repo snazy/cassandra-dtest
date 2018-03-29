@@ -73,7 +73,7 @@ class BasePagingTester(ReusableClusterTester):
     def prepare(self, row_factory=dict_factory):
         if hasattr(self, 'session'):
             debug('shutting down old session')
-            self.session.cluster.shutdown()
+            self.session.cluster.shutdown()  #pylint: disable=access-member-before-definition
 
         protocol_version = self.protocol_version or self.get_protocol_version()
         debug('Using protocol version {}'.format(protocol_version))
