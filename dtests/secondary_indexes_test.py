@@ -665,7 +665,7 @@ class TestSecondaryIndexesOnCollections(Tester):
         # check if indexes work on existing data
         for n in range(50):
             self.assertEqual(5, len(list(session.execute("select * from simple_with_tuple where single_tuple = ({0});".format(n)))))
-            self.assertEqual(0, len(list(session.execute("select * from simple_with_tuple where single_tuple = (-1);".format(n)))))
+            self.assertEqual(0, len(list(session.execute("select * from simple_with_tuple where single_tuple = (-1);"))))
             self.assertEqual(5, len(list(session.execute("select * from simple_with_tuple where double_tuple = ({0},{0});".format(n)))))
             self.assertEqual(0, len(list(session.execute("select * from simple_with_tuple where double_tuple = ({0},-1);".format(n)))))
             self.assertEqual(5, len(list(session.execute("select * from simple_with_tuple where triple_tuple = ({0},{0},{0});".format(n)))))

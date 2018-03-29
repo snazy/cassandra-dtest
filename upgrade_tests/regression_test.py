@@ -55,7 +55,7 @@ class TestForRegressions(UpgradeTester):
                 session.execute("INSERT INTO financial.symbol_history (symbol, name, year, month, day, volume) VALUES ('{}', 'MegaCorp', {}, {}, 1, 100)".format(symbol, year, month))
 
         for symbol, year in symbol_years:
-            session.execute("DELETE FROM financial.symbol_history WHERE symbol='{}' and year = {} and month=25;".format(symbol, year, month))
+            session.execute("DELETE FROM financial.symbol_history WHERE symbol='{}' and year = {} and month=25;".format(symbol, year))
 
         sessions = self.do_upgrade(session)
 

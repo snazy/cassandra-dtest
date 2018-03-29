@@ -2325,8 +2325,8 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
 
         for i in xrange(5):
             for j in xrange(10):
-                session.execute("INSERT INTO test_list (a,b,c,d) VALUES ({},{},[{}, {}],{})".format(i, j, j + 1, j + 2, j + 3, j + 4))
-                session.execute("INSERT INTO test_map (a,b,c,d) VALUES ({},{},{{ {}: {} }},{})".format(i, j, j + 1, j + 2, j + 3, j + 4))
+                session.execute("INSERT INTO test_list (a,b,c,d) VALUES ({},{},[{}, {}],{})".format(i, j, j + 1, j + 2, j + 3))
+                session.execute("INSERT INTO test_map (a,b,c,d) VALUES ({},{},{{ {}: {} }},{})".format(i, j, j + 1, j + 2, j + 3))
 
         for page_size in (2, 3, 4, 5, 7, 10, 20):
             session.default_fetch_size = page_size
@@ -2757,8 +2757,8 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
 
         for i in xrange(5):
             for j in xrange(10):
-                session.execute("INSERT INTO test_list (a,b,c,d) VALUES ({},{},[{}, {}],{})".format(i, j, j + 1, j + 2, j + 3, j + 4))
-                session.execute("INSERT INTO test_map (a,b,c,d) VALUES ({},{},{{ {}: {} }},{})".format(i, j, j + 1, j + 2, j + 3, j + 4))
+                session.execute("INSERT INTO test_list (a,b,c,d) VALUES ({},{},[{}, {}],{})".format(i, j, j + 1, j + 2, j + 3))
+                session.execute("INSERT INTO test_map (a,b,c,d) VALUES ({},{},{{ {}: {} }},{})".format(i, j, j + 1, j + 2, j + 3))
 
         for page_size in (2, 3, 4, 5, 7, 10, 20):
             session.default_fetch_size = page_size
