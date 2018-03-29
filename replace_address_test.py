@@ -17,6 +17,8 @@ from tools.assertions import (assert_all, assert_bootstrap_state,
 from tools.data import rows_to_list
 from tools.decorators import since
 
+FAST_REPLACE_JVM_ARGS = ["-Dcassandra.ring_delay_ms=10000", "-Dcassandra.broadcast_interval_ms=10000"]
+
 
 class NodeUnavailable(Exception):
     pass
@@ -67,7 +69,7 @@ class BaseReplaceAddressTest(Tester):
             debug("Starting nodes on version 2.1.14")
             self.cluster.set_install_dir(version="2.1.14")
 
-        self.cluster.start()
+        self.cluster.start(jvm_args=FAST_REPLACE_JVM_ARGS)
 
         if self.cluster.cassandra_version() >= '2.2.0':
             session = self.patient_cql_connection(self.query_node)
@@ -104,9 +106,8 @@ class BaseReplaceAddressTest(Tester):
 
         if extra_jvm_args is None:
             extra_jvm_args = []
-        extra_jvm_args.extend(["-Dcassandra.{}={}".format(jvm_option, replace_address),
-                               "-Dcassandra.ring_delay_ms=10000",
-                               "-Dcassandra.broadcast_interval_ms=10000"])
+        extra_jvm_args.extend(["-Dcassandra.{}={}".format(jvm_option, replace_address)])
+        extra_jvm_args.extend(FAST_REPLACE_JVM_ARGS)
 
         self.replacement_node.start(jvm_args=extra_jvm_args,
                                     wait_for_binary_proto=wait_for_binary_proto, wait_other_notice=wait_other_notice)
@@ -450,7 +451,15 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         """
         self._test_restart_failed_replace(mode='wipe')
 
-    def _test_restart_failed_replace(self, mode):
+    @since('2.2')
+    @attr('resource-intensive')
+    def restart_failed_replace_same_address_test(self):
+        """
+        Test that if a node fails to replace, it can join the cluster even if the data is wiped.
+        """
+        self._test_restart_failed_replace(mode='wipe', same_address=True)
+
+    def _test_restart_failed_replace(self, mode, same_address=False):
         self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'Error while waiting on bootstrap to complete']
         self._setup(n=3, enable_byteman=True)
         self._insert_data(n="1k")
@@ -464,14 +473,14 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         # TODO remove "unconditional if condition" when merging netty-based internode messaging/streaming from trunk !
         if get_dse_version_from_build(self.cluster.get_install_dir()) >= '6.0':
             self.query_node.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
-            self._do_replace(jvm_option='replace_address_first_boot')
+            self._do_replace(jvm_option='replace_address_first_boot', same_address=same_address)
         elif self.cluster.version() < '4.0':
             self.query_node.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
             self._do_replace(jvm_option='replace_address_first_boot',
-                             opts={'streaming_socket_timeout_in_ms': 1000})
+                             opts={'streaming_socket_timeout_in_ms': 1000}, same_address=same_address)
         else:
             self.query_node.byteman_submit(['./byteman/4.0/stream_failure.btm'])
-            self._do_replace(jvm_option='replace_address_first_boot')
+            self._do_replace(jvm_option='replace_address_first_boot', same_address=same_address)
 
         # Make sure bootstrap did not complete successfully
         assert_bootstrap_state(self, self.replacement_node, 'IN_PROGRESS')
@@ -483,8 +492,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
             self.replacement_node.stop()
             self.replacement_node.start(jvm_args=[
                                         "-Dcassandra.replace_address_first_boot={}".format(self.replaced_node.address()),
-                                        "-Dcassandra.reset_bootstrap_progress=true"
-                                        ],
+                                        "-Dcassandra.reset_bootstrap_progress=true"],
                                         wait_for_binary_proto=True)
             # check if we reset bootstrap state
             self.replacement_node.watch_log_for("Resetting bootstrap progress to start fresh", from_mark=mark)
@@ -492,14 +500,15 @@ class TestReplaceAddress(BaseReplaceAddressTest):
             debug("Resuming failed bootstrap")
             self.replacement_node.nodetool('bootstrap resume')
             # check if we skipped already retrieved ranges
-            self.replacement_node.watch_log_for("already available. Skipping streaming.")
-            self.replacement_node.watch_log_for("Resume complete")
+            self.replacement_node.watch_log_for(["already available. Skipping streaming.", "Resume complete"])
         elif mode == 'wipe':
             self.replacement_node.stop()
 
-            debug("Waiting other nodes to detect node stopped")
-            self.query_node.watch_log_for("FatClient /{} has been silent for 30000ms, removing from gossip".format(self.replacement_node.address()), timeout=60)
-            self.query_node.watch_log_for("Node /{} failed during replace.".format(self.replacement_node.address()), timeout=60, filename='debug.log')
+            if not same_address:
+                debug("Waiting other nodes to mark this node as down and remove it from quarantine")
+                self.query_node.watch_log_for(["Node /{} failed during replace.".format(self.replacement_node.address()),
+                                              "/{} gossip quarantine over".format(self.replacement_node.address())],
+                                              timeout=60, filename='debug.log')
 
             debug("Restarting node after wiping data")
             self._cleanup(self.replacement_node)

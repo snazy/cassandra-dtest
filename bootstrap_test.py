@@ -19,7 +19,7 @@ from tools.assertions import (assert_almost_equal, assert_bootstrap_state,
                               assert_stderr_clean)
 from tools.data import create_cf, create_ks, query_c1c2
 from tools.decorators import no_vnodes, since
-from tools.intervention import InterruptBootstrap, KillOnBootstrap
+from tools.intervention import InterruptBootstrap
 from tools.misc import new_node
 from tools.sslkeygen import generate_ssl_stores
 
@@ -598,43 +598,66 @@ class TestBootstrap(BaseBootstrapTest):
         node2.start(wait_other_notice=False)
         node2.watch_log_for("JOINING:", from_mark=mark)
 
-    def failed_bootstrap_wiped_node_can_join_test(self):
+    def failed_bootstrap_wiped_node_can_join_before_gossip_expiration_test(self):
+        self._test_failed_bootstrap_wiped_node_can_join(phase="before_expiration")
+
+    def failed_bootstrap_wiped_node_can_join_after_gossip_expiration_test(self):
+        self._test_failed_bootstrap_wiped_node_can_join(phase="after_expiration")
+
+    def failed_bootstrap_wiped_node_can_join_after_gossip_quarantine_test(self):
+        self._test_failed_bootstrap_wiped_node_can_join(phase="after_quarantine")
+
+    def _test_failed_bootstrap_wiped_node_can_join(self, phase):
         """
         @jira_ticket CASSANDRA-9765
         Test that if a node fails to bootstrap, it can join the cluster even if the data is wiped.
         """
+
+        debug("Creating and starting cluster")
         cluster = self.cluster
-        cluster.populate(1)
-        cluster.set_configuration_options(values={'stream_throughput_outbound_megabits_per_sec': 1})
-        cluster.start()
+        cluster.populate(1, install_byteman=True)
+        cluster.start(jvm_args=['-Dcassandra.ring_delay_ms=10000'])
 
-        stress_table = 'keyspace1.standard1'
-
-        # write some data, enough for the bootstrap to fail later on
+        debug("Writing some data to node1")
         node1 = cluster.nodelist()[0]
-        node1.stress(['write', 'n=100K', 'no-warmup', '-rate', 'threads=8'])
+        node1.stress(['write', 'n=1K', 'no-warmup', '-rate', 'threads=8', '-schema', 'replication(factor=2)'])
         node1.flush()
 
+        debug("Reading data to compare later")
+        stress_table = 'keyspace1.standard1'
         session = self.patient_cql_connection(node1)
         original_rows = list(session.execute("SELECT * FROM {}".format(stress_table,)))
 
-        # Add a new node, bootstrap=True ensures that it is not a seed
+        debug("Starting new node2 and inject streaming failure on node1 via byteman so bootstrap fails")
         node2 = new_node(cluster, bootstrap=True)
+        node1.byteman_submit(['./byteman/pre4.0/stream_failure.btm'])
+        node2.start(wait_for_binary_proto=True, wait_other_notice=False, jvm_args=['-Dcassandra.ring_delay_ms=10000'])
 
-        # kill node2 in the middle of bootstrap
-        t = KillOnBootstrap(node2)
-        t.start()
+        debug("Make sure bootstrap failed and stop node2")
+        assert_bootstrap_state(self, node2, 'IN_PROGRESS')
+        node2.stop()
 
-        node2.start()
-        t.join()
-        self.assertFalse(node2.is_running())
+        if phase == "after_expiration":
+            debug("Wait node1 to remove node2 from gossip")
+            node1.watch_log_for("FatClient /{} has been silent for".format(node2.address()), timeout=60)
+        elif phase == "after_quarantine":
+            debug("Wait node1 to remove node2 from quarantine")
+            node1.watch_log_for("/{} gossip quarantine over".format(node2.address()), timeout=60, filename='debug.log')
 
         # wipe any data for node2
+        debug("Wiping node2 and restarting bootstrap")
         self._cleanup(node2)
-        # Now start it again, it should be allowed to join
+        # Now start it again, it should complete join
         mark = node2.mark_log()
-        node2.start(wait_other_notice=True)
-        node2.watch_log_for("JOINING:", from_mark=mark)
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True, jvm_args=['-Dcassandra.ring_delay_ms=10000'])
+
+        debug("Bootstrap finished. Stopping node1")
+        node1.stop()
+
+        debug("Checking data is present on node2")
+        session = self.patient_exclusive_cql_connection(node2)
+        new_rows = list(session.execute("SELECT * FROM %s" % (stress_table,)))
+        self.assertEquals(original_rows, new_rows)
 
     @since('2.1.1')
     def simultaneous_bootstrap_test(self):
