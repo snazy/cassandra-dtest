@@ -5,7 +5,7 @@ from unittest import skipUnless
 
 from cassandra.query import dict_factory
 from nose.tools import assert_equal, assert_not_in
-from thrift_tests import _i64, get_thrift_client
+from dtests.thrift_tests import _i64, get_thrift_client
 
 from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug
 from thrift_bindings.v22 import Cassandra

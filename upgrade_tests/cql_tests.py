@@ -17,7 +17,7 @@ from dse.query import SimpleStatement
 from dse.util import sortedset
 from nose.exc import SkipTest
 from nose.tools import assert_not_in
-from thrift_tests import get_thrift_client
+from dtests.thrift_tests import get_thrift_client
 
 from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, debug
 from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnDef,

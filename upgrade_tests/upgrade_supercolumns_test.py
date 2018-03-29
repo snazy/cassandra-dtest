@@ -7,7 +7,7 @@ from dse.util import OrderedMap
 from nose.tools import assert_equal, assert_not_in
 from pycassa.columnfamily import ColumnFamily
 from pycassa.pool import ConnectionPool
-from thrift_tests import get_thrift_client, _i64
+from dtests.thrift_tests import get_thrift_client, _i64
 
 from dtests.dtest import CASSANDRA_VERSION_FROM_BUILD, RUN_STATIC_UPGRADE_MATRIX, Tester, debug
 from thrift_bindings.v22 import Cassandra
