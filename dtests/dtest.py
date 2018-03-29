@@ -19,7 +19,7 @@ import time
 import traceback
 import unittest.case
 from collections import OrderedDict
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from subprocess import CalledProcessError
 from unittest import TestCase
 
@@ -289,7 +289,7 @@ class Runner(threading.Thread):
 
     def check(self):
         if self.__error is not None:
-            raise self.__error  #pylint: disable=raising-bad-type
+            raise self.__error  # pylint: disable=raising-bad-type
 
 
 def make_execution_profile(retry_policy=FlakyRetryPolicy(), consistency_level=ConsistencyLevel.ONE, **kwargs):

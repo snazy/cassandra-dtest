@@ -2,7 +2,7 @@ import os
 import sys
 import time
 from abc import ABCMeta
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from unittest import skipIf
 
 from ccmlib.common import get_version_from_build, is_win
@@ -214,8 +214,8 @@ class UpgradeTester(Tester):
         # Check if a since annotation with a max_version was set on this test.
         # The since decorator can only check the starting version of the upgrade,
         # so here we check to new version of the upgrade as well.
-        if hasattr(self, 'max_version') and self.max_version is not None and new_version_from_build >= self.max_version:  #pylint: disable=no-member
-            self.skip("Skipping test, new version {} is equal to or higher than max version {}".format(new_version_from_build, self.max_version))  #pylint: disable=no-member
+        if hasattr(self, 'max_version') and self.max_version is not None and new_version_from_build >= self.max_version:  # pylint: disable=no-member
+            self.skip("Skipping test, new version {} is equal to or higher than max version {}".format(new_version_from_build, self.max_version))  # pylint: disable=no-member
 
         if (new_version_from_build >= '3' and self.protocol_version is not None and self.protocol_version < 3):
             self.skip('Protocol version {} incompatible '

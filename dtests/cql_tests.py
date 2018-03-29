@@ -3,7 +3,7 @@
 import itertools
 import struct
 import time
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from dse import ConsistencyLevel, InvalidRequest
 from dse.metadata import NetworkTopologyStrategy, SimpleStrategy

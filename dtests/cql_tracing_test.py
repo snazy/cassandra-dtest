@@ -1,5 +1,5 @@
 # coding: utf-8
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from nose.plugins.attrib import attr
 

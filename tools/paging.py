@@ -234,7 +234,7 @@ class ContinuousPageFetcher(object):
                 self._condition.wait(timeout)
 
         if self.error:
-            raise self.error  #pylint: disable=raising-bad-type
+            raise self.error  # pylint: disable=raising-bad-type
 
         if not self.all_fetched:
             raise RuntimeError("Failed to receive all rows before timeout, only got {} rows.".format(len(self.rows)))

@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from threading import Event
 
 from ccmlib.node import Node, TimeoutError

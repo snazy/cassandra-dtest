@@ -10,7 +10,7 @@ import time
 from collections import namedtuple
 from contextlib import contextmanager
 from decimal import Decimal
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from functools import partial
 from tempfile import NamedTemporaryFile, gettempdir, template
 from uuid import uuid1, uuid4
@@ -202,7 +202,7 @@ class CqlshCopyTest(Tester):
         except AttributeError:
             with self._cqlshlib():
                 try:
-                    from cqlshlib.formatting import DEFAULT_TIMESTAMP_FORMAT  #pylint: disable=import-error
+                    from cqlshlib.formatting import DEFAULT_TIMESTAMP_FORMAT  # pylint: disable=import-error
                     self._default_time_format = DEFAULT_TIMESTAMP_FORMAT
                 except ImportError:  # version 2.1
                     self._default_time_format = '%Y-%m-%d %H:%M:%S%z'
@@ -248,7 +248,7 @@ class CqlshCopyTest(Tester):
         default_time_format = self.default_time_format
 
         try:
-            from cqlshlib.formatting import round_microseconds  #pylint: disable=import-error
+            from cqlshlib.formatting import round_microseconds  # pylint: disable=import-error
         except ImportError:
             round_microseconds = None
 
@@ -355,7 +355,7 @@ class CqlshCopyTest(Tester):
 
         try:
             sys.path = sys.path + [os.path.join(cassandra_dir, 'pylib')]
-            import cqlshlib  #pylint: disable=import-error
+            import cqlshlib  # pylint: disable=import-error
             yield cqlshlib
         finally:
             sys.path = saved_path
@@ -394,10 +394,10 @@ class CqlshCopyTest(Tester):
 
     def make_csv_formatter(self, time_format, nullval):
         with self._cqlshlib() as cqlshlib:  # noqa
-            from cqlshlib.formatting import format_value, format_value_default  #pylint: disable=import-error
-            from cqlshlib.displaying import NO_COLOR_MAP  #pylint: disable=import-error
+            from cqlshlib.formatting import format_value, format_value_default  # pylint: disable=import-error
+            from cqlshlib.displaying import NO_COLOR_MAP  # pylint: disable=import-error
             try:
-                from cqlshlib.formatting import DateTimeFormat  #pylint: disable=import-error
+                from cqlshlib.formatting import DateTimeFormat  # pylint: disable=import-error
                 date_time_format = DateTimeFormat()
                 date_time_format.timestamp_format = time_format
                 if hasattr(date_time_format, 'milliseconds_only'):
@@ -465,7 +465,7 @@ class CqlshCopyTest(Tester):
 
         # build the typemap once ahead of time to speed up formatting
         try:
-            from cqlshlib.formatting import CqlType  #pylint: disable=import-error
+            from cqlshlib.formatting import CqlType  # pylint: disable=import-error
             cluster_meta = UpdatingClusterMetadataWrapper(self.session.cluster)
             ks_meta = cluster_meta.keyspaces[self.ks]
             cql_type_map = dict([(type_name, CqlType(type_name, ks_meta)) for type_name in cql_type_names])

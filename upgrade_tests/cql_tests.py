@@ -6,7 +6,7 @@ import random
 import struct
 import time
 from collections import OrderedDict
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from unittest import skip, skipUnless
 from uuid import UUID, uuid4
 

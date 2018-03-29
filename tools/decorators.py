@@ -1,7 +1,7 @@
 import functools
 import inspect
 import unittest
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from unittest.case import SkipTest
 
 from nose.plugins.attrib import attr

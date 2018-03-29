@@ -1,5 +1,5 @@
 import time
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from dse.concurrent import execute_concurrent_with_args
 

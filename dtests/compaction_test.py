@@ -4,7 +4,7 @@ import re
 import string
 import tempfile
 import time
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 import parse
 

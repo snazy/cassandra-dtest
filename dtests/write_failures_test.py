@@ -1,6 +1,6 @@
 import time
 import uuid
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from dse import ConsistencyLevel, WriteFailure, WriteTimeout
 from dse.policies import FallthroughRetryPolicy

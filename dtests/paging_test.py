@@ -6,7 +6,7 @@ import threading
 import time
 import traceback
 import uuid
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from unittest.case import SkipTest
 
 from dse import ConsistencyLevel as CL
@@ -73,7 +73,7 @@ class BasePagingTester(ReusableClusterTester):
     def prepare(self, row_factory=dict_factory):
         if hasattr(self, 'session'):
             debug('shutting down old session')
-            self.session.cluster.shutdown()  #pylint: disable=access-member-before-definition
+            self.session.cluster.shutdown()  # pylint: disable=access-member-before-definition
 
         protocol_version = self.protocol_version or self.get_protocol_version()
         debug('Using protocol version {}'.format(protocol_version))

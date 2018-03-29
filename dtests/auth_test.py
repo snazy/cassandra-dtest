@@ -1,7 +1,7 @@
 import time
 from collections import namedtuple
 from datetime import datetime, timedelta
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from ccmlib.node import TimeoutError
 from dse import AuthenticationFailed, InvalidRequest, Unauthorized
@@ -23,7 +23,7 @@ from tools.misc import ImmutableMapping, restart_cluster_and_update_config
 
 class AuthMixin():
 
-    def get_session(Tester, node_idx=0, user=None, password=None):  #pylint: disable=no-self-argument
+    def get_session(Tester, node_idx=0, user=None, password=None):  # pylint: disable=no-self-argument
         """
         Connect with a set of credentials to a given node. Connection is not exclusive to that node.
         @param node_idx Initial node to connect to

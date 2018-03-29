@@ -1,7 +1,7 @@
 import os
 import time
 from collections import defaultdict
-from distutils.version import LooseVersion  #pylint: disable=import-error
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from nose.tools import assert_equal, assert_not_equal
 from threading import Thread
 
