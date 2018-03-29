@@ -30,8 +30,9 @@ def assert_csvs_items_equal(filename1, filename2):
 
 def random_list(gen=None, n=None):
     if gen is None:
-        def gen():
+        def g():
             return random.randint(-1000, 1000)
+        gen = g
     if n is None:
         def length():
             return random.randint(1, 5)
