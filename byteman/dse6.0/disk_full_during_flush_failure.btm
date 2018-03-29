@@ -1,0 +1,12 @@
+#
+# Fail flushing due to a disk full exception
+#
+
+RULE fail non-system flush due to disk full
+CLASS org.apache.cassandra.db.Memtable$FlushRunnable
+METHOD <init>
+AT ENTRY
+IF TRUE
+DO
+    throw new org.apache.cassandra.io.FSDiskFullWriteError(new java.io.IOException("Insufficient disk space to write xx bytes"));
+ENDRULE

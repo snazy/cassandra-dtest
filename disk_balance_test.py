@@ -2,7 +2,7 @@ import os
 import os.path
 import re
 
-from ccmlib.node import Node
+from ccmlib.node import Node, ToolError
 from dtest import DISABLE_VNODES, Tester, debug
 from tools.assertions import assert_almost_equal
 from tools.data import create_c1c2_table, create_ks, insert_c1c2, query_c1c2
@@ -18,6 +18,10 @@ class TestDiskBalance(Tester):
     """
     @jira_ticket CASSANDRA-6696
     """
+
+    def setUp(self):
+        super(TestDiskBalance, self).setUp()
+        self.ignore_log_patterns = []  # reset values set by disk_failure_on_flush_test
 
     def disk_balance_stress_test(self):
         cluster = self.cluster
@@ -132,6 +136,50 @@ class TestDiskBalance(Tester):
 
         for k in xrange(0, 10000):
             query_c1c2(session, k)
+
+    @since("4.0")
+    def disk_failure_on_flush_test(self):
+        """
+        Test that a flush failing due to out of disk space applies the correct
+        disk failure policy. This test is version gated with 4.0 (DSE 6.0) because
+        of the changes to FlushRunnable in 6.0, which means that the byteman rule
+        only applies to 6.0+.
+
+        @jira_ticket DB-1920
+        """
+
+        self.ignore_log_patterns = [
+            "Flushing",
+            "Unexpected exception running post flush task",
+            "Stopping native transport"
+        ]
+
+        cluster = self.cluster
+        cluster.populate(1)
+        # this should be the default but just in case it changes
+        cluster.set_configuration_options(values={'disk_failure_policy': 'stop'})
+        [node] = cluster.nodelist()
+
+        debug("Setting up byteman on {}".format(node.name))
+        node.byteman_port = '8100'
+        node.import_config_files()
+        cluster.start()
+
+        session = self.patient_cql_connection(node)
+        create_ks(session, 'ks', 1)
+        create_c1c2_table(self, session)
+        insert_c1c2(session, n=10000)
+
+        debug("Applying byteman rule to {}".format(node.name))
+        node.byteman_submit(['./byteman/dse6.0/disk_full_during_flush_failure.btm'])
+
+        mark = node.mark_log()
+
+        with self.assertRaises(ToolError):
+            node.flush()
+
+        # stop disk_failure policy should stop transports
+        node.watch_log_for('Stop listening for CQL clients', from_mark=mark, timeout=30)
 
     def alter_replication_factor_test(self):
         cluster = self.cluster
