@@ -28,6 +28,9 @@ class TestHelper(Tester):
     def __init__(self, *args, **kwargs):
         Tester.__init__(self, *args, **kwargs)
         self.lock = threading.Lock()
+        # nodes and rf need overriden by subclasses
+        self.nodes = None
+        self.rf = None
 
     def log(self, message):
         with self.lock:
