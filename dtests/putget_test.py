@@ -3,6 +3,7 @@ import time
 from dse import ConsistencyLevel
 from thrift.protocol import TBinaryProtocol
 from thrift.transport import TSocket, TTransport
+from nose.tools import assert_equal
 
 from dtest import Tester
 from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
@@ -279,5 +280,5 @@ class ThriftConnection(object):
                                       timeout=30)
             col = cosc.column
             value = col.value
-            self.assertEqual(value, 'val_0')
+            assert_equal(value, 'val_0')
         return self
