@@ -1,11 +1,12 @@
 language: python
+cache: pip
 python:
   - "2.7"
 install:
   - export CASS_DRIVER_NO_EXTENSIONS=true
   - export CASS_DRIVER_NO_CYTHON=true
-  - pip install pycodestyle flake8 pylint
-  - pip install -r requirements.txt
+  - pip install --upgrade pycodestyle flake8 pylint
+  - pip install --upgrade -r requirements.txt
 script:
   # we want pyflakes to check all files for unused imports only
   # we use flake8 because it allows us to ignore other warnings
