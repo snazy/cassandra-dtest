@@ -1,4 +1,4 @@
-import distutils.dir_util
+import distutils.dir_util  #pylint: disable=no-member
 import glob
 import os
 import shutil
