@@ -2,7 +2,7 @@ import os
 import time
 from collections import OrderedDict
 from distutils import dir_util
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 
 from dse import ConsistencyLevel, InvalidRequest
 from dse.query import SimpleStatement

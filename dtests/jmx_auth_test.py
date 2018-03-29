@@ -1,4 +1,4 @@
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 
 from ccmlib.node import ToolError
 

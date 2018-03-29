@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from decimal import Decimal
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from tempfile import NamedTemporaryFile
 from uuid import UUID, uuid4
 

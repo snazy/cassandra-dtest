@@ -6,7 +6,7 @@ import stat
 import string
 import struct
 import time
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 
 from ccmlib.common import is_win
 from ccmlib.node import Node, TimeoutError

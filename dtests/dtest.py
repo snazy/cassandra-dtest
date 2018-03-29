@@ -19,7 +19,7 @@ import time
 import traceback
 import unittest.case
 from collections import OrderedDict
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 from subprocess import CalledProcessError
 from unittest import TestCase
 

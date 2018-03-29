@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import sys
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 
 from ccmlib import common
 from ccmlib.common import is_win

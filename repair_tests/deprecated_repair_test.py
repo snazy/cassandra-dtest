@@ -1,4 +1,4 @@
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from ccmlib.common import is_win
 from dse import ConsistencyLevel

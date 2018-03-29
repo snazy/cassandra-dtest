@@ -1,7 +1,7 @@
 import json
 import os
 import subprocess
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 from urllib2 import urlopen
 
 import ccmlib.common as common

@@ -6,7 +6,7 @@ import threading
 import time
 import traceback
 import uuid
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 from unittest.case import SkipTest
 
 from dse import ConsistencyLevel as CL

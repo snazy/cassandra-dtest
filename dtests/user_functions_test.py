@@ -1,6 +1,6 @@
 import math
 import time
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 
 from dse import FunctionFailure
 

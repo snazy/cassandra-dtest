@@ -1,4 +1,4 @@
-import distutils.dir_util  #pylint: disable=no-member
+import distutils.dir_util  # pylint: disable=no-member,import-error
 import glob
 import os
 import shutil
@@ -52,7 +52,7 @@ class SnapshotTester(Tester):
             debug("snapshot copy is : " + tmpdir)
 
             # Copy files from the snapshot dir to existing temp dir
-            distutils.dir_util.copy_tree(str(snapshot_dir), os.path.join(tmpdir, str(x), ks, cf))
+            distutils.dir_util.copy_tree(str(snapshot_dir), os.path.join(tmpdir, str(x), ks, cf))  # pylint: disable=no-member
             x += 1
 
         return tmpdir
@@ -251,7 +251,7 @@ class TestArchiveCommitlog(SnapshotTester):
             tmpdir = os.path.join(base_tmpdir, str(x))
             os.mkdir(tmpdir)
             # Copy files from the snapshot dir to existing temp dir
-            distutils.dir_util.copy_tree(os.path.join(node.get_path(), 'data{0}'.format(x), ks), tmpdir)
+            distutils.dir_util.copy_tree(os.path.join(node.get_path(), 'data{0}'.format(x), ks), tmpdir)  # pylint: disable=no-member
             tmpdirs.append(tmpdir)
         tmpdirs.append(base_tmpdir)
 
@@ -272,7 +272,7 @@ class TestArchiveCommitlog(SnapshotTester):
                 os.mkdir(os.path.join(data_dir, ks, cf_id))
 
                 debug("snapshot_dir is : " + snapshot_dir)
-                distutils.dir_util.copy_tree(snapshot_dir, os.path.join(data_dir, ks, cf_id))
+                distutils.dir_util.copy_tree(snapshot_dir, os.path.join(data_dir, ks, cf_id))  # pylint: disable=no-member
 
     def test_archive_commitlog(self):
         self.run_archive_commitlog(restore_point_in_time=False)

@@ -1,7 +1,7 @@
 import time
 from collections import namedtuple
 from datetime import datetime, timedelta
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 
 from ccmlib.node import TimeoutError
 from dse import AuthenticationFailed, InvalidRequest, Unauthorized

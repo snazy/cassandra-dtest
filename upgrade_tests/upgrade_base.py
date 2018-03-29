@@ -2,7 +2,7 @@ import os
 import sys
 import time
 from abc import ABCMeta
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  #pylint: disable=import-error
 from unittest import skipIf
 
 from ccmlib.common import get_version_from_build, is_win
