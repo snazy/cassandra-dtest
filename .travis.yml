@@ -2,6 +2,8 @@ language: python
 python:
   - "2.7"
 install:
+  - export CASS_DRIVER_NO_EXTENSIONS=true
+  - export CASS_DRIVER_NO_CYTHON=true
   - pip install pycodestyle flake8 pylint
   - pip install -r requirements.txt
 script:
