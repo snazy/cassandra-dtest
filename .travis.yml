@@ -17,5 +17,5 @@ script:
   - git diff riptano/master...HEAD -U0 | pycodestyle --ignore=E501 --diff
   # lint all files except json_test.py for line length errors
   - git diff riptano/master...HEAD -U0 | pycodestyle --diff --exclude='json_test.py' --exclude='meta_tests/assertion_test.py' --max-line-length=200
-  - pylint dtests/ tools/ cqlsh_tests/ meta_tests/ repair_tests/ upgrade_tests/
+  - pylint dtests/ tools/ cqlsh_tests/ meta_tests/ repair_tests/
 sudo: false
