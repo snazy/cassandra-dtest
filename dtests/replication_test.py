@@ -182,8 +182,7 @@ class ReplicationTest(Tester):
                 replicas.extend(self.get_replicas_for_token(
                     token, rf, nodes=dc_nodes))
         else:
-            raise NotImplemented('replication strategy not implemented: %s'
-                                 % strategy)
+            raise NotImplementedError('replication strategy not implemented: {}'.format(strategy))
 
         return replicas
 
