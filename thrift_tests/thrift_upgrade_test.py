@@ -7,15 +7,15 @@ from cassandra.query import dict_factory
 from nose.tools import assert_equal, assert_not_in
 
 from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug
-from dtests.thrift_tests import _i64, get_thrift_client
 from thrift_bindings.v22 import Cassandra
 from thrift_bindings.v22.Cassandra import (Column, ColumnDef, ColumnParent,
                                            ConsistencyLevel, SlicePredicate,
                                            SliceRange)
+from .thrift_tests import _i64, get_thrift_client
 from tools.assertions import assert_length_equal
 from tools.decorators import since
-from upgrade_base import UpgradeTester
-from upgrade_manifest import build_upgrade_pairs
+from upgrade_tests.upgrade_base import UpgradeTester
+from upgrade_tests.upgrade_manifest import build_upgrade_pairs
 
 
 def _create_dense_super_cf(name):
@@ -290,7 +290,7 @@ class TestThrift(UpgradeTester):
 
         client.system_add_column_family(_create_dense_super_cf('dense_super_1'))
 
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             client.insert('k1', ColumnParent('dense_super_1', 'key{}'.format(i)), Column(_i64(100), 'value1', 0), ConsistencyLevel.ONE)
             client.insert('k2', ColumnParent('dense_super_1', 'key{}'.format(i)), Column(_i64(200), 'value2', 0), ConsistencyLevel.ONE)
 
@@ -318,7 +318,7 @@ class TestThrift(UpgradeTester):
 
         client.system_add_column_family(_create_dense_super_cf('dense_super_2'))
 
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             client.insert('k1', ColumnParent('dense_super_2', 'key{}'.format(i)), Column(_i64(100), 'value1', 0), ConsistencyLevel.ONE)
             client.insert('k2', ColumnParent('dense_super_2', 'key{}'.format(i)), Column(_i64(200), 'value2', 0), ConsistencyLevel.ONE)
 
@@ -355,7 +355,7 @@ class TestThrift(UpgradeTester):
         cursor.execute("ALTER TABLE ks.sparse_super_1 RENAME key TO renamed_key")
         cursor.execute("ALTER TABLE ks.sparse_super_1 RENAME column1 TO renamed_column1")
 
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             client.insert('k1', ColumnParent('sparse_super_1', 'key{}'.format(i)), Column("value1", _i64(100), 0), ConsistencyLevel.ONE)
             client.insert('k1', ColumnParent('sparse_super_1', 'key{}'.format(i)), Column("col1", _i64(200), 0), ConsistencyLevel.ONE)
             client.insert('k1', ColumnParent('sparse_super_1', 'key{}'.format(i)), Column("col2", _i64(300), 0), ConsistencyLevel.ONE)
@@ -389,7 +389,7 @@ class TestThrift(UpgradeTester):
         cf = _create_sparse_super_cf('sparse_super_2')
         client.system_add_column_family(cf)
 
-        for i in xrange(1, 3):
+        for i in range(1, 3):
             client.insert('k1', ColumnParent('sparse_super_2', 'key{}'.format(i)), Column("value1", _i64(100), 0), ConsistencyLevel.ONE)
             client.insert('k1', ColumnParent('sparse_super_2', 'key{}'.format(i)), Column("col1", _i64(200), 0), ConsistencyLevel.ONE)
             client.insert('k1', ColumnParent('sparse_super_2', 'key{}'.format(i)), Column("col2", _i64(300), 0), ConsistencyLevel.ONE)

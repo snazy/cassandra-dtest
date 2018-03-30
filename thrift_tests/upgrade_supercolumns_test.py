@@ -10,13 +10,14 @@ from pycassa.pool import ConnectionPool
 
 from dtests.dtest import (CASSANDRA_VERSION_FROM_BUILD,
                           RUN_STATIC_UPGRADE_MATRIX, Tester, debug)
-from dtests.thrift_tests import _i64, get_thrift_client
 from thrift_bindings.v22 import Cassandra
 from thrift_bindings.v22.Cassandra import (Column, ColumnParent,
                                            ConsistencyLevel, SuperColumn)
+from .thrift_tests import _i64, get_thrift_client
 from tools.assertions import assert_all
-from upgrade_base import UpgradeTester
-from upgrade_manifest import MANIFEST, build_upgrade_pairs, indev_dse_5_1
+from upgrade_tests.upgrade_base import UpgradeTester
+from upgrade_tests.upgrade_manifest import (MANIFEST, build_upgrade_pairs,
+                                            indev_dse_5_1)
 
 # Use static supercolumn data to reduce total test time and avoid driver issues connecting to C* 1.2.
 # The data contained in the SSTables is (name, {'attr': {'name': name}}) for the name in NAMES.

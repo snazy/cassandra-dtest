@@ -8,8 +8,6 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import Tester, debug, supports_v5_protocol
-from thrift_bindings.v22 import ttypes as thrift_types
-from thrift_tests import get_thrift_client
 from tools.data import create_ks
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
@@ -233,26 +231,6 @@ class TestWriteFailures(Tester):
         self.consistency_level = ConsistencyLevel.ANY
         self.expected_expt = None
         self._perform_cql_statement("INSERT INTO mytable (key, value) VALUES ('key1', 'Value 1') IF NOT EXISTS")
-
-    @since('2.0', max_version='4')
-    def test_thrift(self):
-        """
-        A thrift client receives a TimedOutException
-        """
-        self._prepare_cluster(start_rpc=True, with_compact_storage=True)
-        self.expected_expt = thrift_types.TimedOutException
-
-        client = get_thrift_client()
-        client.transport.open()
-        client.set_keyspace(KEYSPACE)
-
-        with self.assertRaises(self.expected_expt):
-            client.insert('key1',
-                          thrift_types.ColumnParent('mytable'),
-                          thrift_types.Column('value', 'Value 1', 0),
-                          thrift_types.ConsistencyLevel.ALL)
-
-        client.transport.close()
 
     @since('3.0')
     def test_cross_dc_rtt(self):
