@@ -400,7 +400,7 @@ class TestTTL(Tester):
                 else:
                     self.assertFalse(result.warnings, "There should be no warnings")
 
-        except InvalidRequest, e:
+        except InvalidRequest as e:
             if policy != 'REJECT':
                 self.fail("should not throw InvalidRequest")
 

@@ -2000,7 +2000,6 @@ class TestMutations(ThriftTester):
         self._base_insert_ttl(ttl=None, max_default_ttl=True)
 
     def _base_insert_ttl(self, ttl=5, max_default_ttl=False):
-
         """ Test simple insertion of a column with max ttl """
         _set_keyspace('Keyspace1')
         cf = 'ExpiringMaxTTL' if max_default_ttl else 'Standard1'

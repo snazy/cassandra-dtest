@@ -10,6 +10,7 @@ class DropCompactStorageUpgradeTest(Tester):
     @jira DB-1502
 
     """
+
     def dat_test(self):
         cluster = self.cluster
         cluster.populate(2)

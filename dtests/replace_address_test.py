@@ -507,7 +507,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
             if not same_address:
                 debug("Waiting other nodes to mark this node as down and remove it from quarantine")
                 self.query_node.watch_log_for(["Node /{} failed during replace.".format(self.replacement_node.address()),
-                                              "/{} gossip quarantine over".format(self.replacement_node.address())],
+                                               "/{} gossip quarantine over".format(self.replacement_node.address())],
                                               timeout=60, filename='debug.log')
 
             debug("Restarting node after wiping data")
