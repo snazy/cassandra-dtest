@@ -13,14 +13,14 @@ from dse.query import BatchStatement, BatchType, SimpleStatement
 from nose.plugins.attrib import attr
 
 from dtest import ReusableClusterTester, Tester, debug
+from thrift_bindings.v22.ttypes import CfDef, Column, ColumnOrSuperColumn
 from thrift_bindings.v22.ttypes import \
     ConsistencyLevel as ThriftConsistencyLevel
-from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
-                                        Mutation)
+from thrift_bindings.v22.ttypes import Mutation
 from thrift_tests import get_thrift_client
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_none, assert_one, assert_unavailable)
-from tools.data import create_ks, create_cf, rows_to_list
+from tools.data import create_cf, create_ks, rows_to_list
 from tools.decorators import since
 from tools.metadata_wrapper import (UpdatingClusterMetadataWrapper,
                                     UpdatingKeyspaceMetadataWrapper,

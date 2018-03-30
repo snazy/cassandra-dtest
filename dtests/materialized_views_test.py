@@ -21,11 +21,11 @@ from tools.assertions import (assert_all, assert_crc_check_chance_equal,
                               assert_unavailable)
 from tools.data import create_ks, rows_to_list
 from tools.decorators import since
+from tools.interceptors import Verb, delaying_interceptor
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import get_ip_from_node, new_node
 from tools.preparation import jvm_args
-from tools.interceptors import delaying_interceptor, Verb
 
 # CASSANDRA-10978. Migration wait (in seconds) to use in bootstrapping tests. Needed to handle
 # pathological case of flushing schema keyspace for multiple data directories. See CASSANDRA-6696

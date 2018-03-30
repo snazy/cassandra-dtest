@@ -1,6 +1,7 @@
 import re
 import time
 from collections import Counter, namedtuple
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from re import compile, findall
 from unittest import skip
@@ -8,7 +9,6 @@ from uuid import UUID, uuid1
 
 from ccmlib.common import is_win
 from ccmlib.node import Node, ToolError
-from concurrent.futures import ThreadPoolExecutor
 from dse import ConsistencyLevel
 from dse.metadata import Murmur3Token
 from dse.query import SimpleStatement

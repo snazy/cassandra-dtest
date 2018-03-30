@@ -7,14 +7,16 @@ from dse.util import OrderedMap
 from nose.tools import assert_equal, assert_not_in
 from pycassa.columnfamily import ColumnFamily
 from pycassa.pool import ConnectionPool
-from dtests.thrift_tests import get_thrift_client, _i64
 
-from dtests.dtest import CASSANDRA_VERSION_FROM_BUILD, RUN_STATIC_UPGRADE_MATRIX, Tester, debug
+from dtests.dtest import (CASSANDRA_VERSION_FROM_BUILD,
+                          RUN_STATIC_UPGRADE_MATRIX, Tester, debug)
+from dtests.thrift_tests import _i64, get_thrift_client
 from thrift_bindings.v22 import Cassandra
-from thrift_bindings.v22.Cassandra import (Column, ColumnParent, SuperColumn, ConsistencyLevel)
+from thrift_bindings.v22.Cassandra import (Column, ColumnParent,
+                                           ConsistencyLevel, SuperColumn)
 from tools.assertions import assert_all
 from upgrade_base import UpgradeTester
-from upgrade_manifest import build_upgrade_pairs, MANIFEST, indev_dse_5_1
+from upgrade_manifest import MANIFEST, build_upgrade_pairs, indev_dse_5_1
 
 # Use static supercolumn data to reduce total test time and avoid driver issues connecting to C* 1.2.
 # The data contained in the SSTables is (name, {'attr': {'name': name}}) for the name in NAMES.

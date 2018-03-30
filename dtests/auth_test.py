@@ -11,9 +11,10 @@ from nose.tools import assert_regexp_matches
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, ReusableClusterTester, Tester,
                    debug)
-from tools.assertions import (assert_all, assert_one, assert_exception, assert_invalid,
+from tools.assertions import (assert_all, assert_exception, assert_invalid,
                               assert_length_equal, assert_one,
-                              assert_unauthorized, assert_unauthorized_for_grant)
+                              assert_unauthorized,
+                              assert_unauthorized_for_grant)
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)

@@ -17,8 +17,8 @@ from dse.query import (FETCH_SIZE_UNSET, SimpleStatement, dict_factory,
                        named_tuple_factory, tuple_factory)
 from dse.util import Date, Time
 
-from dtest import (ReusableClusterTester, debug, run_scenarios, make_execution_profile,
-                   supports_v5_protocol)
+from dtest import (ReusableClusterTester, debug, make_execution_profile,
+                   run_scenarios, supports_v5_protocol)
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_one)
 from tools.data import create_ks, rows_to_list

@@ -9,11 +9,12 @@ import time
 from dse import ConsistencyLevel, OperationTimedOut, WriteTimeout
 from dse.query import SimpleStatement
 
-from dtest import Tester, FlakyRetryPolicy
+from dtest import FlakyRetryPolicy, Tester
 from tools.assertions import assert_all
 from tools.decorators import since
-from tools.interceptors import (Direction, Locality, Type, Verb, delaying_interceptor,
-                                dropping_interceptor, fake_write_interceptor)
+from tools.interceptors import (Direction, Locality, Type, Verb,
+                                delaying_interceptor, dropping_interceptor,
+                                fake_write_interceptor)
 from tools.preparation import get_local_reads_properties, prepare
 
 # A few methods to insert/read from a table. For those tests, we don't really

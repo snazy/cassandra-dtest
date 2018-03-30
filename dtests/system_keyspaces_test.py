@@ -1,4 +1,5 @@
 from dse import InvalidRequest, Unauthorized
+
 from dtest import Tester
 from tools.assertions import assert_all, assert_exception, assert_none
 from tools.decorators import since

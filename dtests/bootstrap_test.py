@@ -9,8 +9,8 @@ from functools import reduce
 
 from ccmlib.node import NodeError
 from dse import ConsistencyLevel
-from dse.concurrent import execute_concurrent_with_args
 from dse.cluster import NoHostAvailable
+from dse.concurrent import execute_concurrent_with_args
 from nose.plugins.attrib import attr
 
 from dtest import DISABLE_VNODES, Tester, debug

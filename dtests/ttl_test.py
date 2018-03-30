@@ -9,12 +9,11 @@ from dse.query import SimpleStatement
 from dse.util import sortedset
 
 from dtest import Tester, debug
+from scrub_test import ScrubTestMixin
 from tools.assertions import (assert_all, assert_almost_equal, assert_none,
                               assert_row_count, assert_unavailable)
 from tools.data import create_ks
 from tools.decorators import since
-
-from scrub_test import ScrubTestMixin
 
 
 @since('2.0')

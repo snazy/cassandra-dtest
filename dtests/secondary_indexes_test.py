@@ -10,10 +10,11 @@ from dse.concurrent import execute_concurrent, execute_concurrent_with_args
 from dse.protocol import ConfigurationException
 from dse.query import BatchStatement, SimpleStatement
 
-from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES,
-                   MEMTABLE_TYPE, Tester, debug)
+from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, MEMTABLE_TYPE,
+                   Tester, debug)
 from tools.assertions import (assert_bootstrap_state, assert_invalid,
-                              assert_none, assert_one, assert_row_count, assert_length_equal)
+                              assert_length_equal, assert_none, assert_one,
+                              assert_row_count)
 from tools.data import (block_until_index_is_built, create_cf, create_ks,
                         rows_to_list)
 from tools.decorators import since

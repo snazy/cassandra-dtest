@@ -1,15 +1,15 @@
 import os
 
 import parse
+from ccmlib.node import TimeoutError
 from dse.concurrent import execute_concurrent_with_args
 
 from dtest import Tester, debug
-from ccmlib.node import TimeoutError
 from tools.data import create_ks
 from tools.decorators import since
-from tools.misc import get_timestamp
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
+from tools.misc import get_timestamp
 
 
 class TestConfiguration(Tester):

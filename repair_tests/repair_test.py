@@ -12,9 +12,11 @@ from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtests.dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
+from dtests.dtest import (CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy,
+                          Tester, debug)
 from incremental_repair_test import get_repair_options
-from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2, rows_to_list
+from tools.data import (create_cf, create_ks, insert_c1c2, query_c1c2,
+                        rows_to_list)
 from tools.decorators import no_vnodes, since
 from tools.jmxutils import JolokiaAgent, remove_perf_disable_shared_mem
 

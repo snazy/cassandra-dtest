@@ -7,7 +7,8 @@ from unittest import skipIf
 
 from ccmlib.common import get_version_from_build, is_win
 
-from dtests.dtest import CASSANDRA_VERSION_FROM_BUILD, DEBUG, TRACE, Tester, debug
+from dtests.dtest import (CASSANDRA_VERSION_FROM_BUILD, DEBUG, TRACE, Tester,
+                          debug)
 from tools.data import create_ks
 from tools.jmxutils import remove_perf_disable_shared_mem
 

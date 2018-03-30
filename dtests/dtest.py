@@ -27,10 +27,12 @@ import ccmlib.repository
 import dse
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
-from ccmlib.common import get_version_from_build, get_install_dir_from_cluster_conf, get_dse_version, is_win
+from ccmlib.common import (get_dse_version, get_install_dir_from_cluster_conf,
+                           get_version_from_build, is_win)
 from dse import ConsistencyLevel
+from dse.cluster import EXEC_PROFILE_DEFAULT
 from dse.cluster import Cluster as PyCluster
-from dse.cluster import EXEC_PROFILE_DEFAULT, ExecutionProfile, NoHostAvailable
+from dse.cluster import ExecutionProfile, NoHostAvailable
 from dse.policies import RetryPolicy, WhiteListRoundRobinPolicy
 from nose.exc import SkipTest
 from six import print_

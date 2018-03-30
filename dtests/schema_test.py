@@ -1,15 +1,15 @@
-import time
-
 import datetime
+import time
 
 from dse import ConsistencyLevel
 from dse.concurrent import execute_concurrent_with_args
 from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtest import Tester, DSE_VERSION_FROM_BUILD, debug
-from tools.assertions import assert_all, assert_invalid, assert_one, assert_none, assert_some
-from tools.data import create_ks, create_cf
+from dtest import DSE_VERSION_FROM_BUILD, Tester, debug
+from tools.assertions import (assert_all, assert_invalid, assert_none,
+                              assert_one, assert_some)
+from tools.data import create_cf, create_ks
 from tools.decorators import since
 
 

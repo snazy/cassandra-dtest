@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 import time
 from unittest import skipIf
 

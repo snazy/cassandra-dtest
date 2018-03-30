@@ -1,12 +1,12 @@
-import re
 import os
+import re
 import time
 
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
 
 from dtest import PRINT_DEBUG, Tester, debug, get_dse_version_from_build
-from tools.assertions import assert_length_equal, assert_one, assert_none
+from tools.assertions import assert_length_equal, assert_none, assert_one
 from tools.data import create_ks, rows_to_list
 from tools.decorators import since
 

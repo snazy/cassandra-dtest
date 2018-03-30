@@ -1,9 +1,9 @@
 import time
 
 from dse import ConsistencyLevel
+from nose.tools import assert_equal
 from thrift.protocol import TBinaryProtocol
 from thrift.transport import TSocket, TTransport
-from nose.tools import assert_equal
 
 from dtest import Tester
 from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,

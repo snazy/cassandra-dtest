@@ -3,6 +3,8 @@ import os.path
 import re
 
 from ccmlib.node import Node, ToolError
+
+from compaction_test import grep_sstables_in_each_level
 from dtest import DISABLE_VNODES, Tester, debug
 from tools.assertions import assert_almost_equal
 from tools.data import create_c1c2_table, create_ks, insert_c1c2, query_c1c2
@@ -10,7 +12,6 @@ from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,
                             remove_perf_disable_shared_mem)
 from tools.misc import new_node
-from compaction_test import grep_sstables_in_each_level
 
 
 @since('3.2')

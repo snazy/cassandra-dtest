@@ -2,7 +2,6 @@ import os
 import time
 from collections import defaultdict
 from distutils.version import LooseVersion  # pylint: disable=import-error
-from nose.tools import assert_equal, assert_not_equal
 from threading import Thread
 
 import ccmlib.common
@@ -11,6 +10,7 @@ from ccmlib.node import ToolError
 from dse import ConsistencyLevel as CL
 from dse.cluster import ContinuousPagingOptions
 from dse.policies import FallthroughRetryPolicy, WhiteListRoundRobinPolicy
+from nose.tools import assert_equal, assert_not_equal
 
 from dtest import Tester, debug, get_ip_from_node, make_execution_profile
 from tools.decorators import since

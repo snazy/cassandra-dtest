@@ -2,10 +2,10 @@ import os
 import time
 
 from nose.plugins.attrib import attr
-from dtests.sstable_generation_loading_test import BaseSStableLoaderTest
-from dtests.thrift_tests import composite, get_thrift_client, i32
 
 from dtests.dtest import CASSANDRA_VERSION_FROM_BUILD, Tester, debug
+from dtests.sstable_generation_loading_test import BaseSStableLoaderTest
+from dtests.thrift_tests import composite, get_thrift_client, i32
 from thrift_bindings.v22.Cassandra import (ConsistencyLevel, Deletion,
                                            Mutation, SlicePredicate,
                                            SliceRange)

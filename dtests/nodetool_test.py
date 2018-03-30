@@ -5,11 +5,13 @@ import subprocess
 from ccmlib.node import ToolError, handle_external_tool_process
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
+
 from dtest import Tester, debug
 from tools.assertions import assert_all, assert_invalid, assert_none
 from tools.data import create_ks
 from tools.decorators import since
-from tools.jmxutils import JolokiaAgent, make_mbean, remove_perf_disable_shared_mem
+from tools.jmxutils import (JolokiaAgent, make_mbean,
+                            remove_perf_disable_shared_mem)
 
 
 class TestNodetool(Tester):

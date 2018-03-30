@@ -1,13 +1,13 @@
 import datetime
-import time
 import re
+import time
 from uuid import UUID
 
 from cassandra.util import sortedset
 from ccmlib.node import ToolError
 
-from dtest import Tester, DtestTimeoutError, debug
-from tools.assertions import assert_one, assert_all
+from dtest import DtestTimeoutError, Tester, debug
+from tools.assertions import assert_all, assert_one
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
 from tools.nodesync import nodesync_tool

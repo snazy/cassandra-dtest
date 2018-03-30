@@ -1,5 +1,5 @@
 from dtest import Tester
-from tools.assertions import (assert_unauthorized, assert_invalid)
+from tools.assertions import assert_invalid, assert_unauthorized
 from tools.data import rows_to_list
 from tools.decorators import since
 
