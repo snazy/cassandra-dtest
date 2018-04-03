@@ -1,12 +1,12 @@
 import json
 import os
 import subprocess
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  # pylint: disable=import-error
 from urllib2 import urlopen
 
 import ccmlib.common as common
 
-from dtest import warning
+from dtests.dtest import warning
 
 JOLOKIA_JAR = os.path.join('lib', 'jolokia-jvm-1.2.3-agent.jar')
 CLASSPATH_SEP = ';' if common.is_win() else ':'

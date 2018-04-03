@@ -3,14 +3,15 @@ import time
 
 from ccmlib.node import ToolError
 
-from dtest import Tester, debug
+from dtests.dtest import Tester, debug
+from tools.assertions import assert_one
 from tools.decorators import since
 from tools.interceptors import fake_write_interceptor
 from tools.misc import new_node
-from tools.nodesync import (nodesync_opts, assert_all_segments, not_validated, enable_nodesync,
-                            disable_nodesync, read_nodesync_status)
-from tools.preparation import prepare, config_opts, jvm_args
-from tools.assertions import assert_one
+from tools.nodesync import (assert_all_segments, disable_nodesync,
+                            enable_nodesync, nodesync_opts, not_validated,
+                            read_nodesync_status)
+from tools.preparation import config_opts, jvm_args, prepare
 
 
 class SingleTableNodeSyncTester(Tester):

@@ -1,7 +1,8 @@
 from collections import namedtuple
 
-from dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD, DSE_VERSION_FROM_BUILD,
-                   RUN_STATIC_UPGRADE_MATRIX, debug)
+from dtests.dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD,
+                          DSE_VERSION_FROM_BUILD, RUN_STATIC_UPGRADE_MATRIX,
+                          debug)
 
 # UpgradePath's contain data about upgrade paths we wish to test
 # They also contain VersionMeta's for each version the path is testing

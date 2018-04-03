@@ -1,7 +1,7 @@
 from ccmlib.node import TimeoutError
-from dse.query import (SimpleStatement, ConsistencyLevel)
+from dse.query import ConsistencyLevel, SimpleStatement
 
-from dtest import (Tester, debug, get_dse_version_from_build)
+from dtests.dtest import Tester, debug, get_dse_version_from_build
 from tools.assertions import assert_all
 from tools.decorators import since_dse
 

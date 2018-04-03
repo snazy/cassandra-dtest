@@ -5,15 +5,16 @@ testing the content of the NodeSync status table.
 
 The main methods exposed are :wait_for_all_segments, :get_oldest_segments and :get_unsuccessful_validations
 """
-import time
 import calendar
 import heapq
 import re
 import subprocess
+import time
 
 from ccmlib import common
-from dtest import debug
 from dse.query import SimpleStatement
+
+from dtests.dtest import debug
 from tools.assertions import assert_true
 
 

@@ -8,13 +8,15 @@ from threading import Thread
 from unittest import skip, skipIf
 
 from ccmlib.node import ToolError
-from nose.plugins.attrib import attr
-
 from dse import ConsistencyLevel
 from dse.query import SimpleStatement
-from dtest import CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy, Tester, debug
+from nose.plugins.attrib import attr
+
+from dtests.dtest import (CASSANDRA_VERSION_FROM_BUILD, FlakyRetryPolicy,
+                          Tester, debug)
 from incremental_repair_test import get_repair_options
-from tools.data import create_cf, create_ks, insert_c1c2, query_c1c2, rows_to_list
+from tools.data import (create_cf, create_ks, insert_c1c2, query_c1c2,
+                        rows_to_list)
 from tools.decorators import no_vnodes, since
 from tools.jmxutils import JolokiaAgent, remove_perf_disable_shared_mem
 
@@ -206,7 +208,7 @@ class TestRepair(BaseRepairTest):
             global nodetool_error
             try:
                 node1.nodetool('repair keyspace1 standard2')
-            except Exception, e:
+            except Exception as e:
                 nodetool_error = e
 
         # Launch in a external thread so it does not hang process
@@ -415,7 +417,7 @@ class TestRepair(BaseRepairTest):
         if self.cluster.version() < "4.0":
             # Message should be print on clusters that have ran incremental repair on other tables
             self.assertTrue(re.compile('INFO: Neither --inc or --full repair options were provided. Running full repairs on tables with MVs.*'
-                            'or that were never incrementally repaired: \[cf1\]').search(stdout))
+                                       'or that were never incrementally repaired: \[cf1\]').search(stdout))
 
         mark = node1.mark_log()
         debug("Running repair on keyspace with mixed tables")
@@ -426,7 +428,7 @@ class TestRepair(BaseRepairTest):
             self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
             # Message should be print on clusters that have ran incremental repair on other tables
             self.assertTrue(re.compile('INFO: Neither --inc or --full repair options were provided. Running full repairs on tables with MVs.*'
-                            'or that were never incrementally repaired: \[counter1, cf1\]').search(stdout))
+                                       'or that were never incrementally repaired: \[counter1, cf1\]').search(stdout))
         else:
             debug("should be full repair")
             # on 4.0+, no parameter = full repair
@@ -471,7 +473,7 @@ class TestRepair(BaseRepairTest):
 
         if repaired_table:
             node1.nodetool("repair {} keyspace1 standard1".format(" ".join(get_repair_options(self.cluster.version(),
-                                                                           incremental=True))))
+                                                                                              incremental=True))))
 
         opts = [] if incremental is None else get_repair_options(self.cluster.version(), incremental, run_anticompaction)
 
@@ -1390,7 +1392,7 @@ class TestRepair(BaseRepairTest):
             global nodetool_error
             try:
                 node1.nodetool('repair keyspace1 standard1')
-            except Exception, e:
+            except Exception as e:
                 nodetool_error = e
 
         debug("repair node1")

@@ -7,7 +7,7 @@ from cassandra.query import dict_factory
 from ccmlib.node import NodeError
 from nose.tools import assert_equal, assert_true
 
-from dtest import Tester, debug
+from dtests.dtest import Tester, debug
 from tools.decorators import since
 
 VERSION_311 = 'github:apache/cassandra-3.11'

@@ -1,9 +1,9 @@
-from distutils.version import LooseVersion
+from distutils.version import LooseVersion  # pylint: disable=import-error
 
 from ccmlib.common import is_win
 from dse import ConsistencyLevel
 
-from dtest import Tester, debug
+from dtests.dtest import Tester, debug
 from tools.assertions import assert_length_equal
 from tools.data import create_cf, create_ks, insert_c1c2
 from tools.decorators import since

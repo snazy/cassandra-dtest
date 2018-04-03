@@ -10,11 +10,11 @@ from uuid import UUID, uuid1
 from ccmlib.common import is_win
 from ccmlib.node import Node, ToolError
 from dse import ConsistencyLevel
-from dse.query import SimpleStatement
 from dse.metadata import Murmur3Token
+from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 
-from dtest import Tester, debug
+from dtests.dtest import Tester, debug
 from tools.assertions import (assert_all, assert_almost_equal, assert_none,
                               assert_one, assert_unavailable)
 from tools.data import create_cf, create_ks, insert_c1c2, rows_to_list

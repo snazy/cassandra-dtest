@@ -6,7 +6,7 @@ import shutil
 import sys
 import tempfile
 
-from dtest import debug  # Depending on dtest is not good long-term.
+from dtests.dtest import debug  # Depending on dtest is not good long-term.
 
 
 def replace_in_file(filepath, search_replacements):

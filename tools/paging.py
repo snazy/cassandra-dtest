@@ -1,11 +1,11 @@
 import time
 import traceback
+from threading import Condition, Thread
 
 from dse.cluster import ContinuousPagingOptions
-from tools.datahelp import flatten_into_set
-from dtest import debug
 
-from threading import Condition, Thread
+from dtests.dtest import debug
+from tools.datahelp import flatten_into_set
 
 
 class Page(object):
@@ -234,7 +234,7 @@ class ContinuousPageFetcher(object):
                 self._condition.wait(timeout)
 
         if self.error:
-            raise self.error
+            raise self.error  # pylint: disable=raising-bad-type
 
         if not self.all_fetched:
             raise RuntimeError("Failed to receive all rows before timeout, only got {} rows.".format(len(self.rows)))

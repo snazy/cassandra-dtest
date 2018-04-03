@@ -1,9 +1,9 @@
 import os
 import os.path
-import tempfile
 import subprocess
+import tempfile
 
-from dtest import debug
+from dtests.dtest import debug
 
 
 def generate_credentials(ip, cakeystore=None, cacert=None):

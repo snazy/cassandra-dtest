@@ -7,7 +7,7 @@ from dse.query import SimpleStatement
 from nose.tools import assert_equal, assert_true, assert_greater_equal
 
 import assertions
-from dtest import debug, DtestTimeoutError
+from dtests.dtest import debug, DtestTimeoutError
 from tools.funcutils import get_rate_limited_function
 
 

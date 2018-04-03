@@ -16,7 +16,8 @@ from dse.query import SimpleStatement
 from nose.plugins.attrib import attr
 from six import print_
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, Tester, debug, get_dse_version_from_build_safe
+from dtests.dtest import (RUN_STATIC_UPGRADE_MATRIX, Tester, debug,
+                          get_dse_version_from_build_safe)
 from tools.misc import new_node
 from tools.sslkeygen import generate_ssl_stores
 from upgrade_base import switch_jdks

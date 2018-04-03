@@ -10,7 +10,7 @@ from unittest import skipUnless
 from dse import ConsistencyLevel as CL
 from nose.tools import assert_not_in
 
-from dtest import RUN_STATIC_UPGRADE_MATRIX, debug
+from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, debug
 from tools.decorators import since
 from tools.jmxutils import JolokiaAgent, make_mbean
 from upgrade_base import UpgradeTester
@@ -55,7 +55,7 @@ class TestForRegressions(UpgradeTester):
                 session.execute("INSERT INTO financial.symbol_history (symbol, name, year, month, day, volume) VALUES ('{}', 'MegaCorp', {}, {}, 1, 100)".format(symbol, year, month))
 
         for symbol, year in symbol_years:
-            session.execute("DELETE FROM financial.symbol_history WHERE symbol='{}' and year = {} and month=25;".format(symbol, year, month))
+            session.execute("DELETE FROM financial.symbol_history WHERE symbol='{}' and year = {} and month=25;".format(symbol, year))
 
         sessions = self.do_upgrade(session)
 
