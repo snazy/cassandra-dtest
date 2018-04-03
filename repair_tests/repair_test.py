@@ -1514,6 +1514,7 @@ class TestRepairDataSystemTable(Tester):
         _, repair_history = self.repair_table_contents(node=self.node1, include_system_keyspaces=False)
         self.assertTrue(len(repair_history))
 
+    @since('4.0')
     def force_test(self):
         """
         Test that `system_distributed.repair_history` is not populated with "-force" option
