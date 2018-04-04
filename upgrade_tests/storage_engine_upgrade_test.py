@@ -127,6 +127,113 @@ class TestStorageEngineUpgrade(Tester):
         """
         self.upgrade_with_unclustered_table(compact_storage=True)
 
+    @since('3.0', max_version='4')
+    def mixed_versions_test(self):
+        """
+        Before DB-1757, range-tombstones for complex columns (both regular and static kinds) were not
+        correctly (de)serialized in a mixed version cluster (DSE 4.8 + DSE 5.0).
+
+        This dtest can verify the variant for _static_ complex columns (that column 'null_version_data map<text, text> static' below).
+
+        Without DB-1757, DSE 5.0 serializes the RT for _static_ complex columns _without_ the static marker.
+        DSE 4.8 happily accepts these (not strictly, but technically valid) RT in the mutation and also sends those
+        back for reads or read-repairs. A read or read-repair causes a digest mismatch and RR mutation.
+
+        Reproduction:
+        * Issue UPDATE statement against the DSE 5.0 node
+        * Issue DELETE statement against the DSE 5.0 node (UPDATE + DELETE are necessary)
+        * Issue couple of SELECT statements against the DSE 5.0 node
+
+        Without DB-1757, the whole exception parade may appear in the log file(s):
+        ArrayIndexOutOfBoundsExcepiton, IndexOutOfBoundsExcepiton, AssertionError, read timeouts, etc.
+
+        @jira_ticket DB-1757
+        """
+
+        target_install_dir = self.cluster.get_install_dir()
+
+        self.cluster.set_install_dir(version='alias:apollo/cassandra-2.1_dse')
+        self.cluster.populate(2)
+        node1, node2 = self.cluster.nodelist()
+        self.cluster.start()
+
+        debug("Setting up schema")
+
+        session1 = self.patient_exclusive_cql_connection(node1)
+        session1.execute("""
+        CREATE KEYSPACE storagegrid WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2}
+        """)
+        session1.execute("""
+        CREATE TABLE storagegrid.object_by_version (
+            bucket_id text,
+            key text,
+            version_id timeuuid,
+            null_version_data map<text, text> static,
+            null_version_time timeuuid static,
+            version_data map<text, text>,
+            PRIMARY KEY ((bucket_id, key), version_id)
+        )
+        """)
+
+        [debug("{} on version {}".format(node.name, node.get_cassandra_version())) for node in [node1, node2]]
+
+        self.check_logs_for_errors()
+
+        debug("Stopping {} for upgrade to {}".format(node1.name, target_install_dir))
+        session1.cluster.shutdown()
+        node1.stop()
+        node1.set_install_dir(target_install_dir)
+        debug("Starting {}".format(node1.name))
+        node1.start(wait_for_binary_proto=True)
+        session1 = self.patient_exclusive_cql_connection(node1)
+
+        [debug("{} on version {}".format(node.name, node.get_cassandra_version())) for node in [node1, node2]]
+
+        # The data and whether USING TIMESTAMP is used has an influence to _how_ the exceptions look like
+        # (ArrayIndexOutOfBoundsExcepiton, IndexOutOfBoundsExcepiton, AssertionError, read timeouts) - but doesn't
+        # really change the behavior.
+
+        cql_update = """
+        UPDATE storagegrid.object_by_version
+        SET null_version_time = 85929AE9-2EEB-11E8-9B31-15B300BFA56F, null_version_data = {'CBID':'175507558566215475','UUID':'D9F11CB3-E870-4EA9-997A-514A044B6CC1'}
+        WHERE bucket_id = '8533D907-2EEB-11E8-9C98-DAFF00BFE368' AND key = 's3_small_cho_h_dtbt'
+        """
+        cql_delete = """
+        DELETE null_version_time, null_version_data FROM storagegrid.object_by_version
+        WHERE bucket_id = '8533D907-2EEB-11E8-9C98-DAFF00BFE368' AND key = 's3_small_cho_h_dtbt'
+        """
+        cql_select = """
+        SELECT DISTINCT null_version_data FROM storagegrid.object_by_version
+        WHERE bucket_id = '8533D907-2EEB-11E8-9C98-DAFF00BFE368' AND key = 's3_small_cho_h_dtbt'
+        """
+
+        debug("Issuing UPDATE + DELETE - {}".format(time.ctime()))
+
+        session1.execute(cql_update)
+        if self.check_logs_for_errors():
+            raise AssertionError
+
+        # It is important that the writetimestamp of the DELETE is higher than the writetimestamp of the UPDATE
+        time.sleep(0.01)  # yea - this is paranoid
+
+        session1.execute(cql_delete)
+        if self.check_logs_for_errors():
+            raise AssertionError
+
+        # Try to read up to 30 seconds as the issue manifests only after a couple of seconds.
+        debug("Issuing SELECTs ... - {}".format(time.ctime()))
+        timeout = time.time() + 30
+        n = 0
+        while True:
+            session1.execute(cql_select)
+            time.sleep(0.1)
+            n = n + 1
+            if self.check_logs_for_errors():
+                raise AssertionError("Failure after {} SELECTs - at {}".format(n, time.ctime()))
+            if time.time() > timeout:
+                # if there's no exception within 30 seconds, we're (probably) good
+                break
+
     def upgrade_with_clustered_table(self, compact_storage=False):
         PARTITIONS = 2
         ROWS = 1000
