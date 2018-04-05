@@ -19,3 +19,6 @@ src/
 .venv/
 Pipfile
 Pipfile.lock
+
+# for people maintaining the py2 and py3 tests
+.venv3/
