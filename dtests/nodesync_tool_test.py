@@ -326,7 +326,7 @@ class TestNodeSyncTool(Tester):
         test(args=['-v', 'k1.t1', '(-9000000000000000001,-9000000000000000000]'],
              expected_rows=[['127.0.0.3', 'k1', 't1', sortedset(['(-9000000000000000001,-9000000000000000000]'])]],
              expected_stdout=['/127.0.0.2: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'trying next replicas: JMX connection to 127.0.0.2/127.0.0.2:7200 failed',
+                              'trying next replicas: JMX connection to 127.0.0.2:7200 failed',
                               '/127.0.0.3: submitted for ranges [(-9000000000000000001,-9000000000000000000]]'])
 
         # stop the third node
@@ -335,18 +335,18 @@ class TestNodeSyncTool(Tester):
         # a single validation of a range with all its replicas down should fail
         test(args=['-v', 'k1.t1', '(-9000000000000000001,-9000000000000000000]'],
              expected_stdout=['/127.0.0.2: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'trying next replicas: JMX connection to 127.0.0.2/127.0.0.2:7200 failed'],
+                              'trying next replicas: JMX connection to 127.0.0.2:7200 failed'],
              expected_stderr=['/127.0.0.3: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'there are no more replicas to try: JMX connection to 127.0.0.3/127.0.0.3:7300',
+                              'there are no more replicas to try: JMX connection to 127.0.0.3:7300',
                               'Error: Submission failed'])
 
         # a validation of two ranges where only one of them fails should be cancelled in the successful node
         test(args=['-v', 'k1.t1', '(1,2]', '(-9000000000000000001,-9000000000000000000]'],
              expected_stdout=['/127.0.0.1: submitted for ranges [(1,2]]',
                               '/127.0.0.2: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'trying next replicas: JMX connection to 127.0.0.2/127.0.0.2:7200 failed'],
+                              'trying next replicas: JMX connection to 127.0.0.2:7200 failed'],
              expected_stderr=['/127.0.0.3: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'there are no more replicas to try: JMX connection to 127.0.0.3/127.0.0.3:7300',
+                              'there are no more replicas to try: JMX connection to 127.0.0.3:7300',
                               'Cancelling validation in those nodes where it was already submitted: [/127.0.0.1]',
                               '/127.0.0.1:',
                               'has been successfully cancelled',
