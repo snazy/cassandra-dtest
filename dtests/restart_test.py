@@ -20,15 +20,13 @@ class TestRestart(Tester):
         # Stop a node without waiting for the others to notice (in order for them to still consider the node alive
         # during its initialization, where is the vulnerability window we're testing)
         node2.stop(wait_other_notice=False, gently=False)
-        # Start without waiting, in order to trigger the bytecode manipulation in time to affect the startup code
+        node2.update_startup_byteman_script('./byteman/delay_storage_service_init.btm')
         node2.start(no_wait=True, wait_other_notice=False, wait_for_binary_proto=False)
-        time.sleep(1)
-        node2.byteman_submit(['./byteman/delay_storage_service_init.btm'])
 
         # This sleep interval should be as short as possible, but long enough to have the tested node restart.
         # Its purpose is to allow the schema change load that follows it to happen as early as possible, before
         # the healthy node is able to pick up that the tested node has restarted, and may not be in working condition
-        time.sleep(1)
+        time.sleep(2)
 
         node1 = cluster.nodelist()[0]
         session = self.patient_cql_connection(node1)
