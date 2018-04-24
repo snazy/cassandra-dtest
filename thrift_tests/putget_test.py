@@ -5,7 +5,7 @@ from nose.tools import assert_equal
 from thrift.protocol import TBinaryProtocol
 from thrift.transport import TSocket, TTransport
 
-from dtest import Tester
+from dtests.dtest import Tester
 from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
                         insert_columns, putget, query_c1c2, query_columns,
                         range_putget)

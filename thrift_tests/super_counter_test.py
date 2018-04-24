@@ -3,8 +3,8 @@ import time
 from cql.cassandra.ttypes import (CfDef, ColumnParent, ColumnPath,
                                   ConsistencyLevel, CounterColumn)
 
-from dtest import Tester, debug
-from thrift_tests import get_thrift_client
+from dtests.dtest import Tester, debug
+from .thrift_tests import get_thrift_client
 from tools.data import create_ks
 from tools.decorators import since
 from tools.misc import ImmutableMapping

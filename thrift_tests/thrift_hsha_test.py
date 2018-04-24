@@ -7,7 +7,7 @@ import unittest
 
 import pycassa
 
-from dtest import DEFAULT_DIR, Tester, debug
+from dtests.dtest import DEFAULT_DIR, Tester, debug
 from tools.data import create_ks
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, make_mbean,

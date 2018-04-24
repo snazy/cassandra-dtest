@@ -11,7 +11,7 @@ script:
   # we want pyflakes to check all files for unused imports only
   # we use flake8 because it allows us to ignore other warnings
   # exclude the thrift directories - they contain auto-generated code
-  - flake8 --ignore=E501,F811,F812,F822,F823,F831,F841,N8,C9 --exclude=thrift_bindings,cassandra-thrift dtests/ tools/ cqlsh_tests/ meta_tests/ repair_tests/ upgrade_tests/
+  - flake8 --ignore=E501,F811,F812,F822,F823,F831,F841,N8,C9 --exclude=thrift_bindings,cassandra-thrift dtests/ tools/ cqlsh_tests/ meta_tests/ repair_tests/ upgrade_tests/ thrift_tests/
   - git remote add riptano git@github.com:riptano/apollo-dtest.git
   - git fetch riptano # fetch master for the next diff
   # feed changed lines with no context around them to pycodestyle
@@ -21,5 +21,5 @@ script:
   - git diff riptano/master...HEAD -U0 | pycodestyle --ignore=E501 --diff
   # lint all files except json_test.py for line length errors
   - git diff riptano/master...HEAD -U0 | pycodestyle --diff --exclude='json_test.py' --exclude='meta_tests/assertion_test.py' --max-line-length=200
-  - pylint dtests/ tools/ cqlsh_tests/ meta_tests/ repair_tests/
+  - pylint dtests/ tools/ cqlsh_tests/ meta_tests/ repair_tests/ thrift_tests/
 sudo: false

@@ -19,13 +19,13 @@ from nose.exc import SkipTest
 from nose.tools import assert_not_in
 
 from dtests.dtest import RUN_STATIC_UPGRADE_MATRIX, debug
-from dtests.thrift_tests import get_thrift_client
 from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnDef,
                                         ColumnOrSuperColumn, ColumnParent)
 from thrift_bindings.v22.ttypes import \
     ConsistencyLevel as ThriftConsistencyLevel
 from thrift_bindings.v22.ttypes import (Deletion, Mutation, SlicePredicate,
                                         SliceRange)
+from thrift_tests.thrift_tests import get_thrift_client
 from tools.assertions import (assert_all, assert_invalid, assert_length_equal,
                               assert_none, assert_one, assert_row_count)
 from tools.data import rows_to_list
