@@ -120,7 +120,7 @@ class TestMaterializedViews(Tester):
         else:
             return 'system.views_builds_in_progress'
 
-    def _wait_for_view(self, ks, view, attempts=50):
+    def _wait_for_view(self, ks, view, attempts=50, delay=0):
         debug("waiting for view")
 
         def _view_build_finished(node):
@@ -133,6 +133,10 @@ class TestMaterializedViews(Tester):
             result = list(s.execute(query))
             return len(built_views_result) == 1 and len(result) == 0
 
+        if delay > 0:
+            time.sleep(delay)
+
+        total_delay = delay + attempts  # each attempt currently sleeps for one second
         for node in self.cluster.nodelist():
             if node.is_running():
                 # 1 sec per attempt, so 50 seconds total by default
@@ -140,7 +144,7 @@ class TestMaterializedViews(Tester):
                     time.sleep(1)
                     attempts -= 1
                 if attempts <= 0:
-                    raise RuntimeError("View {}.{} build not finished after {} seconds.".format(ks, view, attempts))
+                    raise RuntimeError("View {}.{} build not finished after {} seconds.".format(ks, view, total_delay))
 
     def _wait_for_view_build_start(self, session, ks, view, wait_minutes=2):
         """Wait for the start of a MV build, ensuring that it has saved some progress"""
@@ -1151,7 +1155,9 @@ class TestMaterializedViews(Tester):
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
         debug("Verify that the MV has been successfully created")
-        self._wait_for_view('ks', 't_by_v')
+        # byteman slows down the view build by 50 millis per key and we have 10k keys with 3 nodes at RF=1 and 4
+        # parallel runners, therefore 50 x 10,000 = 500,000 / 3x4 = 42,000 millis or 42 seconds
+        self._wait_for_view('ks', 't_by_v', delay=42)
         assert_one(session, "SELECT COUNT(*) FROM t_by_v", [10000])
 
     @since('4.0')
@@ -1207,7 +1213,9 @@ class TestMaterializedViews(Tester):
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
         debug("Verify that the MV has been successfully created")
-        self._wait_for_view('ks', 't_by_v', 75)
+        # byteman slows down the view build by 50 millis per key and we have 10k keys with 3 nodes at RF=1 and 4
+        # parallel runners, therefore 50 x 10,000 = 500,000 / 3x4 = 42,000 millis or 42 seconds
+        self._wait_for_view('ks', 't_by_v', delay=42)
         assert_one(session, "SELECT COUNT(*) FROM t_by_v", [10000])
 
     @since('4.0')
@@ -1253,7 +1261,9 @@ class TestMaterializedViews(Tester):
         session = self.patient_cql_connection(nodes[0])
 
         debug("Verify that the MV has been successfully created")
-        self._wait_for_view('ks', 't_by_v')
+        # byteman slows down the view build by 50 millis per key and we have 10k keys with 3 nodes at RF=1 and 4
+        # parallel runners, therefore 50 x 10,000 = 500,000 / 3x4 = 42,000 millis or 42 seconds
+        self._wait_for_view('ks', 't_by_v', delay=42)
         assert_one(session, "SELECT COUNT(*) FROM ks.t_by_v", [10000])
 
         debug("Checking logs to verify that the view build has been resumed and completed after restart")
