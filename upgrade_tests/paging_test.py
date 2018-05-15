@@ -902,6 +902,46 @@ class TestPagingData(BasePagingTester, PageAssertionMixin):
             self.assertEqual(pf.num_results_all(), [400, 200])
             self.assertEqualIgnoreOrder(expected_data, pf.all_data())
 
+    def test_with_collections(self):
+        """
+        A simple test for paging over rows having a collection. This, in particular, is targeted at exposing the
+        bug from DB-1984.
+
+        @jira_ticket DB-1984
+        """
+        cursor = self.prepare()
+        cursor.execute("CREATE TABLE test (p int, k int, c set<int>, PRIMARY KEY (p, k) )")
+
+        for is_upgraded, cursor in self.do_upgrade(cursor, row_factory=dict_factory):
+            debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
+            cursor.execute("TRUNCATE test")
+
+            # Inserting within a single partition, multiple rows with non-empty collections. What triggered
+            # the bug from DB-1984 was if each row ends with a collection cell, which we ensure here since
+            # the row only contains the one collection.
+            for k in range(0, 10):
+                cursor.execute("INSERT INTO test(p, k, c) VALUES (0, %d, {1, 2, 3})" % (k))
+
+            # We do a simple test, paging our single partition 4 rows at a time. We do it in 2 variant however,
+            # one that force a range query and one that doesn't. The result will be exactly the same in both
+            # case since we have a single partition, but this exercise 2 different path server side (and in
+            # particular 2 completely separate read command serialization).
+            def test(tester, cursor, where_clause):
+                future = cursor.execute_async(
+                    SimpleStatement("SELECT * FROM test %s" % (where_clause), fetch_size=4)
+                )
+                pf = PageFetcher(future).request_all()
+
+                tester.assertEqual(pf.pagecount(), 3)
+                tester.assertEqual(pf.num_results_all(), [4, 4, 2])
+
+            # On top of testing single partitions and ranges, we're other testing forward and reverse since
+            # both path had noticeable differences in 2.x (reverse only in the single partition path since
+            # it's not supported on range queries).
+            test(self, cursor, "")
+            test(self, cursor, "WHERE p = 0")
+            test(self, cursor, "WHERE p = 0 ORDER BY k DESC")
+
 
 class TestPagingDatasetChanges(BasePagingTester, PageAssertionMixin):
     """
