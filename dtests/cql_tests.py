@@ -1492,11 +1492,11 @@ class WarningsTester(CQLTester):
         fut = session.execute_async(batch_with_warning)
         fut.result()  # wait for batch to complete before checking warnings
         debug(fut.warnings)
-        self.assertIsNotNone(fut.warnings)
-        self.assertEquals(["Unlogged batch covering {} partitions detected against table [client_warnings.test]. "
-                           .format(max_partitions_per_batch + 1) +
-                           "You should use a logged batch for atomicity, or asynchronous writes for performance."],
-                          fut.warnings)
+        self.assertEquals(len(fut.warnings), 1)
+        self.assertRegexpMatches(fut.warnings[0],
+                                 "Unlogged batch covering {} partitions detected against table [\{{\[]client_warnings\.test[\}}\]]\. "
+                                 .format(max_partitions_per_batch + 1) +
+                                 "You should use a logged batch for atomicity, or asynchronous writes for performance\.")
 
     @since("3.10")
     def test_sasi_client_warnings(self):

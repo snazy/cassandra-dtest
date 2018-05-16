@@ -66,7 +66,7 @@ def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=No
                 expected = sorted(expected)
                 actual = sorted(actual)
             for i in range(len(actual)):
-                if expected[0] in actual[i]:
+                if re.search(expected[0], actual[i]):
                     return check_lines(expected[1:], actual[1 + i:])
             return False
         return True
@@ -75,7 +75,7 @@ def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=No
     stderr_lines = non_blank_lines(stderr)
     if expected_stderr:
         assert_true(check_lines(expected_stderr, stderr_lines, ignore_stderr_order),
-                    'Expected lines in stderr %s but found %s (order matters: %s)'
+                    'Expected lines in stderr matching %s but found %s (order matters: %s)'
                     % (expected_stderr, stderr_lines, not ignore_stderr_order))
     else:
         assert_true(len(stderr_lines) == 0, 'Found unexpected errors: ' + stderr)
@@ -84,7 +84,7 @@ def nodesync_tool(cluster, args=list(), expected_stdout=None, expected_stderr=No
     if expected_stdout:
         lines = non_blank_lines(stdout)
         assert_true(check_lines(expected_stdout, lines, ignore_stdout_order),
-                    'Expected lines in stdout %s but found %s (order matters: %s)'
+                    'Expected lines in stdout matching %s but found %s (order matters: %s)'
                     % (expected_stdout, lines, not ignore_stdout_order))
 
     # return the command results

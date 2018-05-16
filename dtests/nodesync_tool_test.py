@@ -106,11 +106,11 @@ class TestNodeSyncTool(Tester):
 
         # input errors
         nodesync(['t1'], stderr=['Error: Keyspace required for unqualified table name: t1'])
-        nodesync(['k0.t1'], stderr=['Error: Keyspace [k0] does not exist.'])
-        nodesync(['k1.t0'], stderr=['Error: Table [k1.t0] does not exist.'])
+        nodesync(['k0.t1'], stderr=['Error: Keyspace \[k0\] does not exist\.'])
+        nodesync(['k1.t0'], stderr=['Error: Table \[k1\.t0\] does not exist\.'])
 
         # qualified table name
-        nodesync(['-v', 'k1.t1'], ['k1.t1'])
+        nodesync(['-v', 'k1.t1'], ['k1\.t1'])
         assert_enabled('k1', 't1', enable)
         assert_enabled('k1', 't2', not enable)
         assert_enabled('k1', 't3', not enable)
@@ -121,7 +121,7 @@ class TestNodeSyncTool(Tester):
         assert_enabled('k2', 't4', not enable)
 
         # qualified table name with unused default keyspace
-        nodesync(['-v', '-k', 'k2', 'k1.t2'], ['k1.t2'])
+        nodesync(['-v', '-k', 'k2', 'k1.t2'], ['k1\.t2'])
         assert_enabled('k1', 't1', enable)
         assert_enabled('k1', 't2', enable)
         assert_enabled('k1', 't3', not enable)
@@ -132,7 +132,7 @@ class TestNodeSyncTool(Tester):
         assert_enabled('k2', 't4', not enable)
 
         # unqualified table name with default keyspace
-        nodesync(['-v', '-k', 'k2', 't1'], ['k2.t1'])
+        nodesync(['-v', '-k', 'k2', 't1'], ['k2\.t1'])
         assert_enabled('k1', 't1', enable)
         assert_enabled('k1', 't2', enable)
         assert_enabled('k1', 't3', not enable)
@@ -143,7 +143,7 @@ class TestNodeSyncTool(Tester):
         assert_enabled('k2', 't4', not enable)
 
         # qualified and unqualified table names with default keyspace
-        nodesync(['-v', '-k', 'k1', 't3', 'k2.t2'], ['k1.t3', 'k2.t2'])
+        nodesync(['-v', '-k', 'k1', 't3', 'k2.t2'], ['k1\.t3', 'k2\.t2'])
         assert_enabled('k1', 't1', enable)
         assert_enabled('k1', 't2', enable)
         assert_enabled('k1', 't3', enable)
@@ -154,7 +154,7 @@ class TestNodeSyncTool(Tester):
         assert_enabled('k2', 't4', not enable)
 
         # wildcard with default keyspace
-        nodesync(['-v', '-k', 'k1', '*'], ['k1.t1', 'k1.t2', 'k1.t3', 'k1.t4'])
+        nodesync(['-v', '-k', 'k1', '*'], ['k1\.t1', 'k1\.t2', 'k1\.t3', 'k1\.t4'])
         assert_enabled('k1', 't1', enable)
         assert_enabled('k1', 't2', enable)
         assert_enabled('k1', 't3', enable)
@@ -166,12 +166,12 @@ class TestNodeSyncTool(Tester):
 
         # wildcard without default keyspace
         nodesync(['-v', '*'],
-                 ['k1.t1', 'k1.t2', 'k1.t3', 'k1.t4', 'k2.t1', 'k2.t2', 'k2.t3', 'k2.t4',
-                  'system_distributed.repair_history',
-                  'system_distributed.parent_repair_history',
-                  'system_distributed.view_build_status',
-                  'system_distributed.nodesync_status',
-                  'system_distributed.nodesync_user_validations'])
+                 ['k1\.t1', 'k1\.t2', 'k1\.t3', 'k1\.t4', 'k2\.t1', 'k2\.t2', 'k2\.t3', 'k2\.t4',
+                  'system_distributed\.repair_history',
+                  'system_distributed\.parent_repair_history',
+                  'system_distributed\.view_build_status',
+                  'system_distributed\.nodesync_status',
+                  'system_distributed\.nodesync_user_validations'])
         assert_enabled('k1', 't1', enable)
         assert_enabled('k1', 't2', enable)
         assert_enabled('k1', 't3', enable)
@@ -218,28 +218,28 @@ class TestNodeSyncTool(Tester):
         # test basic input validation
         test(expected_stderr=['Error: A qualified table name should be specified'])
         test(['t'], expected_stderr=['Error: Keyspace required for unqualified table name: t'])
-        test(['k0.t1'], expected_stderr=['Error: Keyspace [k0] does not exist.'])
-        test(['k1.t0'], expected_stderr=['Error: Table [k1.t0] does not exist.'])
+        test(['k0.t1'], expected_stderr=['Error: Keyspace \[k0\] does not exist\.'])
+        test(['k1.t0'], expected_stderr=['Error: Table \[k1\.t0\] does not exist\.'])
         test(['k1.t1', 'a'], expected_stderr=['Error: Cannot parse range: a'])
-        test(['k1.t1', '(0]'], expected_stderr=['Error: Cannot parse range: (0]'])
-        test(['k1.t1', '(0,]'], expected_stderr=['Error: Cannot parse range: (0,]'])
-        test(['k1.t1', '(,0]'], expected_stderr=['Error: Cannot parse range: (,0]'])
+        test(['k1.t1', '(0]'], expected_stderr=['Error: Cannot parse range: \(0\]'])
+        test(['k1.t1', '(0,]'], expected_stderr=['Error: Cannot parse range: \(0,\]'])
+        test(['k1.t1', '(,0]'], expected_stderr=['Error: Cannot parse range: \(,0\]'])
         test(['k1.t1', '(a,0]'], expected_stderr=['Error: Cannot parse token: a'])
         test(['k1.t1', '(0,b]'], expected_stderr=['Error: Cannot parse token: b'])
-        test(['k1.t1', '(1,2)'], expected_stderr=['Error: Invalid input range: (1,2): '
-                                                  'only ranges with an open start and closed end are allowed. '
-                                                  'Did you meant (1, 2]?'])
-        test(['k1.t1', '[1,2]'], expected_stderr=['Error: Invalid input range: [1,2]: '
-                                                  'only ranges with an open start and closed end are allowed. '
-                                                  'Did you meant (1, 2]?'])
-        test(['k1.t1', '[1,2)'], expected_stderr=['Error: Invalid input range: [1,2): '
-                                                  'only ranges with an open start and closed end are allowed. '
-                                                  'Did you meant (1, 2]?'])
+        test(['k1.t1', '(1,2)'], expected_stderr=['Error: Invalid input range: \(1,2\): '
+                                                  'only ranges with an open start and closed end are allowed\. '
+                                                  'Did you meant \(1, 2\]?'])
+        test(['k1.t1', '[1,2]'], expected_stderr=['Error: Invalid input range: \[1,2\]: '
+                                                  'only ranges with an open start and closed end are allowed\. '
+                                                  'Did you meant \(1, 2\]?'])
+        test(['k1.t1', '[1,2)'], expected_stderr=['Error: Invalid input range: \[1,2\): '
+                                                  'only ranges with an open start and closed end are allowed\. '
+                                                  'Did you meant \(1, 2\]?'])
 
         # test error message when nodesync is not active
         self._stop_nodesync_service()
         test(['k1.t1', '(1,2]'], expected_stderr=["there are no more replicas to try: "
-                                                  "Cannot start user validation, NodeSync is not currently running.",
+                                                  "Cannot start user validation, NodeSync is not currently running\.",
                                                   'Error: Submission failed'])
         self._start_nodesync_service()
 
@@ -265,8 +265,8 @@ class TestNodeSyncTool(Tester):
              expected_stdout=['submitted for ranges',
                               'trying next replicas'],
              expected_stderr=['there are no more replicas to try',
-                              'Cancelling validation in those nodes where it was already submitted: [/127.0.0.1]',
-                              '/127.0.0.1:',
+                              'Cancelling validation in those nodes where it was already submitted: [\[\{]/127\.0\.0\.1[\]\}]',
+                              '/127\.0\.0\.1:',
                               'has been successfully cancelled',
                               'Error: Submission failed'])
 
@@ -305,19 +305,19 @@ class TestNodeSyncTool(Tester):
         # validate a single range with verbose flag
         test(args=['-v', 'k1.t1', '(1,2]'],
              expected_rows=[['127.0.0.1', 'k1', 't1', sortedset(['(1,2]'])]],
-             expected_stdout=['/127.0.0.1: submitted for ranges [(1,2]]'])
+             expected_stdout=['/127.0.0.1: submitted for ranges \[\(1,2\]\]'])
 
         # validate two ranges in the same node with verbose flag
         test(args=['-v', 'k1.t1', '(1,2]', '(3,4]'],
              expected_rows=[['127.0.0.1', 'k1', 't1', sortedset(['(1,2]', '(3,4]'])]],
-             expected_stdout=['/127.0.0.1: submitted for ranges [(1,2], (3,4]]'])
+             expected_stdout=['/127.0.0.1: submitted for ranges \[\(1,2\], \(3,4\]\]'])
 
         # validate two ranges in different nodes with verbose flag
         test(args=['-v', 'k1.t1', '(1,2]', '(-9000000000000000001,-9000000000000000000]'],
              expected_rows=[['127.0.0.1', 'k1', 't1', sortedset(['(1,2]'])],
                             ['127.0.0.2', 'k1', 't1', sortedset(['(-9000000000000000001,-9000000000000000000]'])]],
-             expected_stdout=['/127.0.0.1: submitted for ranges [(1,2]]',
-                              '/127.0.0.2: submitted for ranges [(-9000000000000000001,-9000000000000000000]]'])
+             expected_stdout=['/127\.0\.0\.1: submitted for ranges \[\(1,2\]\]',
+                              '/127\.0\.0\.2: submitted for ranges \[\(-9000000000000000001,-9000000000000000000\]\]'])
 
         # stop the second node
         self.cluster.nodelist()[1].stop(wait_other_notice=True)
@@ -325,30 +325,30 @@ class TestNodeSyncTool(Tester):
         # a single validation for that node should be submitted to the next replica
         test(args=['-v', 'k1.t1', '(-9000000000000000001,-9000000000000000000]'],
              expected_rows=[['127.0.0.3', 'k1', 't1', sortedset(['(-9000000000000000001,-9000000000000000000]'])]],
-             expected_stdout=['/127.0.0.2: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'trying next replicas: JMX connection to 127.0.0.2:7200 failed',
-                              '/127.0.0.3: submitted for ranges [(-9000000000000000001,-9000000000000000000]]'])
+             expected_stdout=['/127\.0\.0\.2: failed for ranges \[\(-9000000000000000001,-9000000000000000000\]\], '
+                              'trying next replicas: JMX connection to 127\.0\.0\.2:7200 failed',
+                              '/127\.0\.0\.3: submitted for ranges \[\(-9000000000000000001,-9000000000000000000\]\]'])
 
         # stop the third node
         self.cluster.nodelist()[2].stop(wait_other_notice=True)
 
         # a single validation of a range with all its replicas down should fail
         test(args=['-v', 'k1.t1', '(-9000000000000000001,-9000000000000000000]'],
-             expected_stdout=['/127.0.0.2: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'trying next replicas: JMX connection to 127.0.0.2:7200 failed'],
-             expected_stderr=['/127.0.0.3: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'there are no more replicas to try: JMX connection to 127.0.0.3:7300',
+             expected_stdout=['/127\.0\.0\.2: failed for ranges \[\(-9000000000000000001,-9000000000000000000\]\], '
+                              'trying next replicas: JMX connection to 127\.0\.0\.2:7200 failed'],
+             expected_stderr=['/127\.0\.0\.3: failed for ranges \[\(-9000000000000000001,-9000000000000000000\]\], '
+                              'there are no more replicas to try: JMX connection to 127\.0\.0\.3:7300',
                               'Error: Submission failed'])
 
         # a validation of two ranges where only one of them fails should be cancelled in the successful node
         test(args=['-v', 'k1.t1', '(1,2]', '(-9000000000000000001,-9000000000000000000]'],
-             expected_stdout=['/127.0.0.1: submitted for ranges [(1,2]]',
-                              '/127.0.0.2: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'trying next replicas: JMX connection to 127.0.0.2:7200 failed'],
-             expected_stderr=['/127.0.0.3: failed for ranges [(-9000000000000000001,-9000000000000000000]], '
-                              'there are no more replicas to try: JMX connection to 127.0.0.3:7300',
-                              'Cancelling validation in those nodes where it was already submitted: [/127.0.0.1]',
-                              '/127.0.0.1:',
+             expected_stdout=['/127\.0\.0\.1: submitted for ranges \[\(1,2\]\]',
+                              '/127\.0\.0\.2: failed for ranges \[\(-9000000000000000001,-9000000000000000000\]\], '
+                              'trying next replicas: JMX connection to 127\.0\.0\.2:7200 failed'],
+             expected_stderr=['/127\.0\.0\.3: failed for ranges \[\(-9000000000000000001,-9000000000000000000\]\], '
+                              'there are no more replicas to try: JMX connection to 127\.0\.0\.3:7300',
+                              'Cancelling validation in those nodes where it was already submitted: [\{\[]/127.0.0.1[\}\]]',
+                              '/127\.0\.0\.1:',
                               'has been successfully cancelled',
                               'Error: Submission failed'])
 
@@ -492,37 +492,37 @@ class TestNodeSyncTool(Tester):
              records=[
                  ('1', '127.0.0.1', 'running', {}, None, None, 10, 0, Metrics())],
              expected_stdout=['Identifier  Table  Status   Outcome  Duration  ETA  Progress  Validated  Repaired',
-                              '1           k1.t1  running  success       0ms    ?        0%         0B        0B'])
+                              '1           k1\.t1  running  success       0ms    \?        0%         0B        0B'])
 
         # running with progress (we can't know the duration nor the ETA because they depend on system time)
         test(list_all=False,
              records=[('1', '127.0.0.1', 'running', {'full_in_sync': 1}, start, None, 2, 1, Metrics(2048, 2))],
              expected_stdout=['Identifier  Table  Status   Outcome  ',
-                              '1           k1.t1  running  success  '])
+                              '1           k1\.t1  running  success  '])
 
         # running without progress (we can't know the duration because it depends on system time)
         test(list_all=False,
              records=[('1', '127.0.0.1', 'running', {'failed': 1}, start, None, 2, 0, Metrics(2048, 2))],
              expected_stdout=['  ETA  Progress  Validated  Repaired',
-                              '    ?        0%        2kB        2B'])
+                              '    \?        0%        2kB        2B'])
 
         # successful
         test(list_all=True,
              records=[('1', '127.0.0.1', 'successful', {'full_in_sync': 1}, start, end, 2, 2, Metrics(1024, 2))],
              expected_stdout=['Identifier  Table  Status      Outcome  Duration  ETA  Progress  Validated  Repaired',
-                              '1           k1.t1  successful  success        1h    -      100%        1kB        2B'])
+                              '1           k1\.t1  successful  success        1h    -      100%        1kB        2B'])
 
         # cancelled
         test(list_all=True,
              records=[('1', '127.0.0.1', 'cancelled', {'full_in_sync': 1}, start, end, 4, 1, Metrics(10, 2))],
              expected_stdout=['Identifier  Table  Status     Outcome  Duration  ETA  Progress  Validated  Repaired',
-                              '1           k1.t1  cancelled  success        1h    -       25%        10B        2B'])
+                              '1           k1\.t1  cancelled  success        1h    -       25%        10B        2B'])
 
         # failed
         test(list_all=True,
              records=[('1', '127.0.0.1', 'failed', {'partial_repaired': 1}, start, end, 5, 1, Metrics(10, 2))],
              expected_stdout=['Identifier  Table  Status  Outcome  Duration  ETA  Progress  Validated  Repaired',
-                              '1           k1.t1  failed  partial        1h    -       20%        10B        2B'])
+                              '1           k1\.t1  failed  partial        1h    -       20%        10B        2B'])
 
         # combine multiple validations
         test(list_all=True,
@@ -533,9 +533,9 @@ class TestNodeSyncTool(Tester):
                       ('3', '127.0.0.1', 'successful', {'full_in_sync': 1}, start, end, 15, 10, Metrics(10, 2)),
                       ('3', '127.0.0.2', 'failed', {'failed': 1}, start, end, 5, 0, Metrics(1024, 2))],
              expected_stdout=['Identifier  Table  Status      Outcome  Duration  ETA  Progress  Validated  Repaired',
-                              '1           k1.t1  successful  partial        1h    -      100%        40B        6B',
-                              '2           k1.t1  successful  failed         1h    -      100%        20B        4B',
-                              '3           k1.t1  failed      failed         1h    -       50%        1kB        4B'])
+                              '1           k1\.t1  successful  partial        1h    -      100%        40B        6B',
+                              '2           k1\.t1  successful  failed         1h    -      100%        20B        4B',
+                              '3           k1\.t1  failed      failed         1h    -       50%        1kB        4B'])
 
     def test_cancel_user_validation(self):
         """
@@ -563,7 +563,7 @@ class TestNodeSyncTool(Tester):
         uuid = submit_validation()
         nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
                       expected_stdout=['/127.0.0.1: Cancelled',
-                                       'The validation has been cancelled in nodes [/127.0.0.1]'])
+                                       'The validation has been cancelled in nodes [\[\{]/127\.0\.0\.1[\]\}]'])
 
         # try to cancel an already cancelled validation
         nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
@@ -573,7 +573,7 @@ class TestNodeSyncTool(Tester):
         uuid = submit_validation()
         node1.stop(wait_other_notice=True, gently=False)  # will remove its proposers
         nodesync_tool(self.cluster, args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
-                      expected_stderr=['Error: The cancellation has failed in nodes: [/127.0.0.1]'])
+                      expected_stderr=['Error: The cancellation has failed in nodes: [\[\{]/127\.0\.0\.1[\]\}]'])
 
     def test_quoted_arg_with_spaces(self):
         """
@@ -599,7 +599,7 @@ class TestNodeSyncTool(Tester):
         self._start_nodesync_service()
 
         stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable'],
-                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'."])
+                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'\."])
 
         match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
         self.assertIsNotNone(match)
@@ -645,13 +645,13 @@ class TestNodeSyncTool(Tester):
 
         [node1, node2] = self.cluster.nodelist()
         stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable', '-n ' + node1.address()],
-                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'."])
+                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'\."])
 
         match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
         self.assertIsNotNone(match)
         id = match.group(1)
 
-        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is only enabled on [/{}]".format(node1.address())])
+        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is only enabled on \[/{}\]".format(node1.address())])
         nodesync_tool(self.cluster, ['tracing', 'status', '-n ' + node1.address()], expected_stdout=["Tracing is enabled"])
         nodesync_tool(self.cluster, ['tracing', 'disable'])
         nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
@@ -673,7 +673,7 @@ class TestNodeSyncTool(Tester):
         self._prepare_cluster(keyspaces=1, tables_per_keyspace=1, nodesync_enabled=True)
         self.session.execute("DELETE jmx_port FROM system.local WHERE key='local'")
         nodesync_tool(self.cluster, ['validation', 'submit', 'k1.t1', '(0,1]'],
-                      expected_stderr=['/127.0.0.1: failed for ranges [(0,1]], there are no more replicas to try: '
-                                       'Unable to read the JMX port of node 127.0.0.1, '
+                      expected_stderr=['/127\.0\.0\.1: failed for ranges \[\(0,1\]\], there are no more replicas to try: '
+                                       'Unable to read the JMX port of node 127\.0\.0\.1, '
                                        'this could be because JMX is not enabled in that node '
                                        'or it\'s running a version without NodeSync support'])

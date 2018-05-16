@@ -366,14 +366,14 @@ class TestRepair(BaseRepairTest):
 
         debug("Running repair without parameters - should be full repair")
         stdout, _, _ = node1.nodetool("repair keyspace1 standard1")
-        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[standard1\]'))
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*[\{\[]standard1[\]\}]'))
         # Message should not be print on clusters that have never ran incremental repair
         self.assertNotIn('INFO: Neither --inc or --full repair options were provided.', stdout)
 
         mark = node1.mark_log()
         debug("Running repair with -inc parameter - should be incremental repair")
         stdout, _, _ = node1.nodetool("repair -inc keyspace1 standard1")
-        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*[\{\[]standard1[\}\]]', from_mark=mark))
         # Message should not be print when -inc parameter is provided
         self.assertNotIn('INFO: Neither --inc or --full repair options were provided.', stdout)
 
@@ -383,14 +383,14 @@ class TestRepair(BaseRepairTest):
         debug(stdout)
         if self.cluster.version() < "4.0":
             debug("should be incremental repair")
-            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
+            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*[\{\[]standard1[\}\]]', from_mark=mark))
             # Message should not be print when all tables to repair are incremental
             self.assertNotIn('INFO: Neither --inc or --full repair options were provided.', stdout)
         else:
             debug("should be full repair")
             # on 4.0+, no parameter = full repair
-            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[\]', from_mark=mark))
-            self.assertFalse(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[\]', from_mark=mark))
+            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*[\{\[][\}\]]', from_mark=mark))
+            self.assertFalse(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*[\[\{][\}\]]', from_mark=mark))
 
         debug("Creating new table on some keyspace and insert some data")
         session = self.patient_cql_connection(node1)
@@ -413,26 +413,26 @@ class TestRepair(BaseRepairTest):
         mark = node1.mark_log()
         debug("Running repair on new table cf1 without parameters - should be full repair")
         stdout, _, _ = node1.nodetool("repair keyspace1 cf1")
-        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[cf1\]', from_mark=mark))
+        self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*[\{\[]cf1[\}\]]', from_mark=mark))
         if self.cluster.version() < "4.0":
             # Message should be print on clusters that have ran incremental repair on other tables
             self.assertTrue(re.compile('INFO: Neither --inc or --full repair options were provided. Running full repairs on tables with MVs.*'
-                                       'or that were never incrementally repaired: \[cf1\]').search(stdout))
+                                       'or that were never incrementally repaired: [\{\[]cf1[\}\]]').search(stdout))
 
         mark = node1.mark_log()
         debug("Running repair on keyspace with mixed tables")
         stdout, _, _ = node1.nodetool("repair keyspace1")
         if self.cluster.version() < "4.0":
             debug("should run both incremental and full repair")
-            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[counter1, cf1\]', from_mark=mark))
-            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*\[standard1\]', from_mark=mark))
+            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*[\{\[]counter1, cf1[\}\]]', from_mark=mark))
+            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: true.*[\{\[]standard1[\}\]]', from_mark=mark))
             # Message should be print on clusters that have ran incremental repair on other tables
             self.assertTrue(re.compile('INFO: Neither --inc or --full repair options were provided. Running full repairs on tables with MVs.*'
-                                       'or that were never incrementally repaired: \[counter1, cf1\]').search(stdout))
+                                       'or that were never incrementally repaired: [\{\[]counter1, cf1[\}\]]').search(stdout))
         else:
             debug("should be full repair")
             # on 4.0+, no parameter = full repair
-            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*\[standard1\]'))
+            self.assertTrue(node1.grep_log('repairing keyspace keyspace1 .* incremental: false.*[\{\[]standard1[\}\]]'))
 
     @since('2.2.1', '3.0')
     def anticompaction_after_normal_repair_test(self):
