@@ -1,4 +1,6 @@
 import os
+import re
+import subprocess
 import time
 from collections import defaultdict
 from distutils.version import LooseVersion  # pylint: disable=import-error
@@ -24,6 +26,62 @@ EXEC_PROFILE_CP_ALL = object()
 
 
 class TestJMX(Tester):
+
+    def _assert_listen_on(self, addr, port):
+        p = subprocess.Popen(['netstat', '-ant'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, _ = p.communicate()
+
+        match = re.compile(r"tcp .* {}:{} .* 0.0.0.0:[*] .* LISTEN.*".format(addr, port))
+        lines = filter(lambda line: match.match(line) is not None, re.split("\n+", stdout))
+
+        self.assertEqual(len(lines), 1, "not listening on {}:{}:\n{}".format(addr, port, stdout))
+
+    def bind_localhost_test(self):
+        """
+        Verifies that binding JMX works as expected - i.e. bind to localhost, if not configured.
+        @jira_ticket against CASSANDRA-9085, DB-2081.
+        """
+        self.cluster.populate(1)
+        node = self.cluster.nodelist()[0]
+        jmx_port = int(node.jmx_port)
+
+        debug("Checking 127.0.0.1...")
+        node.start(wait_for_binary_proto=30)
+        self._assert_listen_on("127.0.0.1", jmx_port)
+        self.assertTrue(ccmlib.common.check_socket_listening(("127.0.0.1", jmx_port), timeout=2))
+        self.assertFalse(ccmlib.common.check_socket_listening(("127.0.0.2", jmx_port), timeout=2))
+
+        # C* 3.0 / DSE 5.0 behaves differently than C* 3.11.2 / DSE 5.1 - so we skip the following for 3.0/5.0
+        if self.cluster.version() >= '3.11':
+            self.assertTrue(node.grep_log("Configured JMX server at: service:jmx:rmi://{}/jndi/rmi://{}:{}/jmxrmi".format("127.0.0.1", "127.0.0.1", jmx_port)),
+                            "Missing JMX server information in log")
+
+            node.stop()
+            mark = node.mark_log()
+
+            node.set_environment_variable("LOCAL_JMX", "no")
+
+            debug("Checking 0.0.0.0...")
+            node.start(wait_for_binary_proto=30)
+            self._assert_listen_on("0.0.0.0", jmx_port)
+            self.assertTrue(ccmlib.common.check_socket_listening(("127.0.0.1", jmx_port), timeout=2))
+            self.assertTrue(ccmlib.common.check_socket_listening(("127.0.0.2", jmx_port), timeout=2))
+            self.assertTrue(node.grep_log("Configured JMX server at: service:jmx:rmi://{}/jndi/rmi://{}:{}/jmxrmi".format("0.0.0.0", "0.0.0.0", jmx_port), from_mark=mark),
+                            "Missing JMX server information in log")
+            node.stop()
+            mark = node.mark_log()
+
+            # TODO this requires DB-2084
+            # debug("Checking 127.1.2.3...")
+            # # Note: the following assertion fails on OSX, unless you run
+            # #   sudo ifconfig lo0 alias 127.1.2.3 up
+            # node.start(jvm_args=["-Djava.rmi.server.hostname=127.1.2.3"], wait_for_binary_proto=30)
+            # self._assert_listen_on("127.1.2.3", jmx_port)
+            # self.assertFalse(ccmlib.common.check_socket_listening(("127.0.0.1", jmx_port), timeout=2))
+            # self.assertFalse(ccmlib.common.check_socket_listening(("127.0.0.2", jmx_port), timeout=2))
+            # self.assertTrue(ccmlib.common.check_socket_listening(("127.1.2.3", jmx_port), timeout=2))
+            # self.assertTrue(node.grep_log("Configured JMX server at: service:jmx:rmi://{}/jndi/rmi://{}:{}/jmxrmi".format("127.1.2.3", "127.1.2.3", jmx_port), from_mark=mark),
+            #                             "Missing JMX server information in log")
 
     def netstats_test(self):
         """
