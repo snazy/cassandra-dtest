@@ -57,11 +57,11 @@ def _get_version_family():
         version_family = 'dse5.1'
     elif current_version.vstring.startswith('6.0'):
         version_family = 'dse6.0'
-    elif current_version.vstring.startswith('6.1'):
+    elif current_version.vstring.startswith('6.7'):
         version_family = 'master'
-    elif current_version > '6.1':
+    elif current_version > '6.7':
         # when this occurs, it's time to update this manifest a bit!
-        raise RuntimeError("DSE >6.1 not yet supported on upgrade tests!")
+        raise RuntimeError("DSE >6.7 not yet supported on upgrade tests!")
 
     return version_family
 
