@@ -438,6 +438,36 @@ class TestReadRepair(Tester):
             activity = trace_event.description
             self.assertNotIn("Sending READ_REPAIR message", activity)
 
+    @since('3.10')
+    def test_negative_digest_mismatch_on_mixed_flushed_and_non_flushed_nodes(self):
+        """
+        @jira_ticket: DB-1980
+        """
+        CL = ConsistencyLevel.LOCAL_QUORUM
+        RF = 3
+        cluster = self.cluster
+        nodes = cluster.nodelist()
+        cluster.start()
+        node1, node2, node3 = nodes
+        session = self.patient_cql_connection(node1, consistency_level=ConsistencyLevel.ALL)
+        create_ks(session, 'ks', RF)
+        session.execute("""CREATE TABLE ks.test (
+        entityid text PRIMARY KEY,
+        value int,
+        name map<int, int>,
+        last text)""")
+
+        for i in range(0, 100):
+            text = "INSERT INTO ks.test (entityid, value, name, last) VALUES ('{}', {}, {}, 'last{}')".format(i, i, "{1: 1}", i)
+            session.execute(text)
+
+        node1.flush()
+        node2.flush()
+
+        result = session.execute("select value from ks.test where entityid = '50';", trace=True)
+        self.assertEqual([[50]], rows_to_list(result))
+        self.check_trace_events_digest_mismatch(result.get_query_trace(), False)
+
     def pprint_trace(self, trace):
         """Pretty print a trace"""
         if PRINT_DEBUG:
