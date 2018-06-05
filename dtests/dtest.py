@@ -142,11 +142,18 @@ def get_dse_version_from_build_safe(install_dir=None, node_path=None):
             return LooseVersion(dse_version)
         # Source cassandra installs we can read from build.xml
         build = os.path.join(install_dir, 'build.xml')
-        with open(build) as f:
-            for line in f:
-                match = re.search('name="base\.dse\.version" value="([0-9.]+)[^"]*"', line)
-                if match:
-                    return LooseVersion(match.group(1))
+        if os.path.exists(build):
+            with open(build) as f:
+                for line in f:
+                    match = re.search('name="base\.dse\.version" value="([0-9.]+)[^"]*"', line)
+                    if match:
+                        return LooseVersion(match.group(1))
+        # if this is a dsedb install from the bdp repo, we just look up the normal dse version
+        bdp_dsedb_dir = os.path.join(install_dir, 'dse-db')
+        bdp_version_txt = os.path.join(install_dir, 'VERSION.txt')
+        if os.path.exists(bdp_dsedb_dir) and os.path.exists(bdp_version_txt):
+            with open(bdp_version_txt) as f:
+                return LooseVersion(f.read().strip())
     return None
 
 
