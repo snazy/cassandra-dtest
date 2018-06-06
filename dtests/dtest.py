@@ -123,7 +123,7 @@ def get_sha(repo_dir):
 def get_dse_version_from_build(install_dir=None, node_path=None):
     dse_version = get_dse_version_from_build_safe(install_dir=install_dir, node_path=node_path)
     if not dse_version:
-        raise Exception("Cannot find DSE version")
+        raise Exception("Cannot find DSE version from install_dir=%s node_path=%s" % (install_dir, node_path))
     return dse_version
 
 
@@ -149,11 +149,17 @@ def get_dse_version_from_build_safe(install_dir=None, node_path=None):
                     if match:
                         return LooseVersion(match.group(1))
         # if this is a dsedb install from the bdp repo, we just look up the normal dse version
-        bdp_dsedb_dir = os.path.join(install_dir, 'dse-db')
-        bdp_version_txt = os.path.join(install_dir, 'VERSION.txt')
-        if os.path.exists(bdp_dsedb_dir) and os.path.exists(bdp_version_txt):
-            with open(bdp_version_txt) as f:
-                return LooseVersion(f.read().strip())
+        bdp_dir = None
+        # detect if install_dir points to bdp repo root or dse-db subdir
+        if os.path.basename(os.path.abspath(install_dir)) == 'dse-db':
+            bdp_dir = os.path.join(os.path.abspath(install_dir), os.pardir)
+        elif os.path.exists(os.path.join(install_dir, 'dse-db')):
+            bdp_dir = install_dir
+        if bdp_dir:
+            bdp_version_txt = os.path.join(bdp_dir, 'VERSION.txt')
+            if os.path.exists(bdp_version_txt):
+                with open(bdp_version_txt) as f:
+                    return LooseVersion(f.read().strip())
     return None
 
 
