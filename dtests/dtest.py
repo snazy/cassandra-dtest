@@ -807,12 +807,12 @@ def cleanup_cluster(cluster, test_path, log_watch_thread=None):
                 cluster.remove()
 
                 debug("clearing ssl stores from [{0}] directory".format(test_path))
-                for filename in ('keystore.jks', 'truststore.jks', 'ccm_node.cer'):
+                for filename in ('keystore.jks', 'keystore.p12', 'truststore.jks', 'ccm_node.cer', 'ccm_node.key'):
                     try:
                         os.remove(os.path.join(test_path, filename))
                     except OSError as e:
                         # once we port to py3, which has better reporting for exceptions raised while
-                        # handling other excpetions, we should just assert e.errno == errno.ENOENT
+                        # handling other exceptions, we should just assert e.errno == errno.ENOENT
                         if e.errno != errno.ENOENT:  # ENOENT = no such file or directory
                             raise
 

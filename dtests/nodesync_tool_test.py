@@ -1,4 +1,5 @@
 import datetime
+import os
 import re
 import time
 from uuid import UUID
@@ -11,6 +12,8 @@ from tools.assertions import assert_all, assert_one
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
 from tools.nodesync import nodesync_tool
+from tools.jmxutils import enable_jmx_ssl
+from tools.sslkeygen import generate_ssl_stores
 
 
 def _parse_validation_id(stdout):
@@ -25,11 +28,68 @@ class TestNodeSyncTool(Tester):
     @jira_ticket APOLLO-948
     """
 
-    def _prepare_cluster(self, nodes=1, rf=1, byteman=False, keyspaces=0, tables_per_keyspace=0, nodesync_enabled=True):
+    nodetool_ssl_args = list()
+    nodesync_ssl_args = list()
+
+    def _prepare_cluster(self, nodes=1, rf=1, byteman=False, keyspaces=0, tables_per_keyspace=0, nodesync_enabled=True,
+                         cql_ssl=False, jmx_ssl=True, require_client_auth=False):
+
         cluster = self.cluster
-        cluster.populate(nodes, install_byteman=byteman).start(wait_for_binary_proto=True)
+        cluster.populate(nodes, install_byteman=byteman)
+
+        ssl_opts = None
+        if cql_ssl or jmx_ssl:
+
+            # Generate SSL stores
+            generate_ssl_stores(self.test_path)
+            password = 'cassandra'
+            keystore = os.path.join(self.test_path, 'keystore.jks')
+            truststore = os.path.join(self.test_path, 'truststore.jks')
+
+            # Prepare JVM properties
+            jvm_args = ['-Djavax.net.ssl.trustStore=%s' % truststore,
+                        '-Djavax.net.ssl.trustStorePassword=%s' % password]
+            if require_client_auth:
+                jvm_args += ['-Djavax.net.ssl.keyStore=%s' % keystore,
+                             '-Djavax.net.ssl.keyStorePassword=%s' % password]
+
+            # Prepare node connection arguments
+            self.nodetool_ssl_args = (['--ssl'] + jvm_args) if jmx_ssl else list()
+            self.nodesync_ssl_args = (['--cql-ssl'] if cql_ssl else list()) + \
+                                     (['--jmx-ssl'] if jmx_ssl else list()) + jvm_args
+
+            # Prepare Python driver SSL options
+            if cql_ssl:
+                certificate = os.path.join(self.test_path, 'ccm_node.cer')
+                ssl_opts = {'ca_certs': certificate}
+                if require_client_auth:
+                    key = os.path.join(self.test_path, 'ccm_node.key')
+                    ssl_opts.update({'keyfile': key, 'certfile': certificate})
+
+            # Enable server-side encryption
+            for node in cluster.nodelist():
+                if cql_ssl:
+                    node.set_configuration_options({
+                        'client_encryption_options': {
+                            'enabled': 'true',
+                            'keystore': keystore,
+                            'keystore_password': password,
+                            'require_client_auth': require_client_auth,
+                            'truststore': truststore,
+                            'truststore_password': password
+                        }
+                    })
+                if jmx_ssl:
+                    enable_jmx_ssl(node,
+                                   keystore=keystore,
+                                   keystore_password=password,
+                                   require_client_auth=require_client_auth,
+                                   truststore=truststore,
+                                   truststore_password=password)
+
+        cluster.start(wait_for_binary_proto=True)
         node1 = self.cluster.nodelist()[0]
-        session = self.patient_cql_connection(node1)
+        session = self.patient_cql_connection(node1, ssl_opts=ssl_opts)
         self.session = session
 
         for k in xrange(keyspaces):
@@ -49,13 +109,32 @@ class TestNodeSyncTool(Tester):
         self.session = self.patient_cql_connection(node1)
         return self.session
 
+    def _nodesync(self, args=list(), expected_stdout=None, expected_stderr=None,
+                  ignore_stdout_order=False, ignore_stderr_order=False, print_debug=True):
+        """
+        Runs NodeSync tool with the connection arguments prepared by a previous call to `_prepare_cluster`
+        """
+        return nodesync_tool(cluster=self.cluster,
+                             args=self.nodesync_ssl_args + args,
+                             expected_stdout=expected_stdout,
+                             expected_stderr=expected_stderr,
+                             ignore_stdout_order=ignore_stdout_order,
+                             ignore_stderr_order=ignore_stderr_order,
+                             print_debug=print_debug)
+
+    def _nodetool(self, node, cmd):
+        """
+        Runs nodetool with the connection arguments prepared by a previous call to `_prepare_cluster`
+        """
+        return node.nodetool(' '.join([cmd] + self.nodetool_ssl_args))
+
     def _start_nodesync_service(self):
         for node in self.cluster.nodelist():
-            node.nodetool('nodesyncservice enable')
+            self._nodetool(node, 'nodesyncservice enable')
 
     def _stop_nodesync_service(self):
         for node in self.cluster.nodelist():
-            node.nodetool('nodesyncservice disable')
+            self._nodetool(node, 'nodesyncservice disable')
 
     def _wait_for_validation(self, uuid, count=1):
         """ Wait until the validation identified by the specified UUID appears on the system table """
@@ -96,7 +175,7 @@ class TestNodeSyncTool(Tester):
             args = ['enable' if enable else 'disable'] + args
             if stdout:
                 stdout = map(lambda t: 'Nodesync %s for %s' % ('enabled' if enable else 'disabled', t), stdout)
-            nodesync_tool(self.cluster, args, stdout, stderr, ignore_stdout_order=True)
+            self._nodesync(args, stdout, stderr, ignore_stdout_order=True)
 
         def assert_enabled(keyspace, table, expected):
             query = "SELECT nodesync['enabled'] FROM system_schema.tables WHERE keyspace_name='{}' AND table_name='{}'"
@@ -208,7 +287,7 @@ class TestNodeSyncTool(Tester):
             Invoke the command validating the output and, if it should succeed, check that the validation has been
             written in the system table with the generated id.
             """
-            stdout, stderr = nodesync_tool(self.cluster, ['validation', 'submit'] + args, expected_stdout, expected_stderr)
+            stdout, stderr = self._nodesync(['validation', 'submit'] + args, expected_stdout, expected_stderr)
             if should_succeed:
                 uuid = _parse_validation_id(stdout)
                 self._wait_for_validation(uuid)
@@ -284,7 +363,7 @@ class TestNodeSyncTool(Tester):
             Invoke the command validating the output and check that expected rows have been written in the system table
             with the generated id.
             """
-            stdout, stderr = nodesync_tool(self.cluster, ['validation', 'submit'] + args, expected_stdout, expected_stderr)
+            stdout, stderr = self._nodesync(['validation', 'submit'] + args, expected_stdout, expected_stderr)
             if expected_rows is not None:
                 uuid = _parse_validation_id(stdout)
                 self._wait_for_validation(uuid, len(expected_rows))
@@ -370,29 +449,29 @@ class TestNodeSyncTool(Tester):
             if rate:
                 args.extend(['-r', str(rate)])
             args.append('k1.t1')
-            stdout, stderr = nodesync_tool(self.cluster, args)
+            stdout, stderr = self._nodesync(args)
             uuid = _parse_validation_id(stdout)
             if status_to_wait_for:
                 self._wait_for_validation_status(uuid, node, status_to_wait_for)
             return uuid
 
         def cancel(uuid):
-            nodesync_tool(self.cluster, args=['validation', 'cancel', str(uuid)])
+            self._nodesync(args=['validation', 'cancel', str(uuid)])
             self._wait_for_validation_status(uuid, node, 'cancelled')
 
         def get_rate(expected):
-            self.assertIn('{} KB/s'.format(expected), node.nodetool('nodesyncservice getrate').stdout)
+            self.assertIn('{} KB/s'.format(expected), self._nodetool(node, 'nodesyncservice getrate').stdout)
 
         def set_rate(rate, conflicting_validation=None):
             command = 'nodesyncservice setrate {}'.format(rate)
             if conflicting_validation:
                 try:
-                    node.nodetool(command)
+                    self._nodetool(node, command)
                 except ToolError as e:
                     msg = 'Cannot set NodeSync rate because a user triggered validation with custom rate is running: {}'
                     self.assertIn(msg.format(conflicting_validation), e.message)
             else:
-                node.nodetool(command)
+                self._nodetool(node, command)
                 get_rate(expected=rate)
 
         set_rate(rate=1000)
@@ -482,7 +561,7 @@ class TestNodeSyncTool(Tester):
             args = ['validation', 'list']
             if list_all:
                 args += ['-a']
-            nodesync_tool(self.cluster, args, expected_stdout=expected_stdout)
+            self._nodesync(args, expected_stdout=expected_stdout)
 
         start = datetime.datetime(2017, 1, 1)
         end = start + datetime.timedelta(hours=1)
@@ -546,7 +625,7 @@ class TestNodeSyncTool(Tester):
         self._start_nodesync_service()
 
         def submit_validation():
-            stdout, stderr = nodesync_tool(self.cluster, ['validation', 'submit', 'k1.t1'])
+            stdout, stderr = self._nodesync(['validation', 'submit', 'k1.t1'])
             _uuid = _parse_validation_id(stdout)
             self._wait_for_validation(_uuid)
             return _uuid
@@ -556,24 +635,24 @@ class TestNodeSyncTool(Tester):
             node.byteman_submit(['./byteman/user_validation_sleep.btm'])
 
         # try to cancel non existing validation
-        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', 'not_existent_id'],
-                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
+        self._nodesync(args=['validation', 'cancel', '-v', 'not_existent_id'],
+                       expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
         # successfully cancel a validation
         uuid = submit_validation()
-        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
-                      expected_stdout=['/127.0.0.1: Cancelled',
-                                       'The validation has been cancelled in nodes [\[\{]/127\.0\.0\.1[\]\}]'])
+        self._nodesync(args=['validation', 'cancel', '-v', str(uuid)],
+                       expected_stdout=['/127.0.0.1: Cancelled',
+                                        'The validation has been cancelled in nodes [\[\{]/127\.0\.0\.1[\]\}]'])
 
         # try to cancel an already cancelled validation
-        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', str(uuid)],
-                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
+        self._nodesync(args=['validation', 'cancel', '-v', str(uuid)],
+                       expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
         # try to cancel a validation residing on a down node that gets unnoticed by the driver
         uuid = submit_validation()
         node1.stop(wait_other_notice=True, gently=False)  # will remove its proposers
-        nodesync_tool(self.cluster, args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
-                      expected_stderr=['Error: The cancellation has failed in nodes: [\[\{]/127\.0\.0\.1[\]\}]'])
+        self._nodesync(args=['-h', '127.0.0.2', 'validation', 'cancel', '-v', str(uuid)],
+                       expected_stderr=['Error: The cancellation has failed in nodes: [\[\{]/127\.0\.0\.1[\]\}]'])
 
     def test_quoted_arg_with_spaces(self):
         """
@@ -581,35 +660,33 @@ class TestNodeSyncTool(Tester):
 
         Fixes bug in handling of quoted parameters.
         """
-
-        cluster = self.cluster
-        cluster.populate([1]).start()
-        node = cluster.nodelist()[0]
+        self._prepare_cluster()
 
         # Execute some nodesync command with spaces in an argument.
         # The command itself doesn't make sense, but that's not the point of this test.
-        nodesync_tool(self.cluster, args=['validation', 'cancel', '-v', 'this id does not exist'],
-                      expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
+        self._nodesync(args=['validation', 'cancel', '-v', 'this id does not exist'],
+                       expected_stderr=["Error: The validation to be cancelled hasn't been found in any node"])
 
     def test_tracing_nofollow(self):
         """
         Test enabling tracing, disabling it and checking the result.
         """
-        session = self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
+        self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
         self._start_nodesync_service()
 
-        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable'],
-                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'\."])
+        stdout, _ = self._nodesync(['tracing', 'enable'],
+                                   expected_stderr=[
+                                       "Warning: Do not forget to stop tracing with 'nodesync tracing disable'\."])
 
         match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
         self.assertIsNotNone(match)
         id = match.group(1)
 
-        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is enabled on all nodes"])
-        nodesync_tool(self.cluster, ['tracing', 'disable'])
-        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
+        self._nodesync(['tracing', 'status'], expected_stdout=["Tracing is enabled on all nodes"])
+        self._nodesync(['tracing', 'disable'])
+        self._nodesync(['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
 
-        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'show', '-i ' + id])
+        stdout, _ = self._nodesync(['tracing', 'show', '-i ' + id])
         for node in self.cluster.nodelist():
             self.assertIn("Starting NodeSync tracing on /{}".format(node.address()), stdout)
         for node in self.cluster.nodelist():
@@ -619,11 +696,11 @@ class TestNodeSyncTool(Tester):
         """
         Test enabling tracing with the follow option and a timeout.
         """
-        session = self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
+        self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
         self._start_nodesync_service()
 
         start = time.time()
-        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable', '--follow', '-t 3'])
+        stdout, _ = self._nodesync(['tracing', 'enable', '--follow', '-t 3'])
         # Note that we print the duration for fun, but I don't think we rely on that number
         # in any meaningful way because it account for JMX initialization that the tool
         # does and that is very very slow (so the duration will be a lot longer than 3 seconds)
@@ -634,29 +711,31 @@ class TestNodeSyncTool(Tester):
         for node in self.cluster.nodelist():
             self.assertIn("Stopped NodeSync tracing on /{}".format(node.address()), stdout)
 
-        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
+        self._nodesync(['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
 
     def test_tracing_node_subset(self):
         """
         Test enabling tracing, disabling it and checking the result on only a subset of nodes.
         """
-        session = self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
+        self._prepare_cluster(nodes=2, rf=2, keyspaces=1, tables_per_keyspace=1)
         self._start_nodesync_service()
 
         [node1, node2] = self.cluster.nodelist()
-        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'enable', '-n ' + node1.address()],
-                                  expected_stderr=["Warning: Do not forget to stop tracing with 'nodesync tracing disable'\."])
+        stdout, _ = self._nodesync(['tracing', 'enable', '-n ' + node1.address()],
+                                   expected_stderr=[
+                                       "Warning: Do not forget to stop tracing with 'nodesync tracing disable'\."])
 
         match = re.compile('Session id is ([a-z0-9-]+)').search(stdout)
         self.assertIsNotNone(match)
         id = match.group(1)
 
-        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is only enabled on \[/{}\]".format(node1.address())])
-        nodesync_tool(self.cluster, ['tracing', 'status', '-n ' + node1.address()], expected_stdout=["Tracing is enabled"])
-        nodesync_tool(self.cluster, ['tracing', 'disable'])
-        nodesync_tool(self.cluster, ['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
+        self._nodesync(['tracing', 'status'],
+                       expected_stdout=["Tracing is only enabled on \[/{}\]".format(node1.address())])
+        self._nodesync(['tracing', 'status', '-n ' + node1.address()], expected_stdout=["Tracing is enabled"])
+        self._nodesync(['tracing', 'disable'])
+        self._nodesync(['tracing', 'status'], expected_stdout=["Tracing is disabled on all nodes"])
 
-        stdout, _ = nodesync_tool(self.cluster, ['tracing', 'show', '-i ' + id])
+        stdout, _ = self._nodesync(['tracing', 'show', '-i ' + id])
 
         self.assertIn("Starting NodeSync tracing on /{}".format(node1.address()), stdout)
         self.assertIn("Stopped NodeSync tracing on /{}".format(node1.address()), stdout)
@@ -672,8 +751,94 @@ class TestNodeSyncTool(Tester):
         """
         self._prepare_cluster(keyspaces=1, tables_per_keyspace=1, nodesync_enabled=True)
         self.session.execute("DELETE jmx_port FROM system.local WHERE key='local'")
-        nodesync_tool(self.cluster, ['validation', 'submit', 'k1.t1', '(0,1]'],
-                      expected_stderr=['/127\.0\.0\.1: failed for ranges \[\(0,1\]\], there are no more replicas to try: '
-                                       'Unable to read the JMX port of node 127\.0\.0\.1, '
-                                       'this could be because JMX is not enabled in that node '
-                                       'or it\'s running a version without NodeSync support'])
+        self._nodesync(['validation', 'submit', 'k1.t1', '(0,1]'],
+                       expected_stderr=['/127\.0\.0\.1: failed for ranges \[\(0,1\]\], '
+                                        'there are no more replicas to try: '
+                                        'Unable to read the JMX port of node 127\.0\.0\.1, '
+                                        'this could be because JMX is not enabled in that node '
+                                        'or it\'s running a version without NodeSync support'])
+
+    def test_jmx_ssl_without_client_auth(self):
+        """
+        Test JMX connectivity with SSL encryption without client authentication required
+        """
+        self._test_jmx_ssl(require_client_auth=False)
+
+    def test_jmx_ssl_with_client_auth(self):
+        """
+        Test JMX connectivity with SSL encryption with client authentication required
+        """
+        self._test_jmx_ssl(require_client_auth=True)
+
+    def _test_jmx_ssl(self, require_client_auth=False):
+        """
+        Test JMX connectivity with SSL encryption
+        :param require_client_auth: if client authentication is required by the server
+        """
+        self._prepare_cluster(nodes=1, rf=2, keyspaces=1, tables_per_keyspace=1,
+                              cql_ssl=False, jmx_ssl=True, require_client_auth=require_client_auth)
+
+        cluster = self.cluster
+        keystore = os.path.join(self.test_path, 'keystore.jks')
+        truststore = os.path.join(self.test_path, 'truststore.jks')
+        ssl_args = list()
+        args = ['validation', 'submit', 'k1.t1', '(1,2]']
+
+        # without any encryption arguments
+        nodesync_tool(cluster, ssl_args + args,
+                      expected_stderr=['non-JRMP server at remote endpoint', 'Error: Submission failed'])
+
+        # encryption flag
+        ssl_args += ['--jmx-ssl']
+        nodesync_tool(cluster, ssl_args + args,
+                      expected_stderr=['unable to find valid certification', 'Error: Submission failed'])
+
+        # encryption flag and trust store
+        ssl_args += ['-Djavax.net.ssl.trustStore=%s' % truststore, '-Djavax.net.ssl.trustStorePassword=cassandra']
+        nodesync_tool(cluster, ssl_args + args,
+                      expected_stderr=['bad_certificate', 'Error: Submission failed'] if require_client_auth else None)
+
+        #  encryption flag, trust store and key store
+        ssl_args += ['-Djavax.net.ssl.keyStore=%s' % keystore, '-Djavax.net.ssl.keyStorePassword=cassandra']
+        nodesync_tool(cluster, ssl_args + args)
+
+    def test_cql_ssl_without_client_auth(self):
+        """
+        Test CQL connectivity with SSL encryption without client authentication required
+        """
+        self._test_cql_ssl(require_client_auth=False)
+
+    def test_cql_ssl_with_client_auth(self):
+        """
+        Test CQL connectivity with SSL encryption with client authentication required
+        """
+        self._test_cql_ssl(require_client_auth=True)
+
+    def _test_cql_ssl(self, require_client_auth=False):
+        """
+        Test CQL connectivity with SSL encryption
+        :param require_client_auth: if client authentication is required by the server
+        """
+        self._prepare_cluster(nodes=1, cql_ssl=True, jmx_ssl=False, require_client_auth=require_client_auth)
+
+        cluster = self.cluster
+        keystore = os.path.join(self.test_path, 'keystore.jks')
+        truststore = os.path.join(self.test_path, 'truststore.jks')
+        ssl_args = list()
+        args = ['validation', 'list']
+
+        # without any encryption arguments
+        nodesync_tool(cluster, ssl_args + args, expected_stderr=['Connection has been closed'])
+
+        # encryption flag
+        ssl_args += ['--cql-ssl']
+        nodesync_tool(cluster, ssl_args + args, expected_stderr=['Error writing'])
+
+        # encryption flag and trust store
+        ssl_args += ['-Djavax.net.ssl.trustStore=%s' % truststore, '-Djavax.net.ssl.trustStorePassword=cassandra']
+        nodesync_tool(cluster, ssl_args + args,
+                      expected_stderr=['Channel has been closed'] if require_client_auth else None)
+
+        #  encryption flag, trust store and key store
+        ssl_args += ['-Djavax.net.ssl.keyStore=%s' % keystore, '-Djavax.net.ssl.keyStorePassword=cassandra']
+        nodesync_tool(cluster, ssl_args + args)

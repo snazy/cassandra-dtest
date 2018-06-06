@@ -102,14 +102,14 @@ class SecurityCredentials():
 
 def generate_ssl_stores(base_dir, passphrase='cassandra'):
     """
-    Util for generating ssl stores using java keytool -- nondestructive method if stores already exist this method is
-    a no-op.
+    Util for generating ssl stores using java keytool and openssl -- nondestructive method if stores already exist this
+    method is a no-op.
 
-    @param base_dir (str) directory where keystore.jks, truststore.jks and ccm_node.cer will be placed
-    @param passphrase (Optional[str]) currently ccm expects a passphrase of 'cassandra' so it's the default but it can be
-            overridden for failure testing
+    @param base_dir (str) directory where keystore.jks, truststore.jks, ccm_node.cer and ccm_node.key will be placed
+    @param passphrase (Optional[str]) currently ccm expects a passphrase of 'cassandra' so it's the default but it can
+    be overridden for failure testing
     @return None
-    @throws CalledProcessError If the keytool fails during any step
+    @throws CalledProcessError If the keytool or openssl fail during any step
     """
 
     if os.path.exists(os.path.join(base_dir, 'keystore.jks')):
@@ -128,3 +128,12 @@ def generate_ssl_stores(base_dir, passphrase='cassandra'):
     subprocess.check_call(['keytool', '-import', '-file', os.path.join(base_dir, 'ccm_node.cer'),
                            '-alias', 'ccm_node', '-keystore', os.path.join(base_dir, 'truststore.jks'),
                            '-storepass', passphrase, '-noprompt'])
+    debug("exporting keystore.jks into keystore.p12 in [{0}]".format(base_dir))
+    subprocess.check_call(['keytool', '-importkeystore', '-srckeystore', os.path.join(base_dir, 'keystore.jks'),
+                           '-srcstorepass', passphrase, '-srcalias', 'ccm_node', '-destalias', 'ccm_node',
+                           '-deststorepass', passphrase, '-destkeystore', os.path.join(base_dir, 'keystore.p12'),
+                           '-deststoretype', 'PKCS12'])
+    debug("exporting key from keystore.p12 into [{0}]".format(base_dir))
+    subprocess.check_call(['openssl', 'pkcs12', '-in', os.path.join(base_dir, 'keystore.p12'), '-passin',
+                           "pass:%s" % passphrase, '-nodes', '-nocerts', '-out',
+                           os.path.join(base_dir, 'ccm_node.key')])
