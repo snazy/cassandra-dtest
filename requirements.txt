@@ -6,7 +6,7 @@ six
 -e git+git@github.com:datastax/python-driver.git@cassandra-test#egg=cassandra-driver
 -e git+git@github.com:riptano/python-dse-driver.git@dse-test#egg=dse-driver
 # ccm==3.1.4
-git+ssh://git@github.com/riptano/ccm-private.git@master#egg=ccm
+-e git+ssh://git@github.com/riptano/ccm-private.git@master#egg=ccm
 cql
 decorator
 docopt
