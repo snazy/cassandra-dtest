@@ -89,7 +89,8 @@ class TestNodeSyncTool(Tester):
 
         cluster.start(wait_for_binary_proto=True)
         node1 = self.cluster.nodelist()[0]
-        session = self.patient_cql_connection(node1, ssl_opts=ssl_opts)
+        timeout = 180 if require_client_auth else 30  # client authentication can produce timeouts
+        session = self.patient_cql_connection(node1, ssl_opts=ssl_opts, timeout=timeout)
         self.session = session
 
         for k in xrange(keyspaces):
@@ -837,7 +838,7 @@ class TestNodeSyncTool(Tester):
         # encryption flag and trust store
         ssl_args += ['-Djavax.net.ssl.trustStore=%s' % truststore, '-Djavax.net.ssl.trustStorePassword=cassandra']
         nodesync_tool(cluster, ssl_args + args,
-                      expected_stderr=['Channel has been closed'] if require_client_auth else None)
+                      expected_stderr=['TransportException'] if require_client_auth else None)
 
         #  encryption flag, trust store and key store
         ssl_args += ['-Djavax.net.ssl.keyStore=%s' % keystore, '-Djavax.net.ssl.keyStorePassword=cassandra']
