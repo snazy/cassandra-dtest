@@ -138,6 +138,43 @@ class TestDiskBalance(Tester):
         for k in xrange(0, 10000):
             query_c1c2(session, k)
 
+    def jbod_scrub_test(self):
+        # DB-2173: verify that sstable is rewritten to the same disk after scrub
+        disks = 10
+        rows = 10000
+        cluster = self.cluster
+        cluster.set_datadir_count(disks)
+        cluster.populate(1)
+        node = self.cluster.nodelist()[0]
+        cluster.start()
+
+        session = self.patient_cql_connection(node)
+        create_ks(session, 'ks', 1)
+        node.nodetool("disableautocompaction")
+        create_c1c2_table(self, session)
+        insert_c1c2(session, n=rows)
+        node.flush()
+
+        # verify data are flushed to different disks
+        def verify(node, disks, rows):
+            sstables = node.get_sstables('ks', 'cf')
+            sstables_dir = set(map(lambda x: os.path.dirname(x), sstables))
+            self.assertEquals(disks, len(sstables))
+            self.assertEquals(disks, len(sstables_dir))
+            for k in xrange(0, rows):
+                query_c1c2(session, k)
+            return sstables, sstables_dir
+
+        before, before_dir = verify(node, disks, rows)
+
+        node.nodetool("scrub")
+
+        after, after_dir = verify(node, disks, rows)
+
+        # sstables are rewritten to the same disk
+        self.assertNotEquals(before, after)
+        self.assertEquals(before_dir, after_dir)
+
     @since("4.0")
     def disk_failure_on_flush_test(self):
         """
