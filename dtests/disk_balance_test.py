@@ -139,10 +139,17 @@ class TestDiskBalance(Tester):
             query_c1c2(session, k)
 
     def jbod_scrub_test(self):
+        self._sstable_rewrite_test(op='scrub')
+
+    def jbod_upgradesstables_test(self):
+        self._sstable_rewrite_test(op='upgradesstables -a')
+
+    def _sstable_rewrite_test(self, op):
         # DB-2173: verify that sstable is rewritten to the same disk after scrub
-        disks = 10
-        rows = 10000
+        disks = 4
+        rows = 5000
         cluster = self.cluster
+
         cluster.set_datadir_count(disks)
         cluster.populate(1)
         node = self.cluster.nodelist()[0]
@@ -150,6 +157,8 @@ class TestDiskBalance(Tester):
 
         session = self.patient_cql_connection(node)
         create_ks(session, 'ks', 1)
+
+        debug("Populating cluster")
         node.nodetool("disableautocompaction")
         create_c1c2_table(self, session)
         insert_c1c2(session, n=rows)
@@ -167,11 +176,13 @@ class TestDiskBalance(Tester):
 
         before, before_dir = verify(node, disks, rows)
 
-        node.nodetool("scrub")
+        debug("Running 'nodetool {}'".format(op))
+        node.nodetool(op)
 
         after, after_dir = verify(node, disks, rows)
 
         # sstables are rewritten to the same disk
+        debug("Checking SSTables'")
         self.assertNotEquals(before, after)
         self.assertEquals(before_dir, after_dir)
 
