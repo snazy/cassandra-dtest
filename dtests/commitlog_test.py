@@ -28,7 +28,7 @@ class TestCommitLog(Tester):
 
     def setUp(self):
         super(TestCommitLog, self).setUp()
-        self.cluster.populate(1)
+        self.cluster.populate(1, install_byteman=True)
         [self.node1] = self.cluster.nodelist()
 
     def tearDown(self):
@@ -285,6 +285,94 @@ class TestCommitLog(Tester):
         res = session.execute("SELECT * FROM Test. users")
         self.assertItemsEqual(rows_to_list(res),
                               [[u'gandalf', 1955, u'male', u'p@$$', u'WA']])
+
+    def verify_commit_log_replay(self, node):
+        debug("Verify commitlog was written before abrupt stop")
+        commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
+        commitlog_files = os.listdir(commitlog_dir)
+        self.assertTrue(len(commitlog_files) > 0)
+
+        debug("Verify commit log was replayed on startup")
+        node.watch_log_for("Log replay complete")
+        replays = [match_tuple[0] for match_tuple in node.grep_log(" \d+ replayed mutations")]
+        debug('The following log lines indicate that mutations were replayed: {msgs}'.format(msgs=replays))
+        num_replayed_mutations = [
+            parse('{} {num_mutations:d} replayed mutations{}', line).named['num_mutations']
+            for line in replays
+        ]
+        self.assertNotEqual([m for m in num_replayed_mutations if m > 0], [])
+
+    def test_commitlog_replay_schema_mutation_ordering(self):
+        """
+        Test commit log replay schema mutation ordering
+        """
+        node1 = self.node1
+        node1.set_batch_commitlog(enabled=True)
+        node1.start(jvm_args=["-Dcassandra.test.flush_local_schema_changes=false"])
+
+        debug("Insert data")
+        session = self.patient_cql_connection(node1)
+        create_ks(session, 'Test', 1)
+        session.execute("""
+            CREATE TABLE users (
+                user_name varchar PRIMARY KEY,
+                password varchar,
+                gender varchar,
+                state varchar,
+                birth_year bigint
+            );
+        """)
+        session.execute("INSERT INTO Test. users (user_name, password, gender, state, birth_year) "
+                        "VALUES('gandalf', 'p@$$', 'male', 'WA', 1955);")
+
+        debug("Verify data is present")
+        session = self.patient_cql_connection(node1)
+        res = session.execute("SELECT * FROM Test. users")
+        self.assertItemsEqual(rows_to_list(res),
+                              [[u'gandalf', 1955, u'male', u'p@$$', u'WA']])
+
+        debug("Verify no SSTables were flushed before abrupt stop")
+        self.assertEqual(0, len(node1.get_sstables('test', 'users')))
+
+        node1.stop(gently=False)
+
+        node1.start(jvm_args=["-Dcassandra.test.flush_local_schema_changes=false"])
+
+        self.verify_commit_log_replay(node1)
+
+        session = self.patient_cql_connection(node1)
+        debug("Make query and ensure data is present")
+        session = self.patient_cql_connection(node1)
+        res = session.execute("SELECT * FROM test.users")
+        self.assertItemsEqual(rows_to_list(res),
+                              [[u'gandalf', 1955, u'male', u'p@$$', u'WA']])
+
+        session.execute("INSERT INTO Test.users (user_name, password, gender, state, birth_year) "
+                        "VALUES('frodo', 'p@$$', 'male', 'WA', 1955);")
+
+        session.execute("alter TABLE Test.users add v_a int;")
+
+        session.execute("INSERT INTO Test.users (user_name, password, gender, state, birth_year, v_a) "
+                        "VALUES('bilbo', 'p@$$', 'male', 'WA', 1955, 134);")
+
+        session.execute("alter TABLE Test.users drop state;")
+
+        session.execute("INSERT INTO Test.users (user_name, password, gender, birth_year, v_a) "
+                        "VALUES('gandalfgris', 'p@$$', 'male', 1955, 123);")
+
+        node1.stop(gently=False)
+        node1.update_startup_byteman_script('./byteman/delay_schema_refresh.btm')
+        node1.start(jvm_args=["-Dcassandra.test.flush_local_schema_changes=false"])
+
+        self.verify_commit_log_replay(node1)
+
+        session = self.patient_cql_connection(node1)
+        res = session.execute("SELECT * FROM test.users")
+        self.assertItemsEqual(rows_to_list(res),
+                              [[u'bilbo', 1955, u'male', u'p@$$', 134],
+                               [u'gandalf', 1955, u'male', u'p@$$', None],
+                               [u'gandalfgris', 1955, u'male', u'p@$$', 123],
+                               [u'frodo', 1955, u'male', u'p@$$', None]])
 
     def default_segment_size_test(self):
         """
