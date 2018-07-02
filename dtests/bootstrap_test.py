@@ -712,7 +712,7 @@ class TestBootstrap(BaseBootstrapTest):
         node2.watch_log_for("Starting listening for CQL clients", timeout=180)
 
         debug("Checking whether bootstrap replicated the data to node2...")
-        session = self.patient_exclusive_cql_connection(node2)
+        session = self.patient_exclusive_cql_connection(node2, request_timeout=30)
 
         # Repeat the select count(*) query, to help catch
         # bugs like 9484, where count(*) fails at higher
