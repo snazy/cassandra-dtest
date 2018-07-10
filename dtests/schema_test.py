@@ -429,6 +429,87 @@ class TestSchema(Tester):
                 i, i, i_as_str, map, dt,
                 i, i, i_as_str, map, dt]
 
+    @since('3.11')
+    def add_column_with_UDT_type_then_drop_column_test(self):
+        """
+        @jira_ticket DB-1850
+        """
+        session = self.prepare()
+        node = self.cluster.nodelist()[0]
+
+        session.execute("USE ks")
+        session.execute("CREATE TYPE custom_type (name text, age int)")
+        session.execute("CREATE TABLE ts (id int, s custom_type, c int, PRIMARY KEY (id, c))")
+
+        session.execute("INSERT INTO ts (id, c, s) VALUES (0, 10, {name: 'test', age: 10})")
+        session.execute("INSERT INTO ts (id, c, s) VALUES (1, 10, {name: 'test', age: 20})")
+
+        node.nodetool('flush ks ts')
+
+        session.execute("ALTER TABLE ts drop s")
+        self._check_data_is_correct_after_compaction([[1, 10], [0, 10]])
+
+    @since('3.11')
+    def add_column_with_frozen_UDT_type_then_drop_column_test(self):
+        """
+        @jira_ticket DB-1850
+        """
+        session = self.prepare()
+        node = self.cluster.nodelist()[0]
+
+        session.execute("USE ks")
+        session.execute("CREATE TYPE custom_type (name text)")
+        session.execute("CREATE TABLE ts (id int, s frozen<custom_type>, c int, PRIMARY KEY (id, c))")
+
+        session.execute("INSERT INTO ts (id, c, s) VALUES (0, 10, {name: 'test'})")
+        session.execute("INSERT INTO ts (id, c, s) VALUES (1, 10, {name: 'test'})")
+
+        node.nodetool('flush ks ts')
+
+        session.execute("ALTER TABLE ts drop s")
+        self._check_data_is_correct_after_compaction([[1, 10], [0, 10]])
+
+    @since('3.11')
+    def add_column_with_nested_UDT_type_then_drop_column_test(self):
+        """
+        @jira_ticket DB-1850
+        """
+        session = self.prepare()
+        node = self.cluster.nodelist()[0]
+
+        session.execute("USE ks")
+        session.execute("CREATE TYPE nested_custom_type (name text, age int)")
+        session.execute("CREATE TYPE custom_type (tp frozen<nested_custom_type>, value text)")
+        session.execute("CREATE TABLE ts (id int, s custom_type, c int, PRIMARY KEY (id, c))")
+
+        session.execute("INSERT INTO ts (id, c, s) VALUES (0, 10, {tp: {name: 'test', age: 10}, value: 'aaa'})")
+        session.execute("INSERT INTO ts (id, c, s) VALUES (1, 10, {tp: {name: 'test', age: 20}, value: 'eee'})")
+
+        node.nodetool('flush ks ts')
+
+        session.execute("ALTER TABLE ts drop s")
+        self._check_data_is_correct_after_compaction([[1, 10], [0, 10]])
+
+    @since('3.11')
+    def add_column_with_collection_UDT_type_then_drop_column_test(self):
+        """
+        @jira_ticket DB-1850
+        """
+        session = self.prepare()
+        node = self.cluster.nodelist()[0]
+
+        session.execute("USE ks")
+        session.execute("CREATE TYPE custom_type (name text, age int)")
+        session.execute("CREATE TABLE ts (id int, s list<frozen<custom_type>>, c int, PRIMARY KEY (id, c))")
+
+        session.execute("INSERT INTO ts (id, c, s) VALUES (0, 10, [{name: 'test', age: 10}])")
+        session.execute("INSERT INTO ts (id, c, s) VALUES (1, 10, [{name: 'test', age: 20}])")
+
+        node.nodetool('flush ks ts')
+
+        session.execute("ALTER TABLE ts drop s")
+        self._check_data_is_correct_after_compaction([[1, 10], [0, 10]])
+
     def prepare(self):
         cluster = self.cluster
         cluster.populate(1).start()
@@ -437,3 +518,28 @@ class TestSchema(Tester):
         session = self.patient_cql_connection(nodes[0])
         create_ks(session, 'ks', 1)
         return session
+
+    def _assert_correct(self, node, expected_data, custom_type=None):
+        session = self.patient_cql_connection(node)
+        if custom_type:
+            session.cluster.register_user_type('ks', 'custom_type', custom_type)
+        assert_all(session, "SELECT * FROM ks.ts", expected_data)
+
+    def _check_data_is_correct_after_compaction(self, expected_data, custom_type=None):
+        node = self.cluster.nodelist()[0]
+        node.nodetool('flush ks ts')
+        node.stop()
+        node.start()
+
+        self._assert_correct(node, expected_data, custom_type)
+
+        node.nodetool('compact ks ts')
+
+        node.run_sstabledump(keyspace='ks', column_families=['ts'])
+
+        self._assert_correct(node, expected_data, custom_type)
+
+        node.stop()
+        node.start()
+
+        self._assert_correct(node, expected_data, custom_type)
