@@ -1,3 +1,4 @@
+import re
 from collections import namedtuple
 
 from dtests.dtest import (CASSANDRA_GITREF, CASSANDRA_VERSION_FROM_BUILD,
@@ -95,8 +96,9 @@ class VersionMeta(namedtuple('_VersionMeta', ('name', 'family', 'variant', 'vers
         maintain the alias description.
         """
         gitref_suffix = CASSANDRA_GITREF.replace("git:", "")
-        if self.version.startswith('alias') and not gitref_suffix.startswith("local:"):
-            gitref = "alias:apollo/{}".format(gitref_suffix)
+        alias = re.search("^(alias:.*/)", self.version)
+        if alias and not gitref_suffix.startswith("local:"):
+            gitref = alias.group(0) + gitref_suffix
         else:
             gitref = CASSANDRA_GITREF
         return self._replace(version=gitref or CASSANDRA_VERSION_FROM_BUILD)
@@ -123,13 +125,13 @@ indev_trunk = VersionMeta(name='indev_trunk', family='trunk', variant='indev', v
 indev_cassandra_2_1_dse = VersionMeta(name='indev_cassandra_2_1_dse', family='cassandra-2.1_dse', variant='indev',
                                       version='alias:apollo/cassandra-2.1_dse', min_proto_v=None, max_proto_v=None, java_versions=(7, 8))
 
-indev_dse_5_0 = VersionMeta(name='indev_dse_5_0', family='dse5.0', variant='indev', version='alias:apollo/dse5.0', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+indev_dse_5_0 = VersionMeta(name='indev_dse_5_0', family='dse5.0', variant='indev', version='alias:bdp/5.0-dev', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
-indev_dse_5_1 = VersionMeta(name='indev_dse_5_1', family='dse5.1', variant='indev', version='alias:apollo/dse5.1', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+indev_dse_5_1 = VersionMeta(name='indev_dse_5_1', family='dse5.1', variant='indev', version='alias:bdp/5.1-dev', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
-indev_dse_6_0 = VersionMeta(name='indev_dse_6_0', family='dse6.0', variant='indev', version='alias:apollo/dse6.0', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+indev_dse_6_0 = VersionMeta(name='indev_dse_6_0', family='dse6.0', variant='indev', version='alias:bdp/6.0-dev', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
-indev_master = VersionMeta(name='indev_master', family='master', variant='indev', version='alias:apollo/master', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+indev_master = VersionMeta(name='indev_master', family='master', variant='indev', version='alias:bdp/master', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
 # MANIFEST maps a VersionMeta representing a line/variant to a list of other VersionMeta's representing supported upgrades
 # Note on versions: 2.0 must upgrade to 2.1. Once at 2.1 or newer, upgrade is supported to any later version, including trunk (for now).
