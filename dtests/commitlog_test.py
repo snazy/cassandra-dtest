@@ -17,7 +17,7 @@ from parse import parse
 from dtest import Tester, debug
 from tools.assertions import assert_almost_equal, assert_none, assert_one
 from tools.data import create_ks, rows_to_list
-from tools.decorators import since
+from tools.decorators import since, since_dse
 
 
 class TestCommitLog(Tester):
@@ -302,6 +302,7 @@ class TestCommitLog(Tester):
         ]
         self.assertNotEqual([m for m in num_replayed_mutations if m > 0], [])
 
+    @since_dse('6.0')
     def test_commitlog_replay_schema_mutation_ordering(self):
         """
         Test commit log replay schema mutation ordering
