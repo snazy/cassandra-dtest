@@ -1,8 +1,9 @@
 from ccmlib.node import TimeoutError
 from dse.query import ConsistencyLevel, SimpleStatement
 
-from dtests.dtest import Tester, debug, get_dse_version_from_build
+from dtests.dtest import Tester, debug, get_dse_version_from_build, get_dse_version_from_build_safe
 from tools.assertions import assert_all
+from tools.data import rows_to_list
 from tools.decorators import since_dse
 
 
@@ -44,16 +45,21 @@ class TestFeatureUpgrade(Tester):
                             "be written when all nodes are on DSE 5\.1 or newer and automatic schema upgrade has finished"
     _audit_native_message = "Unlocking DSE 5\.1.6\.0 audit log entries"
     _audit_log_enabled = "Audit logging is enabled with com.datastax.bdp.db.audit.CassandraAuditWriter"
-    _version_XX_on_all_nodes = "All nodes in this cluster are on version {}.*"
-    _mixed_versions = "Nodes in this cluster are on version .* up to version .*"
-    _mixed_versions_XX = "Nodes in this cluster are on version {}.* up to version {}.*"
+    _version_XX_on_all_nodes = "All nodes in this cluster are on version {}.*|" \
+                               "All nodes in this cluster are on DSE version {}.*"
+    _mixed_versions = "Nodes in this cluster are on version .* up to version .*|" \
+                      "Nodes in this cluster are on DSE version .* up to version .*"
+    _mixed_versions_XX = "Nodes in this cluster are on version {}.* up to version {}.*|" \
+                         "Nodes in this cluster are on DSE version {}.* up to version {}.*"
+    _mixed_versions_OSS_XX = "Nodes in this cluster are on OSS C\* versions {}.* - {}.* and DSE up to version {}.*"
 
     # Mapping of current version to the branch of the previous version.
     # The general_* upgrade tests will fail, if there is no
-    _previous_dse_version_branches = {'6.0': "alias:apollo/dse5.1",
-                                      '6.1': "alias:apollo/dse6.0"}
-    _release_version_for_dse_version = {'6.0': '4.0',
-                                        '6.1': '4.0'}
+    _previous_dse_version_branches = {'6.0': "alias:bdp/5.1-dev",
+                                      '6.7': "alias:bdp/6.0-dev"}
+    _release_version_for_dse_version = {'5.1': '3.11',
+                                        '6.0': '4.0',
+                                        '6.7': '4.0'}
 
     def _get_dse_version(self, install_dir=None):
         if not install_dir:
@@ -74,16 +80,34 @@ class TestFeatureUpgrade(Tester):
         self.cluster.set_install_dir(version=start_version)
 
         self.cluster.set_configuration_options(values=config)
-        self.cluster.populate(num_nodes)
+        self.cluster.populate(num_nodes, install_byteman=True)
         self.cluster.start(wait_for_binary_proto=True)
         install_dir = self.cluster.get_install_dir()
         release_version = self.cluster.version()
         dse_version = self._get_dse_version(install_dir=install_dir)
-        debug("{} node cluster popuplated - version: {} - DSE version: {} - install_dir: {}".format(num_nodes,
-                                                                                                    release_version,
-                                                                                                    dse_version,
-                                                                                                    install_dir))
+        debug("{} node cluster populated - DSE version: {} ({}) - install_dir: {}".format(num_nodes,
+                                                                                          dse_version,
+                                                                                          release_version,
+                                                                                          install_dir))
         return release_version
+
+    def _maybe_fake_dse_version(self, nodes, start_dse_version, dse_version):
+        """
+        dse-db versions before 6.7 do not maintain the 'dse_version' column in system.peers and system.local
+        This method populates that column for dse-db >= 6.7, which relies on that that column containing valid
+        information. This is only needed for tests that simulate a dead node or an offline upgrade, because
+        live nodes keep the dse_version in Gossip state and cached peer-info.
+        """
+        # only dse-db since 6.0 has the DSE specific columns in system.peers + system.local
+        if start_dse_version >= '6.0' and dse_version >= '6.7':
+            for node in nodes:
+                session = self.patient_exclusive_cql_connection(node, user='cassandra', password='cassandra')
+                rows = rows_to_list(session.execute("SELECT peer, dse_version FROM system.peers"))
+                for row in rows:
+                    if not row[1]:
+                        debug("  Updating system.peers.dse_version on {} to {} for {}".format(node.name, start_dse_version, row[0]))
+                        session.execute("UPDATE system.peers SET dse_version = '{}' WHERE peer = '{}'".format(start_dse_version, row[0]))
+                session.shutdown()
 
     def _setup_auth_schema(self, node, repl_factor):
         # Create the dse_audit.audit_log table as it looked like in DSE 5.0
@@ -171,7 +195,10 @@ class TestFeatureUpgrade(Tester):
             debug('Starting {node} on new version ({new_version})'.format(**format_args))
             node.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        debug('Upgrade of {} to {}, install-dir {} complete'.format(node.name, node.get_cassandra_version(), node.get_install_dir()))
+        debug('Upgrade of {} to {} ({}), install-dir {} complete'.format(node.name,
+                                                                         get_dse_version_from_build(node.get_install_dir()),
+                                                                         node.get_cassandra_version(),
+                                                                         node.get_install_dir()))
 
         return mark
 
@@ -201,10 +228,10 @@ class TestFeatureUpgrade(Tester):
         superuser_session.shutdown()
         debug("dse_audit.audit_log contents verified")
 
-    @since_dse('6.0', max_version='6.0')
-    def upgrade_two_nodes_50_to_60_test(self):
+    @since_dse('6.0', max_version='6.7.9999')
+    def upgrade_two_nodes_50_to_6x_test(self):
         """
-        2-node upgrade from 5.0.latest to 6.0.latest test.
+        2-node upgrade from 5.0.latest to 6.0/6.7.latest test.
 
         Validations:
         * Audit log rows have not all columns filled (2 new columns 'authenticated' + 'consistency' added in DSE 5.1)
@@ -216,12 +243,12 @@ class TestFeatureUpgrade(Tester):
         @jira_ticket DB-1597
         """
 
-        self._upgrade_two_nodes_test(True, start_version="alias:apollo/dse5.0")
+        self._upgrade_two_nodes_test(True, start_version="alias:bdp/5.0-dev")
 
-    @since_dse('6.0', max_version='6.0')
-    def upgrade_two_nodes_51_to_60_test(self):
+    @since_dse('6.0', max_version='6.7.9999')
+    def upgrade_two_nodes_51_to_6x_test(self):
         """
-        2-node upgrade from 5.1.latest to 6.0.latest test.
+        2-node upgrade from 5.1.latest to 6.0/6.7.latest test.
 
         Validations:
         * Audit log rows have all columns filled (2 new columns 'authenticated' + 'consistency' added in DSE 5.1)
@@ -232,7 +259,7 @@ class TestFeatureUpgrade(Tester):
         @jira_ticket DB-1597
         """
 
-        self._upgrade_two_nodes_test(False, start_version="alias:apollo/dse5.1")
+        self._upgrade_two_nodes_test(False, start_version="alias:bdp/5.1-dev")
 
     def _upgrade_two_nodes_test(self, dse50, start_version=None):
         """
@@ -251,6 +278,7 @@ class TestFeatureUpgrade(Tester):
         target_install_dir = self.cluster.get_install_dir()
 
         start_release_version = self._prepare_cluster(start_version=start_version, num_nodes=2, config=self._default_config)
+        start_dse_version = get_dse_version_from_build_safe(self.cluster.get_install_dir())
         node1, node2 = self.cluster.nodelist()
 
         # Create the schema - dse_audit keyspace with audit_log table, "audited" test user and test table
@@ -276,13 +304,13 @@ class TestFeatureUpgrade(Tester):
                             filename='debug.log', from_mark=log_mark1, timeout=3)
         if dse50:
             node1.watch_log_for([self._audit_compat_message,
-                                 self._mixed_versions_XX.format(start_release_version, release_version)],
+                                 self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version)],
                                 filename='debug.log', from_mark=log_mark1, timeout=3)
         else:  # dse5.1
             with self.assertRaises(TimeoutError):
                 node1.watch_log_for(self._audit_compat_message, filename='debug.log', from_mark=log_mark1, timeout=3)
             node1.watch_log_for([self._audit_native_message,
-                                 self._mixed_versions_XX.format(start_release_version, release_version)],
+                                 self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version)],
                                 filename='debug.log', from_mark=log_mark1, timeout=3)
 
         # Produce the first audited operation...
@@ -300,10 +328,10 @@ class TestFeatureUpgrade(Tester):
         node2.watch_log_for([self._audit_log_enabled,
                              self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark2, timeout=3)
         node1.watch_log_for([self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark1, timeout=3)
         if dse50:
             node1.watch_log_for(self._audit_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
@@ -323,7 +351,7 @@ class TestFeatureUpgrade(Tester):
         node1.watch_log_for([self._audit_log_enabled,
                              self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark1, timeout=3)
 
         # Produce the third audited operation...
@@ -334,10 +362,10 @@ class TestFeatureUpgrade(Tester):
         # version cluster having dse5.1 + dse6.0, those columns are usable.
         self._verify_audit_log(expected_rows, node1)
 
-    @since_dse('6.0', max_version='6.0')
-    def upgrade_single_node_50_to_60_test(self):
+    @since_dse('6.0', max_version='6.7.9999')
+    def upgrade_single_node_50_to_6x_test(self):
         """
-        1-node upgrade from 5.0.latest to 6.0.latest test.
+        1-node upgrade from 5.0.latest to 6.0/6.7.latest test.
 
         Validations:
         * Audit log rows have not all columns filled (2 new columns 'authenticated' + 'consistency' added in DSE 5.1)
@@ -349,12 +377,12 @@ class TestFeatureUpgrade(Tester):
         @jira_ticket DB-1597
         """
 
-        self._upgrade_single_node_test(True, start_version="alias:apollo/dse5.0")
+        self._upgrade_single_node_test(True, start_version="alias:bdp/5.0-dev")
 
-    @since_dse('6.0', max_version='6.0')
-    def upgrade_single_node_51_to_60_test(self):
+    @since_dse('6.0', max_version='6.7.9999')
+    def upgrade_single_node_51_to_6x_test(self):
         """
-        1-node upgrade from 5.1.latest to 6.0.latest test.
+        1-node upgrade from 5.1.latest to 6.0/6.7.latest test.
 
         Validations:
         * Audit log rows have all columns filled (2 new columns 'authenticated' + 'consistency' added in DSE 5.1)
@@ -365,7 +393,7 @@ class TestFeatureUpgrade(Tester):
         @jira_ticket DB-1597
         """
 
-        self._upgrade_single_node_test(False, start_version="alias:apollo/dse5.1")
+        self._upgrade_single_node_test(False, start_version="alias:bdp/5.1-dev")
 
     def _upgrade_single_node_test(self, dse50, start_version=None):
         """
@@ -413,7 +441,7 @@ class TestFeatureUpgrade(Tester):
                 self._audit_compat_message,
                 self._audit_native_message,
                 # same version - true
-                self._version_XX_on_all_nodes.format(release_version)],
+                self._version_XX_on_all_nodes.format(release_version, dse_version)],
                 filename='debug.log', from_mark=log_mark1, timeout=10)
         else:
             node1.watch_log_for([
@@ -423,7 +451,7 @@ class TestFeatureUpgrade(Tester):
                 # only the "all good" message for audit, as the table schema is the same from DSE 5.1
                 self._audit_native_message,
                 # same version - true
-                self._version_XX_on_all_nodes.format(release_version)],
+                self._version_XX_on_all_nodes.format(release_version, dse_version)],
                 filename='debug.log', from_mark=log_mark1, timeout=10)
 
         # Produce the first audited operation...
@@ -438,7 +466,7 @@ class TestFeatureUpgrade(Tester):
         node1.watch_log_for([self._audit_log_enabled,
                              self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark1, timeout=3)
 
         # Produce the third audited operation...
@@ -449,9 +477,9 @@ class TestFeatureUpgrade(Tester):
         # version cluster having dse5.1 + dse6.0, those columns are usable.
         self._verify_audit_log(expected_rows, node1)
 
-    @since_dse('6.0', max_version='6.0')
-    def upgrade_with_a_dead_node_50_to_60_test(self):
-        self._upgrade_with_a_dead_node_test(True, start_version="alias:apollo/dse5.0")
+    @since_dse('6.0', max_version='6.7.9999')
+    def upgrade_with_a_dead_node_50_to_6x_test(self):
+        self._upgrade_with_a_dead_node_test(True, start_version="alias:bdp/5.0-dev")
 
     def _upgrade_with_a_dead_node_test(self, dse50, start_version=None):
         """
@@ -473,6 +501,7 @@ class TestFeatureUpgrade(Tester):
         target_install_dir = self.cluster.get_install_dir()
 
         start_release_version = self._prepare_cluster(start_version=start_version, num_nodes=3, config=self._default_config)
+        start_dse_version = get_dse_version_from_build_safe(self.cluster.get_install_dir())
         node1, node2, node3 = self.cluster.nodelist()
 
         # Create the schema - dse_audit keyspace with audit_log table, "audited" test user and test table
@@ -490,7 +519,7 @@ class TestFeatureUpgrade(Tester):
         node1.watch_log_for([self._audit_log_enabled,
                              self._audit_compat_message,
                              self._auth_compat_message,
-                             self._mixed_versions_XX.format(start_release_version, release_version)],
+                             self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version)],
                             filename='debug.log', from_mark=log_mark1, timeout=3)
         with self.assertRaises(TimeoutError):
             node1.watch_log_for(self._audit_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
@@ -501,7 +530,7 @@ class TestFeatureUpgrade(Tester):
         node2.watch_log_for([self._audit_log_enabled,
                              self._audit_compat_message,
                              self._auth_compat_message,
-                             self._mixed_versions_XX.format(start_release_version, release_version)],
+                             self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version)],
                             filename='debug.log', from_mark=log_mark2, timeout=3)
         with self.assertRaises(TimeoutError):
             node2.watch_log_for(self._audit_native_message, filename='debug.log', from_mark=log_mark2, timeout=3)
@@ -517,17 +546,17 @@ class TestFeatureUpgrade(Tester):
 
         node1.watch_log_for([self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark1, timeout=10)
 
         node2.watch_log_for([self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark2, timeout=3)
 
-    @since_dse('6.0', max_version='6.0')
-    def offline_upgrade_50_to_60_test(self):
-        self._offline_upgrade_test(True, start_version="alias:apollo/dse5.0")
+    @since_dse('6.0', max_version='6.7.9999')
+    def offline_upgrade_50_to_6x_test(self):
+        self._offline_upgrade_test(True, start_version="alias:bdp/5.0-dev")
 
     def _offline_upgrade_test(self, dse50, start_version=None):
         """
@@ -553,6 +582,7 @@ class TestFeatureUpgrade(Tester):
         target_install_dir = self.cluster.get_install_dir()
 
         start_release_version = self._prepare_cluster(start_version=start_version, num_nodes=3, config=self._default_config)
+        start_dse_version = get_dse_version_from_build_safe(self.cluster.get_install_dir())
         node1, node2, node3 = self.cluster.nodelist()
 
         # Create the schema - dse_audit keyspace with audit_log table, "audited" test user and test table
@@ -572,11 +602,20 @@ class TestFeatureUpgrade(Tester):
         debug("Starting {}".format(node1.name))
         node1.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        node1.watch_log_for([self._audit_log_enabled,
-                             self._audit_compat_message,
-                             self._auth_compat_message,
-                             self._mixed_versions_XX.format(start_release_version, release_version)],
-                            filename='debug.log', from_mark=log_mark1, timeout=3)
+        log_watches = [self._audit_log_enabled,
+                       self._audit_compat_message,
+                       self._auth_compat_message]
+        # dse-db 6.7 distinguishes between OSS and DSE versions.
+        # dse-db since 6.0 has the DSE specific columns (dse_version in this case) in system.peers, but 5.0+5.1 don't.
+        # So we cannot "fake" the dse_version column for _dead_ nodes (node 3) in this test, but we can live with
+        # a different log message that (wrongly) indicates an upgrade from OSS to DSE - not relevant in production with
+        # DSE code.
+        if dse_version < '6.7':
+            log_watches += [self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version)]
+        else:
+            log_watches += [self._mixed_versions_OSS_XX.format(start_release_version, release_version, dse_version)]
+
+        node1.watch_log_for(log_watches, filename='debug.log', from_mark=log_mark1, timeout=3)
         with self.assertRaises(TimeoutError):
             node1.watch_log_for(self._audit_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
         with self.assertRaises(TimeoutError):
@@ -587,11 +626,7 @@ class TestFeatureUpgrade(Tester):
         debug("Starting {}".format(node2.name))
         node2.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        node2.watch_log_for([self._audit_log_enabled,
-                             self._audit_compat_message,
-                             self._auth_compat_message,
-                             self._mixed_versions_XX.format(start_release_version, release_version)],
-                            filename='debug.log', from_mark=log_mark2, timeout=3)
+        node2.watch_log_for(log_watches, filename='debug.log', from_mark=log_mark2, timeout=3)
         with self.assertRaises(TimeoutError):
             node2.watch_log_for(self._audit_native_message, filename='debug.log', from_mark=log_mark2, timeout=3)
         with self.assertRaises(TimeoutError):
@@ -608,7 +643,7 @@ class TestFeatureUpgrade(Tester):
         node3.watch_log_for([self._audit_log_enabled,
                              self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark3, timeout=3)
         # note: do not change log_mark3, as the 3rd node is the last node and might have therefore
         # already logged the expected messages before we call node3.mark_log()
@@ -618,11 +653,11 @@ class TestFeatureUpgrade(Tester):
         debug("Verifying that all nodes enabled the new features")
         node1.watch_log_for([self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark1, timeout=10)
         node2.watch_log_for([self._audit_native_message,
                              self._auth_native_message,
-                             self._version_XX_on_all_nodes.format(release_version)],
+                             self._version_XX_on_all_nodes.format(release_version, dse_version)],
                             filename='debug.log', from_mark=log_mark2, timeout=10)
 
     @since_dse('6.0')
@@ -653,7 +688,7 @@ class TestFeatureUpgrade(Tester):
         # Upgrade node 1
         log_mark1 = self._upgrade_node(node1, install_dir=target_install_dir, config=self._default_config)
 
-        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=10)
 
         debug('Bouncing {}'.format(node1.name))
@@ -662,7 +697,7 @@ class TestFeatureUpgrade(Tester):
         node1.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # Check log messages after bouncing node1
-        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=3)
 
     @since_dse('6.0')
@@ -685,6 +720,7 @@ class TestFeatureUpgrade(Tester):
         target_install_dir = self.cluster.get_install_dir()
 
         start_release_version = self._prepare_cluster(start_version=start_version, num_nodes=2, config=self._default_config)
+        start_dse_version = get_dse_version_from_build_safe(self.cluster.get_install_dir())
         node1, node2 = self.cluster.nodelist()
 
         # Fix RF of system_auth
@@ -694,7 +730,7 @@ class TestFeatureUpgrade(Tester):
         log_mark1 = self._upgrade_node(node1, install_dir=target_install_dir, config=self._default_config)
 
         # Check log messages after upgrading node1
-        node1.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version),
+        node1.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=3)
 
         # Upgrade node 2 to dse6.0
@@ -704,9 +740,9 @@ class TestFeatureUpgrade(Tester):
         # Check log messages after upgrading node2 to dse6.0
         with self.assertRaises(TimeoutError):
             node2.watch_log_for(self._mixed_versions, filename='debug.log', from_mark=log_mark2, timeout=3)
-        node2.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node2.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark2, timeout=3)
-        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=3)
 
         debug('Bouncing {}'.format(node1.name))
@@ -715,7 +751,7 @@ class TestFeatureUpgrade(Tester):
         node1.start(wait_other_notice=True, wait_for_binary_proto=True)
 
         # Check log messages after bouncing node1
-        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=3)
 
     @since_dse('6.0')
@@ -739,10 +775,13 @@ class TestFeatureUpgrade(Tester):
         target_install_dir = self.cluster.get_install_dir()
 
         start_release_version = self._prepare_cluster(start_version=start_version, num_nodes=3, config=self._default_config)
+        start_dse_version = get_dse_version_from_build_safe(self.cluster.get_install_dir())
         node1, node2, node3 = self.cluster.nodelist()
 
         # Fix RF of system_auth
         self._setup_auth_schema(node1, repl_factor=3)
+
+        self._maybe_fake_dse_version([node1, node2, node3], start_dse_version, dse_version)
 
         # Node 3 is our dead node, that will stay on the previous version and will later be assassinated
         debug("Stopping {}".format(node3.name))
@@ -753,15 +792,21 @@ class TestFeatureUpgrade(Tester):
         log_mark2 = self._upgrade_node(node2, install_dir=target_install_dir, config=self._default_config)
 
         # Verify that node 1 does NOT enable the new features
-        node1.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version),
+        node1.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=3)
-        with self.assertRaises(TimeoutError):
+        if start_dse_version < '6.0':
+            with self.assertRaises(TimeoutError):
+                node1.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
+        else:
             node1.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
 
         # Verify that node 2 does NOT enable the new features
-        node2.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version),
+        node2.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version),
                             filename='debug.log', from_mark=log_mark2, timeout=3)
-        with self.assertRaises(TimeoutError):
+        if start_dse_version < '6.0':
+            with self.assertRaises(TimeoutError):
+                node2.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark2, timeout=3)
+        else:
             node2.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark2, timeout=3)
 
         log_mark1 = node1.mark_log(filename='debug.log')
@@ -771,10 +816,10 @@ class TestFeatureUpgrade(Tester):
         node1.nodetool("assassinate {}".format(node3.network_interfaces['binary'][0]))
         debug("Assassinated {}".format(node3.name))
 
-        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=10)
 
-        node2.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node2.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark2, timeout=3)
 
     @since_dse('6.0')
@@ -800,10 +845,13 @@ class TestFeatureUpgrade(Tester):
         target_install_dir = self.cluster.get_install_dir()
 
         start_release_version = self._prepare_cluster(start_version=start_version, num_nodes=3, config=self._default_config)
+        start_dse_version = get_dse_version_from_build_safe(self.cluster.get_install_dir())
         node1, node2, node3 = self.cluster.nodelist()
 
         # Fix RF of system_auth
         self._setup_auth_schema(node1, repl_factor=3)
+
+        self._maybe_fake_dse_version([node1, node2, node3], start_dse_version, dse_version)
 
         # Node 3 is our dead node, that will stay on the previous version and will later be assassinated
         for node in [node1, node2, node3]:
@@ -819,9 +867,12 @@ class TestFeatureUpgrade(Tester):
         debug("Starting {}".format(node1.name))
         node1.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        node1.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version),
+        node1.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=3)
-        with self.assertRaises(TimeoutError):
+        if start_dse_version < '6.0':
+            with self.assertRaises(TimeoutError):
+                node1.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
+        else:
             node1.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark1, timeout=3)
         log_mark1 = node1.mark_log(filename='debug.log')
 
@@ -829,9 +880,12 @@ class TestFeatureUpgrade(Tester):
         debug("Starting {}".format(node2.name))
         node2.start(wait_other_notice=True, wait_for_binary_proto=True)
 
-        node2.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version),
+        node2.watch_log_for(self._mixed_versions_XX.format(start_release_version, release_version, start_dse_version, dse_version),
                             filename='debug.log', from_mark=log_mark2, timeout=3)
-        with self.assertRaises(TimeoutError):
+        if start_dse_version < '6.0':
+            with self.assertRaises(TimeoutError):
+                node2.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark2, timeout=3)
+        else:
             node2.watch_log_for(self._auth_native_message, filename='debug.log', from_mark=log_mark2, timeout=3)
         log_mark2 = node2.mark_log(filename='debug.log')
 
@@ -842,7 +896,7 @@ class TestFeatureUpgrade(Tester):
         # node 3 (the last node) announces it's release-version during startup and therefore the
         # other nodes can enable the new features.
         # node 3 itself may or may not see the new features needed to be disabled.
-        node3.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node3.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark3, timeout=3)
         # note: do not change log_mark3, as the 3rd node is the last node and might have therefore
         # already logged the expected messages before we call node3.mark_log()
@@ -850,7 +904,7 @@ class TestFeatureUpgrade(Tester):
         # All nodes must now enable the new features
 
         debug("Verifying that all nodes enabled the new features")
-        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node1.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark1, timeout=10)
-        node2.watch_log_for(self._version_XX_on_all_nodes.format(release_version),
+        node2.watch_log_for(self._version_XX_on_all_nodes.format(release_version, dse_version),
                             filename='debug.log', from_mark=log_mark2, timeout=10)
