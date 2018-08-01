@@ -421,10 +421,10 @@ class TestNodetool(Tester):
         self.assertTrue('Print batchlog replay throttle' in node.nodetool('help getbatchlogreplaythrottle').stdout)
 
         # Set and get throttle with nodetool, ensuring that the rate change is logged
-        node.nodetool('setbatchlogreplaythrottle 2048')
-        self.assertTrue(len(node.grep_log('Updating batchlog replay throttle to 2048 KB/s, 1024 KB/s per endpoint',
+        node.nodetool('setbatchlogreplaythrottle 2050')
+        self.assertTrue(len(node.grep_log('Updating batchlog replay throttle to 2050 KB/s, 1025 KB/s per endpoint',
                                           filename='debug.log')) > 0)
-        self.assertTrue('Batchlog replay throttle: 2048 KB/s' in node.nodetool('getbatchlogreplaythrottle').stdout)
+        self.assertTrue('Batchlog replay throttle: 2050 KB/s' in node.nodetool('getbatchlogreplaythrottle').stdout)
 
     @since('3.0')
     def test_reloadlocalschema(self):
