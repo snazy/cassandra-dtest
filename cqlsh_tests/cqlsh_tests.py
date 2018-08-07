@@ -16,7 +16,7 @@ from dse import InvalidRequest
 from dse.concurrent import execute_concurrent_with_args
 
 from cqlsh_tools import monkeypatch_driver, unmonkeypatch_driver
-from dtests.dtest import Tester, debug
+from dtests.dtest import Tester, debug, get_dse_version_from_build
 from tools.assertions import assert_all, assert_none
 from tools.data import (create_c1c2_table, create_cf, create_ks, insert_c1c2,
                         rows_to_list)
@@ -879,7 +879,23 @@ VALUES (4, blobAsInt(0x), '', blobAsBigint(0x), 0x, blobAsBoolean(0x), blobAsDec
                 PRIMARY KEY (id, col)
                 """
 
-        if self.cluster.version() >= LooseVersion('3.9'):
+        if get_dse_version_from_build(self.cluster.get_install_dir()) >= LooseVersion('6.7'):
+            ret += """
+        ) WITH CLUSTERING ORDER BY (col ASC)
+            AND bloom_filter_fp_chance = 0.01
+            AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'}
+            AND comment = ''
+            AND compaction = {'class': 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold': '32', 'min_threshold': '4'}
+            AND compression = {'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor'}
+            AND crc_check_chance = 1.0
+            AND default_time_to_live = 0
+            AND gc_grace_seconds = 864000
+            AND max_index_interval = 2048
+            AND memtable_flush_period_in_ms = 0
+            AND min_index_interval = 128
+            AND speculative_retry = '99PERCENTILE';
+        """
+        elif self.cluster.version() >= LooseVersion('3.9'):
             ret += """
         ) WITH CLUSTERING ORDER BY (col ASC)
             AND bloom_filter_fp_chance = 0.01
@@ -948,7 +964,27 @@ VALUES (4, blobAsInt(0x), '', blobAsBigint(0x), 0x, blobAsBoolean(0x), blobAsDec
         quoted_index_output = self.get_index_output('"QuotedNameIndex"', 'test', 'users', 'firstname')
         myindex_output = self.get_index_output('myindex', 'test', 'users', 'age')
 
-        if self.cluster.version() >= LooseVersion('3.9'):
+        if get_dse_version_from_build(self.cluster.get_install_dir()) >= LooseVersion('6.7'):
+            return """
+        CREATE TABLE test.users (
+            userid text PRIMARY KEY,
+            age int,
+            firstname text,
+            lastname text
+        ) WITH bloom_filter_fp_chance = 0.01
+            AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'}
+            AND comment = ''
+            AND compaction = {'class': 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold': '32', 'min_threshold': '4'}
+            AND compression = {'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor'}
+            AND crc_check_chance = 1.0
+            AND default_time_to_live = 0
+            AND gc_grace_seconds = 864000
+            AND max_index_interval = 2048
+            AND memtable_flush_period_in_ms = 0
+            AND min_index_interval = 128
+            AND speculative_retry = '99PERCENTILE';
+        """ + quoted_index_output + "\n" + myindex_output
+        elif self.cluster.version() >= LooseVersion('3.9'):
             return """
         CREATE TABLE test.users (
             userid text PRIMARY KEY,
@@ -1029,7 +1065,28 @@ VALUES (4, blobAsInt(0x), '', blobAsBigint(0x), 0x, blobAsBoolean(0x), blobAsDec
         return "CREATE INDEX {} ON {}.{} ({});".format(index, ks, table, col)
 
     def get_users_by_state_mv_output(self):
-        if self.cluster.version() >= LooseVersion('3.9'):
+        if get_dse_version_from_build(self.cluster.get_install_dir()) >= LooseVersion('6.7'):
+            return """
+                CREATE MATERIALIZED VIEW test.users_by_state AS
+                SELECT *
+                FROM test.users
+                WHERE state IS NOT NULL AND username IS NOT NULL
+                PRIMARY KEY (state, username)
+                WITH CLUSTERING ORDER BY (username ASC)
+                AND bloom_filter_fp_chance = 0.01
+                AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'}
+                AND comment = ''
+                AND compaction = {'class': 'org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy', 'max_threshold': '32', 'min_threshold': '4'}
+                AND compression = {'chunk_length_in_kb': '64', 'class': 'org.apache.cassandra.io.compress.LZ4Compressor'}
+                AND crc_check_chance = 1.0
+                AND default_time_to_live = 0
+                AND gc_grace_seconds = 864000
+                AND max_index_interval = 2048
+                AND memtable_flush_period_in_ms = 0
+                AND min_index_interval = 128
+                AND speculative_retry = '99PERCENTILE';
+               """
+        elif self.cluster.version() >= LooseVersion('3.9'):
             return """
                 CREATE MATERIALIZED VIEW test.users_by_state AS
                 SELECT *
