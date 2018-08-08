@@ -131,6 +131,8 @@ indev_dse_5_1 = VersionMeta(name='indev_dse_5_1', family='dse5.1', variant='inde
 
 indev_dse_6_0 = VersionMeta(name='indev_dse_6_0', family='dse6.0', variant='indev', version='alias:bdp/6.0-dev', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
+indev_dse_6_7 = VersionMeta(name='indev_dse_6_7', family='dse6.7', variant='indev', version='alias:bdp/6.7-dev', min_proto_v=None, max_proto_v=None, java_versions=(8,))
+
 indev_master = VersionMeta(name='indev_master', family='master', variant='indev', version='alias:bdp/master', min_proto_v=None, max_proto_v=None, java_versions=(8,))
 
 # MANIFEST maps a VersionMeta representing a line/variant to a list of other VersionMeta's representing supported upgrades
@@ -146,11 +148,13 @@ MANIFEST = {
 
     indev_cassandra_2_1_dse: [indev_dse_5_0],
 
-    indev_dse_5_0: [indev_dse_5_1, indev_dse_6_0, indev_master],
+    indev_dse_5_0: [indev_dse_5_1, indev_dse_6_0, indev_dse_6_7, indev_master],
 
-    indev_dse_5_1: [indev_dse_6_0, indev_master],
+    indev_dse_5_1: [indev_dse_6_0, indev_dse_6_7, indev_master],
 
-    indev_dse_6_0: [indev_master],
+    indev_dse_6_0: [indev_dse_6_7, indev_master],
+
+    indev_dse_6_7: [indev_master],
 
     # Upgrade paths from OSS to DSE
     # Only testing upgrade from OSS indev_ and not testing upgrade from OSS current_ since at least the
@@ -166,10 +170,10 @@ MANIFEST = {
     indev_2_2_x: [indev_dse_5_0, indev_dse_5_1],
     # current_2_2_x: [indev_dse_5_0, indev_dse_5_1],
 
-    indev_3_0_x: [indev_dse_5_0, indev_dse_5_1, indev_dse_6_0],
+    indev_3_0_x: [indev_dse_5_0, indev_dse_5_1, indev_dse_6_0, indev_dse_6_7],
     # current_3_0_x: [indev_dse_5_0, indev_dse_5_1, indev_dse_6_0],
 
-    indev_3_x: [indev_dse_5_1, indev_dse_6_0],
+    indev_3_x: [indev_dse_5_1, indev_dse_6_0, indev_dse_6_7],
     # current_3_x: [indev_dse_5_1, indev_dse_6_0],
 
     indev_trunk: [indev_master]
