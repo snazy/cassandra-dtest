@@ -56,10 +56,12 @@ class TestFeatureUpgrade(Tester):
     # Mapping of current version to the branch of the previous version.
     # The general_* upgrade tests will fail, if there is no
     _previous_dse_version_branches = {'6.0': "alias:bdp/5.1-dev",
-                                      '6.7': "alias:bdp/6.0-dev"}
+                                      '6.7': "alias:bdp/6.0-dev",
+                                      '7.0': "alias:bdp/6.7-dev"}
     _release_version_for_dse_version = {'5.1': '3.11',
                                         '6.0': '4.0',
-                                        '6.7': '4.0'}
+                                        '6.7': '4.0',
+                                        '7.0': '4.0'}
 
     def _get_dse_version(self, install_dir=None):
         if not install_dir:
