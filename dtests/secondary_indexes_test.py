@@ -5,6 +5,7 @@ import time
 import uuid
 from unittest import skipIf
 
+from dse import ConsistencyLevel as CL
 from dse import InvalidRequest
 from dse.concurrent import execute_concurrent, execute_concurrent_with_args
 from dse.protocol import ConfigurationException
@@ -12,12 +13,12 @@ from dse.query import BatchStatement, SimpleStatement
 
 from dtest import (CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, MEMTABLE_TYPE,
                    Tester, debug)
-from tools.assertions import (assert_bootstrap_state, assert_invalid,
+from tools.assertions import (assert_all, assert_bootstrap_state, assert_invalid,
                               assert_length_equal, assert_none, assert_one,
                               assert_row_count)
 from tools.data import (block_until_index_is_built, create_cf, create_ks,
                         rows_to_list)
-from tools.decorators import since
+from tools.decorators import since, since_dse
 from tools.misc import new_node
 
 
@@ -1253,3 +1254,336 @@ class TestPreJoinCallback(Tester):
             self.assertTrue(node2.grep_log('Executing pre-join post-bootstrap tasks'))
 
         self._base_test(write_survey_and_join)
+
+
+@since_dse('7.0')
+class TestSecondaryIndexesWithStaleNodes(Tester):
+    """
+    @jira_ticket DB-2185
+
+    Test the consistency of secondary indexes searches when the coordinator receives
+    no results from up to date replicas and stale results from a stale replica.
+    """
+
+    keyspace = 'ks'
+
+    def _prepare_cluster(self, slow_update=None, both_nodes=None, only_node1=None, only_node2=None):
+        """
+        :param both_nodes queries to be executed in both nodes with CL=ALL
+        :param slow_update an update query to be largely delayed in one of the nodes through byteman,
+                           producing an inconsistency between the index and its base table
+        :param only_node1 queries to be executed in the first node only, with CL=ONE, while the second node is stopped
+        :param only_node2 queries to be executed in the second node only, with CL=ONE, while the first node is stopped
+        :return: a session connected exclusively to the first node with CL=ALL
+        """
+        cluster = self.cluster
+
+        # Disable hinted handoff and set batch commit log so this doesn't interfere with the test
+        if only_node1 or only_node2:
+            cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
+            cluster.set_batch_commitlog(enabled=True)
+
+        cluster.populate(2, install_byteman=slow_update is not None).start()
+        node1, node2 = cluster.nodelist()
+
+        # simulate high latency index update in one node
+        if slow_update:
+            node1.byteman_submit(['./byteman/dse7.0/index_update_sleep.btm'])
+
+        session = self.patient_exclusive_cql_connection(node1, consistency_level=CL.ALL)
+        create_ks(session, self.keyspace, 2)
+        session.execute("USE " + self.keyspace)
+
+        # execute the queries for both nodes with CL=ALL
+        if both_nodes:
+            for q in both_nodes:
+                session.execute(q)
+
+        # execute the update with the byteman-induced high latency index update
+        if slow_update:
+            session.execute(SimpleStatement(slow_update, consistency_level=CL.ONE))
+
+        # execute the queries for the first node only with the second node stopped
+        if only_node1:
+            self._execute_isolated(node_to_update=node1, node_to_stop=node2, queries=only_node1)
+
+        # execute the queries for the second node only with the first node stopped
+        if only_node2:
+            self._execute_isolated(node_to_update=node2, node_to_stop=node1, queries=only_node2)
+
+        # return the session with CL=ALL for testing index searches with the created scenario
+        return self.patient_exclusive_cql_connection(node1, keyspace=self.keyspace, consistency_level=CL.ALL)
+
+    def _execute_isolated(self, node_to_update, node_to_stop, queries):
+        node_to_stop.flush()
+        node_to_stop.stop()
+        session = self.patient_cql_connection(node_to_update, self.keyspace, consistency_level=CL.ONE)
+        for q in queries:
+            session.execute(q)
+        node_to_stop.start(wait_other_notice=True)
+
+    def test_update_on_skinny_table(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int PRIMARY KEY, v text)",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t(k, v) VALUES (0, 'old')"],
+            slow_update="UPDATE t SET v = 'new' WHERE k = 0")
+
+        assert_none(session, "SELECT * FROM t WHERE v = 'old'")
+        assert_one(session, "SELECT * FROM t WHERE v = 'new'", [0, 'new'])
+
+    def test_update_on_wide_table(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v text, s int STATIC, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t(k, s) VALUES (0, 9)",
+                        "INSERT INTO t(k, c, v) VALUES (0, -1, 'old')",
+                        "INSERT INTO t(k, c, v) VALUES (0, 0, 'old')",
+                        "INSERT INTO t(k, c, v) VALUES (0, 1, 'old')"],
+            slow_update="UPDATE t SET v = 'new' WHERE k = 0 AND c = 0")
+
+        assert_all(session, "SELECT * FROM t WHERE v = 'old'", [[0, -1, 9, 'old'], [0, 1, 9, 'old']])
+        assert_all(session, "SELECT * FROM t WHERE v = 'new'", [[0, 0, 9, 'new']])
+
+    def test_update_on_static_column_with_empty_partition(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v int, s text STATIC, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(s)",
+                        "INSERT INTO t(k, s) VALUES (0, 'old')"],
+            slow_update="UPDATE t SET s = 'new' WHERE k = 0")
+
+        assert_none(session, "SELECT * FROM t WHERE s = 'old'")
+        assert_one(session, "SELECT * FROM t WHERE s = 'new'", [0, None, 'new', None])
+
+    def test_update_on_static_column_with_not_empty_partition(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v int, s text STATIC, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(s)",
+                        "INSERT INTO t(k, s) VALUES (0, 'old')",
+                        "INSERT INTO t(k, c, v) VALUES (0, 1, 10)",
+                        "INSERT INTO t(k, c, v) VALUES (0, 2, 20)"],
+            slow_update="UPDATE t SET s = 'new' WHERE k = 0")
+
+        assert_none(session, "SELECT * FROM t WHERE s = 'old'")
+        assert_all(session, "SELECT * FROM t WHERE s = 'new'", [[0, 1, 'new', 10], [0, 2, 'new', 20]])
+
+    def test_update_on_collection(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int PRIMARY KEY, v set<int>)",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t(k, v) VALUES (0, {-1, 0, 1})"],
+            slow_update="UPDATE t SET v = v - {0} WHERE k = 0")
+
+        assert_none(session, "SELECT * FROM t WHERE v CONTAINS 0")
+        assert_one(session, "SELECT * FROM t WHERE v CONTAINS 1", [0, [-1, 1]])
+
+    def test_complementary_deletion_with_limit_on_partition_key_column_with_empty_partitions(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k1 int, k2 int, c int, s int STATIC, PRIMARY KEY((k1, k2), c))",
+                        "CREATE INDEX ON t(k1)",
+                        "INSERT INTO t (k1, k2, s) VALUES (0, 1, 10)",
+                        "INSERT INTO t (k1, k2, s) VALUES (0, 2, 20)"],
+            only_node1=["DELETE FROM t WHERE k1 = 0 AND k2 = 1"],
+            only_node2=["DELETE FROM t WHERE k1 = 0 AND k2 = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE k1 = 0 LIMIT 1")
+
+    def test_complementary_deletion_with_limit_on_partition_key_column_with_not_empty_partitions(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k1 int, k2 int, c int, s int STATIC, PRIMARY KEY((k1, k2), c))",
+                        "CREATE INDEX ON t(k1)",
+                        "INSERT INTO t (k1, k2, c, s) VALUES (0, 1, 10, 100)",
+                        "INSERT INTO t (k1, k2, c, s) VALUES (0, 2, 20, 200)"],
+            only_node1=["DELETE FROM t WHERE k1 = 0 AND k2 = 1"],
+            only_node2=["DELETE FROM t WHERE k1 = 0 AND k2 = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE k1 = 0 LIMIT 1")
+
+    def test_complementary_deletion_with_limit_on_clustering_key_column(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(c)",
+                        "INSERT INTO t (k, c) VALUES (1, 0)",
+                        "INSERT INTO t (k, c) VALUES (2, 0)"],
+            only_node1=["DELETE FROM t WHERE k = 1"],
+            only_node2=["DELETE FROM t WHERE k = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE c = 0 LIMIT 1")
+
+    def test_complementary_deletion_with_limit_on_static_column_with_empty_partitions(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, s int STATIC, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(s)",
+                        "INSERT INTO t (k, s) VALUES (1, 0)",
+                        "INSERT INTO t (k, s) VALUES (2, 0)"],
+            only_node1=["DELETE FROM t WHERE k = 1"],
+            only_node2=["DELETE FROM t WHERE k = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE s = 0 LIMIT 1")
+
+    def test_complementary_deletion_with_limit_on_static_column_with_not_empty_partitions(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, s int STATIC, v int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(s)",
+                        "INSERT INTO t (k, c, v, s) VALUES (1, 10, 100, 0)",
+                        "INSERT INTO t (k, c, v, s) VALUES (2, 20, 200, 0)"],
+            only_node1=["DELETE FROM t WHERE k = 1"],
+            only_node2=["DELETE FROM t WHERE k = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE s = 0 LIMIT 1")
+
+    def test_complementary_deletion_with_limit_on_regular_column(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 1, 0)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 2, 0)"],
+            only_node1=["DELETE FROM t WHERE k = 0 AND c = 1"],
+            only_node2=["DELETE FROM t WHERE k = 0 AND c = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE v = 0 LIMIT 1")
+
+    def test_complementary_deletion_with_limit_and_rows_after(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 1, 0)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 2, 0)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 3, 0)"],
+            only_node1=["DELETE FROM t WHERE k = 0 AND c = 1",
+                        "INSERT INTO t (k, c, v) VALUES (0, 4, 0)"],
+            only_node2=["INSERT INTO t (k, c, v) VALUES (0, 5, 0)",
+                        "DELETE FROM t WHERE k = 0 AND c = 2"])
+
+        assert_one(session, "SELECT * FROM t WHERE v = 0 LIMIT 1", [0, 3, 0])
+        assert_all(session, "SELECT * FROM t WHERE v = 0 LIMIT 2", [[0, 3, 0], [0, 4, 0]])
+        assert_all(session, "SELECT * FROM t WHERE v = 0 LIMIT 3", [[0, 3, 0], [0, 4, 0], [0, 5, 0]])
+        assert_all(session, "SELECT * FROM t WHERE v = 0 LIMIT 4", [[0, 3, 0], [0, 4, 0], [0, 5, 0]])
+
+    def test_complementary_deletion_with_limit_and_rows_between(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 1, 0)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 4, 0)"],
+            only_node1=["DELETE FROM t WHERE k = 0 AND c = 1"],
+            only_node2=["INSERT INTO t (k, c, v) VALUES (0, 2, 0)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 3, 0)",
+                        "DELETE FROM t WHERE k = 0 AND c = 4"])
+
+        assert_one(session, "SELECT * FROM t WHERE v = 0 LIMIT 1", [0, 2, 0])
+        assert_all(session, "SELECT * FROM t WHERE v = 0 LIMIT 2", [[0, 2, 0], [0, 3, 0]])
+        assert_all(session, "SELECT * FROM t WHERE v = 0 LIMIT 3", [[0, 2, 0], [0, 3, 0]])
+
+    def test_complementary_update_with_limit_on_static_column_with_empty_partitions(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, s text STATIC, v int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(s)",
+                        "INSERT INTO t (k, s) VALUES (1, 'old')",
+                        "INSERT INTO t (k, s) VALUES (2, 'old')"],
+            only_node1=["UPDATE t SET s = 'new' WHERE k = 1"],
+            only_node2=["UPDATE t SET s = 'new' WHERE k = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE s = 'old' LIMIT 1")
+        assert_one(session, "SELECT k, s FROM t WHERE s = 'new' LIMIT 1", [1, 'new'])
+        assert_all(session, "SELECT k, s FROM t WHERE s = 'new'", [[1, 'new'], [2, 'new']])
+
+    def test_complementary_update_with_limit_on_static_column_with_not_empty_partitions(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, s text STATIC, v int, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(s)",
+                        "INSERT INTO t (k, c, v, s) VALUES (1, 10, 100, 'old')",
+                        "INSERT INTO t (k, c, v, s) VALUES (2, 20, 200, 'old')"],
+            only_node1=["UPDATE t SET s = 'new' WHERE k = 1"],
+            only_node2=["UPDATE t SET s = 'new' WHERE k = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE s = 'old' LIMIT 1")
+        assert_one(session, "SELECT k, c, v, s FROM t WHERE s = 'new' LIMIT 1", [1, 10, 100, 'new'])
+        assert_all(session, "SELECT k, c, v, s FROM t WHERE s = 'new'", [[1, 10, 100, 'new'], [2, 20, 200, 'new']])
+
+    def test_complementary_update_with_limit_on_regular_column(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v text, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 1, 'old')",
+                        "INSERT INTO t (k, c, v) VALUES (0, 2, 'old')"],
+            only_node1=["UPDATE t SET v = 'new' WHERE k = 0 AND c = 1"],
+            only_node2=["UPDATE t SET v = 'new' WHERE k = 0 AND c = 2"])
+
+        assert_none(session, "SELECT * FROM t WHERE v = 'old' LIMIT 1")
+        assert_one(session, "SELECT * FROM t WHERE v = 'new' LIMIT 1", [0, 1, 'new'])
+        assert_all(session, "SELECT * FROM t WHERE v = 'new'", [[0, 1, 'new'], [0, 2, 'new']])
+
+    def test_complementary_update_with_limit_and_rows_between(self):
+        session = self._prepare_cluster(
+            both_nodes=["CREATE TABLE t (k int, c int, v text, PRIMARY KEY(k, c))",
+                        "CREATE INDEX ON t(v)",
+                        "INSERT INTO t (k, c, v) VALUES (0, 1, 'old')",
+                        "INSERT INTO t (k, c, v) VALUES (0, 4, 'old')"],
+            only_node1=["UPDATE t SET v = 'new' WHERE k = 0 AND c = 1"],
+            only_node2=["INSERT INTO t (k, c, v) VALUES (0, 2, 'old')",
+                        "INSERT INTO t (k, c, v) VALUES (0, 3, 'old')",
+                        "UPDATE t SET v = 'new' WHERE k = 0 AND c = 4"])
+
+        assert_one(session, "SELECT * FROM t WHERE v = 'old' LIMIT 1", [0, 2, 'old'])
+        assert_all(session, "SELECT * FROM t WHERE v = 'old' LIMIT 2", [[0, 2, 'old'], [0, 3, 'old']])
+        assert_all(session, "SELECT * FROM t WHERE v = 'old' LIMIT 3", [[0, 2, 'old'], [0, 3, 'old']])
+        assert_one(session, "SELECT * FROM t WHERE v = 'new' LIMIT 1", [0, 1, 'new'])
+        assert_all(session, "SELECT * FROM t WHERE v = 'new'", [[0, 1, 'new'], [0, 4, 'new']])
+
+    def _test_rolling_upgrade(self, statements, test):
+        """
+        Tests that nodes with DSE >= 7.0 don't sent stale results to nodes running an older version
+        :param statements CQL statements creating the schema and data for the test scenario
+        :param test the operations to run in the mixed versions scenario
+        """
+        cluster = self.cluster
+        cluster.populate(2, install_byteman=True)
+        old_node, new_node = cluster.nodelist()
+        old_node.set_install_dir(version='alias:bdp/6.7-dev')
+        cluster.start()
+        old_session = self.patient_exclusive_cql_connection(old_node, consistency_level=CL.ALL)
+
+        # test each node as coordinator
+        for node in old_node, new_node:
+
+            # create schema and insert data through the old node
+            keyspace = self.keyspace + node.name
+            create_ks(old_session, keyspace, 2)
+            map(old_session.execute, statements)
+
+            # test index queries in the current node
+            node_session = self.patient_exclusive_cql_connection(node, keyspace=keyspace, consistency_level=CL.ALL)
+            node_session.cluster.control_connection.wait_for_schema_agreement()
+            test(node_session)
+
+        # verify that the activation and deactivation of stale rows propagation is logged
+        new_node.watch_log_for('Using DSE < 7.0 secondary indexes consistency model that might produce stale results')
+        old_node.decommission(force=True)
+        old_node.stop()
+        new_node.watch_log_for('Using DSE >= 7.0 secondary indexes consistency model.')
+
+    def test_rolling_upgrade_on_skinny_table(self):
+        self._test_rolling_upgrade(
+            ["CREATE TABLE t (k int PRIMARY KEY, v text)",
+             "CREATE INDEX ON t(v)",
+             "INSERT INTO t(k, v) VALUES (0, 'old')",
+             "INSERT INTO t(k, v) VALUES (0, 'new')"],
+            lambda session: (
+                assert_none(session, "SELECT * FROM t WHERE v = 'old'"),
+                assert_one(session, "SELECT * FROM t WHERE v = 'new'", [0, 'new'])
+            ))
+
+    def test_rolling_upgrade_on_wide_table(self):
+        self._test_rolling_upgrade(
+            ["CREATE TABLE t (k int, c int, v text, s int STATIC, PRIMARY KEY(k, c))",
+             "CREATE INDEX ON t(v)",
+             "INSERT INTO t(k, s) VALUES (0, 9)",
+             "INSERT INTO t(k, c, v) VALUES (0, -1, 'old')",
+             "INSERT INTO t(k, c, v) VALUES (0, 0, 'old')",
+             "INSERT INTO t(k, c, v) VALUES (0, 1, 'old')",
+             "UPDATE t SET v = 'new' WHERE k = 0 AND c = 0"],
+            lambda session: (
+                assert_all(session, "SELECT * FROM t WHERE v = 'old'", [[0, -1, 9, 'old'], [0, 1, 9, 'old']]),
+                assert_all(session, "SELECT * FROM t WHERE v = 'new'", [[0, 0, 9, 'new']])
+            ))

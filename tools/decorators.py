@@ -7,7 +7,8 @@ from unittest.case import SkipTest
 from nose.plugins.attrib import attr
 from nose.tools import assert_in, assert_is_instance
 
-from dtests.dtest import DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, get_dse_version_from_build
+from dtests.dtest import (DISABLE_VNODES, CASSANDRA_VERSION_FROM_BUILD, DSE_VERSION_FROM_BUILD,
+                          get_dse_version_from_build)
 
 
 class since(object):
@@ -72,10 +73,17 @@ class since_dse(object):
             return "%s > %s" % (version, self.max_version)
 
     def _wrap_setUpClass(self, cls):
+        orig_setUpClass = cls.setUpClass
+
         @classmethod
         @functools.wraps(cls.setUpClass)
         def wrapped_setUpClass(obj, *args, **kwargs):
-            raise Exception("We do not have a corresponding DSE_VERSION_FROM_BUILD in dtest/ccm yet")
+            obj.max_version = self.max_version
+            version = DSE_VERSION_FROM_BUILD
+            msg = self._skip_msg(version)
+            if msg:
+                raise SkipTest(msg)
+            orig_setUpClass(*args, **kwargs)
 
         cls.setUpClass = wrapped_setUpClass
         return cls

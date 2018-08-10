@@ -1,0 +1,11 @@
+#
+# Sleep 5s during index update
+#
+RULE sleep 5s on index update
+CLASS org.apache.cassandra.index.SecondaryIndexManager$WriteTimeTransaction
+METHOD onUpdated
+AT ENTRY
+IF TRUE
+DO
+   Thread.sleep(5000)
+ENDRULE
