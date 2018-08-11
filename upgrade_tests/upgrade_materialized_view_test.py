@@ -31,7 +31,35 @@ class UpgradeMaterializedViewTest(Tester):
         return session
 
     @since_dse('6.7')
-    def test_view_creation_on_mixed_version_cluster(self):
+    def test_view_creation_on_mixed_version_cluster_from_oss30(self):
+        self._test_view_creation_on_mixed_version_cluster("github:apache/cassandra-3.0")
+
+    @since_dse('6.7')
+    def test_view_creation_on_mixed_version_cluster_from_oss311(self):
+        self._test_view_creation_on_mixed_version_cluster("github:apache/cassandra-3.11")
+
+    @since_dse('6.7')
+    def test_view_creation_on_mixed_version_cluster_from_dse50(self):
+        self._test_view_creation_on_mixed_version_cluster("alias:bdp/5.0-dev")
+
+    @since_dse('6.7')
+    def test_view_creation_on_mixed_version_cluster_from_dse51(self):
+        self._test_view_creation_on_mixed_version_cluster("alias:bdp/5.1-dev")
+
+    @since_dse('6.7')
+    def test_view_creation_on_mixed_version_cluster_from_dse60(self):
+        self._test_view_creation_on_mixed_version_cluster("alias:bdp/6.0-dev")
+
+    @since_dse('6.7')
+    def test_view_creation_on_mixed_version_cluster_from_dse602(self):
+        """
+        DB-2233 was only introduced in 6.0.3, so we test view creation on this
+        version to check schema errors due to introduction of is_required_for_liveness
+        column will not be thrown to the client
+        """
+        self._test_view_creation_on_mixed_version_cluster("alias:bdp/6.0.2")
+
+    def _test_view_creation_on_mixed_version_cluster(self, major):
         """
         Tests view creation on mixed version:
             1. if the coordinator is upgraded, it should block until entire cluster is upgraded
@@ -39,7 +67,7 @@ class UpgradeMaterializedViewTest(Tester):
 
         @jira_ticket DB-1060
         """
-        version = "alias:bdp/6.0-dev"
+        version = "{}".format(major)
         debug("populate cluster with version: {}".format(version))
         session = self.prepare(version=version, rf=2, nodes=2)
         cluster = self.cluster
@@ -68,15 +96,18 @@ class UpgradeMaterializedViewTest(Tester):
         verify_data(session, rows)
 
         debug("upgrade {} to latest version {}".format(node1.name, self.default_install_dir))
-        self.upgrade_to_version(self.default_install_dir, node1)
+        # Set migration_delay_in_ms to 0 on node1, so it will pull t_by_v schema from node2 immediately after upgrade
+        self.upgrade_to_version(self.default_install_dir, node1, jvm_args=["-Dcassandra.migration_delay_in_ms=0"])
 
         session1 = self.patient_exclusive_cql_connection(node1, consistency_level=CL.ALL, keyspace="ks")
         verify_data(session1, rows)
 
-        debug("create view on upgraded node, expect InvalidRequestt")
-        with self.assertRaises(InvalidRequest):
+        debug("create view on upgraded node, expect InvalidRequest")
+        with self.assertRaises(InvalidRequest) as ctx:
             session1.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t WHERE v IS NOT NULL "
                               "AND id IS NOT NULL PRIMARY KEY (v, id)"))
+        self.assertIn("All nodes in the cluster must be on DSE 6.7.0 or newer in order to create Materialized Views"
+                      " using the new format.", ctx.exception.message)
         session1.cluster.shutdown()
 
         debug("create view on non-upgraded node")
@@ -88,8 +119,13 @@ class UpgradeMaterializedViewTest(Tester):
         debug("upgrade {} to latest version {}".format(node2.name, self.default_install_dir))
         self.upgrade_to_version(self.default_install_dir, node2)
         session2 = self.patient_exclusive_cql_connection(node2, consistency_level=CL.ALL, keyspace="ks")
+
         verify_data(session2, rows)
         verify_data(session2, rows, view="t_by_v")
+
+        # Check non-upgraded node did not have error deserealizing new column
+        self.assertFalse(node2.grep_log('Unknown column required_for_liveness in table system_schema.columns'),
+                         "New schema should not be exchanged before node is fully upgraded.")
 
     @since_dse('6.7')
     def test_upgrade_with_required_column_from_6_0(self):
