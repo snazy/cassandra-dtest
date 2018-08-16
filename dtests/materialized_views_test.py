@@ -194,6 +194,17 @@ class TestMaterializedViews(Tester):
                 result = list(node_session.execute("SELECT count(*) FROM system.batches;"))
                 self.assertEqual(result[0].count, 0)
 
+    def _assert_view_meta(self, session, views, exists=True, nodes=2):
+        if exists:
+            assert_one(session, "SELECT COUNT(*) FROM system.built_views", [views])
+            if self.cluster.version() >= '3.11':
+                assert_one(session, "SELECT COUNT(*) FROM system_distributed.view_build_status", [views * nodes])
+        else:
+            assert_none(session, "SELECT * FROM system.built_views")
+            if self.cluster.version() >= '3.11':
+                assert_none(session, "SELECT * FROM system_distributed.view_build_status")
+        assert_none(session, "SELECT * FROM {}".format(self._build_progress_table()))
+
     def create_test(self):
         """Test the materialized view creation"""
 
@@ -1169,6 +1180,7 @@ class TestMaterializedViews(Tester):
         except InvalidRequest:
             failed = True
         self.assertTrue(failed, "The view shouldn't be queryable")
+        self._assert_view_meta(session, views=1, exists=False)
 
         debug("Create the MV again")
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
@@ -2451,6 +2463,70 @@ class TestNewMaterializedViews(TestMaterializedViews):
         Overwrite method in parent class
         """
         return False
+
+    def test_view_metadata_cleanup(self):
+        """
+        @jira_ticket: DB-2348 drop keyspace or view should clear built_views and view_build_status
+        """
+        session = self.prepare(rf=2, nodes=2)
+
+        def populate_data(session, rows):
+            debug("populate base data")
+            for v in xrange(rows):
+                session.execute("INSERT INTO t(k,c,a,b,e,f) VALUES({v},{v},{v},{v},{v},{v})".format(v=v))
+
+        def verify_data(session, rows, views):
+            debug("verify view data")
+            for v in xrange(rows):
+                for view in xrange(views):
+                    assert_one(session, "SELECT * FROM mv{} WHERE k={v} AND c={v}".format(view, v=v), [v, v, v, v, v, v])
+
+        def create_keyspace(session, ks="ks1", rf=2):
+            create_ks(session, ks, rf)
+
+        def create_table(session):
+            debug("create base table")
+            session.execute("CREATE TABLE t (k int, c int, a int, b int, e int, f int, primary key(k, c))")
+
+        def create_views(session, views, keyspace="ks1"):
+            debug("create view")
+            for view in xrange(views):
+                session.execute("CREATE MATERIALIZED VIEW mv{} AS SELECT * FROM t "
+                                "WHERE k IS NOT NULL AND c IS NOT NULL PRIMARY KEY (c,k)".format(view))
+            for view in xrange(views):
+                self._wait_for_view(keyspace, "mv{}".format(view))
+
+        def drop_keyspace(session, keyspace="ks1"):
+            debug("drop keyspace {}".format(keyspace))
+            session.execute("DROP KEYSPACE IF EXISTS {}".format(keyspace))
+
+        def drop_views(session, views):
+            debug("drop all views")
+            for view in xrange(views):
+                session.execute("DROP MATERIALIZED VIEW IF EXISTS mv{}".format(view))
+
+        rows = 100
+        views = 5
+
+        create_keyspace(session)
+        create_table(session)
+        populate_data(session, rows)
+        create_views(session, views)
+        verify_data(session, rows, views)
+
+        self._assert_view_meta(session, views)
+        drop_keyspace(session)
+        self._assert_view_meta(session, views, exists=False)
+
+        create_keyspace(session)
+        create_table(session)
+        populate_data(session, rows)
+        create_views(session, views)
+        verify_data(session, rows, views)
+
+        self._assert_view_meta(session, views)
+        drop_views(session, views)
+        self._assert_view_meta(session, views, exists=False)
 
     @since_dse('6.7')
     def test_hidden_columns_data_loss(self):
