@@ -1,5 +1,6 @@
 # -*- coding: UTF-8 -*-
 import time
+import os
 
 from ccmlib.node import ToolError
 
@@ -446,6 +447,52 @@ class TestNodeSync(SingleTableNodeSyncTester):
         self.bootstrap_node()
         debug("Validating everything is validated...")
         self.assert_all_segments()
+
+    def test_short_read_protection(self):
+        """
+        @jira_ticket: DB-2323
+        To verify nodesync validation with short read proection should run on nodesync threads
+        """
+        self.prepare(nodes=2, rf=2, options={'nodesync': {'page_size_in_kb': 1}, 'hinted_handoff_enabled': 'false'})
+        [node1, node2] = self.cluster.nodelist()
+        self.session.execute("CREATE TABLE ks.test_srp(pk int, ck int, v1 blob, primary key(pk,ck))")
+
+        rows = 10
+
+        random_bytes = os.urandom(1024 * 1)   # 1 kb
+        update = self.session.prepare("UPDATE ks.test_srp SET v1=? WHERE pk=0 AND ck=?")
+        delete = self.session.prepare("UPDATE ks.test_srp SET v1=null WHERE pk=0 AND ck=?")
+
+        debug("Populate some data on node1 only")
+        node2.stop(wait_other_notice=True)
+        for i in xrange(rows):
+            if i % 2 == 0:
+                self.session.execute(update.bind([random_bytes, i]))
+            else:
+                self.session.execute(delete.bind([i]))
+
+        debug("Populate some data on node2 only")
+        node1.stop(wait_other_notice=True)
+        node2.set_log_level("TRACE")
+        node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+        self.session = self.patient_cql_connection(node2, keyspace="ks")
+        for i in xrange(rows):
+            if i % 2 == 1 or i == 0:
+                self.session.execute(update.bind([random_bytes, i]))
+            else:
+                self.session.execute(delete.bind([i]))
+
+        debug("Start cluster")
+        node1.set_log_level("TRACE")
+        node1.start(wait_other_notice=True, wait_for_binary_proto=True)
+
+        debug("Enable nodesync and wait for validation finished")
+        self.session.execute("ALTER TABLE ks.test_srp WITH nodesync={ 'enabled' : 'true'}")
+
+        assert_all_segments(self.session, 'ks', 'test_srp', predicate=None)
+        srp_log = ' for short read protection'
+        self.assertTrue(node1.grep_log(srp_log, filename='debug.log') or node2.grep_log(srp_log, filename='debug.log'),
+                        "Expect short-read-protection, but found nothing")
 
     def test_single_node_cluster_does_not_print_not_able_to_sustain_rate_warning(self):
         """
