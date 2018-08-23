@@ -14,7 +14,7 @@ from dse.cluster import ContinuousPagingOptions
 from dse.policies import FallthroughRetryPolicy, WhiteListRoundRobinPolicy
 from nose.tools import assert_equal, assert_not_equal
 
-from dtest import Tester, debug, get_ip_from_node, make_execution_profile
+from dtest import Tester, debug, get_ip_from_node, make_execution_profile, trusttore_type_desc, keystore_type_desc
 from tools.decorators import since
 from tools.jmxutils import (JolokiaAgent, enable_jmx_ssl, make_mbean,
                             remove_perf_disable_shared_mem)
@@ -625,10 +625,10 @@ class TestJMXSSL(Tester):
     truststore_password = 'cassandra'
 
     def truststore(self):
-        return os.path.join(self.test_path, 'truststore.jks')
+        return os.path.join(self.test_path, trusttore_type_desc().getFileName())
 
     def keystore(self):
-        return os.path.join(self.test_path, 'keystore.jks')
+        return os.path.join(self.test_path, keystore_type_desc().getFileName())
 
     def jmx_connection_test(self):
         """

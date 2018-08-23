@@ -3,7 +3,7 @@ import os.path
 import shutil
 import time
 
-from dtest import Tester
+from dtest import Tester, keystore_type_desc, trusttore_type_desc
 from tools import sslkeygen
 from tools.decorators import since
 
@@ -142,8 +142,8 @@ class TestNodeToNodeSSLEncryption(Tester):
         def copy_cred(credentials, node):
             dir = node.get_conf_dir()
             print("Copying credentials to node %s" % dir)
-            kspath = os.path.join(dir, 'keystore.jks')
-            tspath = os.path.join(dir, 'truststore.jks')
+            kspath = os.path.join(dir, keystore_type_desc().getFileName())
+            tspath = os.path.join(dir, trusttore_type_desc().getFileName())
             shutil.copyfile(credentials.keystore, kspath)
             shutil.copyfile(credentials.cakeystore, tspath)
 
@@ -152,8 +152,10 @@ class TestNodeToNodeSSLEncryption(Tester):
                     'internode_encryption': 'all',
                     'keystore': kspath,
                     'keystore_password': 'cassandra',
+                    'keystore_type': keystore_type_desc().getType(),
                     'truststore': tspath,
                     'truststore_password': 'cassandra',
+                    'truststore_type': trusttore_type_desc().getType(),
                     'require_endpoint_verification': endpointVerification,
                     'require_client_auth': client_auth
                 }

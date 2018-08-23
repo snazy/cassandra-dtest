@@ -7,7 +7,7 @@ from uuid import UUID
 from cassandra.util import sortedset
 from ccmlib.node import ToolError
 
-from dtest import DtestTimeoutError, Tester, debug
+from dtest import DtestTimeoutError, Tester, debug, keystore_type_desc, trusttore_type_desc
 from tools.assertions import assert_all, assert_one
 from tools.data import create_ks, rows_to_list
 from tools.decorators import no_vnodes, since
@@ -43,8 +43,8 @@ class TestNodeSyncTool(Tester):
             # Generate SSL stores
             generate_ssl_stores(self.test_path)
             password = 'cassandra'
-            keystore = os.path.join(self.test_path, 'keystore.jks')
-            truststore = os.path.join(self.test_path, 'truststore.jks')
+            keystore = os.path.join(self.test_path, keystore_type_desc().getFileName())
+            truststore = os.path.join(self.test_path, trusttore_type_desc().getFileName())
 
             # Prepare JVM properties
             jvm_args = ['-Djavax.net.ssl.trustStore=%s' % truststore,
@@ -780,8 +780,8 @@ class TestNodeSyncTool(Tester):
                               cql_ssl=False, jmx_ssl=True, require_client_auth=require_client_auth)
 
         cluster = self.cluster
-        keystore = os.path.join(self.test_path, 'keystore.jks')
-        truststore = os.path.join(self.test_path, 'truststore.jks')
+        keystore = os.path.join(self.test_path, keystore_type_desc().getFileName())
+        truststore = os.path.join(self.test_path, trusttore_type_desc().getFileName())
         ssl_args = list()
         args = ['validation', 'submit', 'k1.t1', '(1,2]']
 
@@ -823,8 +823,8 @@ class TestNodeSyncTool(Tester):
         self._prepare_cluster(nodes=1, cql_ssl=True, jmx_ssl=False, require_client_auth=require_client_auth)
 
         cluster = self.cluster
-        keystore = os.path.join(self.test_path, 'keystore.jks')
-        truststore = os.path.join(self.test_path, 'truststore.jks')
+        keystore = os.path.join(self.test_path, keystore_type_desc().getFileName())
+        truststore = os.path.join(self.test_path, keystore_type_desc().getFileName())
         ssl_args = list()
         args = ['validation', 'list']
 

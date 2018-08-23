@@ -120,6 +120,20 @@ def get_sha(repo_dir):
             raise
 
 
+def trusttore_type_desc(install_dir=None, node_path=None):
+    if get_dse_version_from_build(install_dir, node_path) < '7':
+        return KeyStoreDesc("truststore", "JKS", "jks")
+    else:
+        return KeyStoreDesc("truststore", "PKCS12", "p12")
+
+
+def keystore_type_desc(install_dir=None, node_path=None):
+    if get_dse_version_from_build(install_dir, node_path) < '7':
+        return KeyStoreDesc("keystore", "JKS", "jks")
+    else:
+        return KeyStoreDesc("keystore", "PKCS12", "p12")
+
+
 def get_dse_version_from_build(install_dir=None, node_path=None):
     dse_version = get_dse_version_from_build_safe(install_dir=install_dir, node_path=node_path)
     if not dse_version:
@@ -210,6 +224,25 @@ CASSANDRA_LIBJEMALLOC = find_libjemalloc()
 # copy the initial environment variables so we can reset them later:
 initial_environment = copy.deepcopy(os.environ)
 
+
+class KeyStoreDesc:
+
+    def __init__(self, name, type, extension):
+        self.name = name
+        self.type = type
+        self.extension = extension
+
+    def getType(self):
+        return self.type
+
+    def getName(self):
+        return self.name
+
+    def getExtension(self):
+        return self.extension
+
+    def getFileName(self):
+        return self.name + '.' + self.extension
 
 class DtestTimeoutError(Exception):
     pass
@@ -807,7 +840,7 @@ def cleanup_cluster(cluster, test_path, log_watch_thread=None):
                 cluster.remove()
 
                 debug("clearing ssl stores from [{0}] directory".format(test_path))
-                for filename in ('keystore.jks', 'keystore.p12', 'truststore.jks', 'ccm_node.cer', 'ccm_node.key'):
+                for filename in ('keystore.jks', 'truststore.jks', 'keystore.p12', 'truststore.p12', 'ccm_node.cer', 'ccm_node.key'):
                     try:
                         os.remove(os.path.join(test_path, filename))
                     except OSError as e:

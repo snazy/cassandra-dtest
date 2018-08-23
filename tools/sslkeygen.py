@@ -3,7 +3,7 @@ import os.path
 import subprocess
 import tempfile
 
-from dtests.dtest import debug
+from dtests.dtest import debug, keystore_type_desc, trusttore_type_desc
 
 
 def generate_credentials(ip, cakeystore=None, cacert=None):
@@ -105,35 +105,40 @@ def generate_ssl_stores(base_dir, passphrase='cassandra'):
     Util for generating ssl stores using java keytool and openssl -- nondestructive method if stores already exist this
     method is a no-op.
 
-    @param base_dir (str) directory where keystore.jks, truststore.jks, ccm_node.cer and ccm_node.key will be placed
+    @param base_dir (str) directory where keystore.p12, truststore.p12 (jks for dse versions < 7), ccm_node.cer and ccm_node.key will be placed
     @param passphrase (Optional[str]) currently ccm expects a passphrase of 'cassandra' so it's the default but it can
     be overridden for failure testing
     @return None
     @throws CalledProcessError If the keytool or openssl fail during any step
     """
 
-    if os.path.exists(os.path.join(base_dir, 'keystore.jks')):
+    keystore_desc = keystore_type_desc()
+    truststore_desc = trusttore_type_desc()
+
+    if os.path.exists(os.path.join(base_dir, keystore_desc.getFileName())):
         debug("keystores already exists - skipping generation of ssl keystores")
         return
 
-    debug("generating keystore.jks in [{0}]".format(base_dir))
+    debug("generating {0} in [{1}]".format(keystore_desc.getFileName(), base_dir))
     subprocess.check_call(['keytool', '-genkeypair', '-alias', 'ccm_node', '-keyalg', 'RSA', '-validity', '365',
-                           '-keystore', os.path.join(base_dir, 'keystore.jks'), '-storepass', passphrase,
+                           '-keystore', os.path.join(base_dir, keystore_desc.getFileName()), '-storepass', passphrase,
+                           '-storetype', keystore_desc.getType(),
                            '-dname', 'cn=Cassandra Node,ou=CCMnode,o=DataStax,c=US', '-keypass', passphrase])
-    debug("exporting cert from keystore.jks in [{0}]".format(base_dir))
+    debug("exporting cert from {0} in [{1}]".format(keystore_desc.getFileName(), base_dir))
     subprocess.check_call(['keytool', '-export', '-rfc', '-alias', 'ccm_node',
-                           '-keystore', os.path.join(base_dir, 'keystore.jks'),
+                           '-keystore', os.path.join(base_dir, keystore_desc.getFileName()),
                            '-file', os.path.join(base_dir, 'ccm_node.cer'), '-storepass', passphrase])
-    debug("importing cert into truststore.jks in [{0}]".format(base_dir))
+    debug("importing cert into {0} in [{1}]".format(truststore_desc.getFileName(), base_dir))
     subprocess.check_call(['keytool', '-import', '-file', os.path.join(base_dir, 'ccm_node.cer'),
-                           '-alias', 'ccm_node', '-keystore', os.path.join(base_dir, 'truststore.jks'),
+                           '-alias', 'ccm_node', '-keystore', os.path.join(base_dir, truststore_desc.getFileName()),
+                           '-storetype', truststore_desc.getType(),
                            '-storepass', passphrase, '-noprompt'])
-    debug("exporting keystore.jks into keystore.p12 in [{0}]".format(base_dir))
-    subprocess.check_call(['keytool', '-importkeystore', '-srckeystore', os.path.join(base_dir, 'keystore.jks'),
+    debug("exporting {0} into {0} in [{1}]".format(keystore_desc.getFileName(), base_dir))
+    subprocess.check_call(['keytool', '-importkeystore', '-srckeystore', os.path.join(base_dir, keystore_desc.getFileName()),
                            '-srcstorepass', passphrase, '-srcalias', 'ccm_node', '-destalias', 'ccm_node',
-                           '-deststorepass', passphrase, '-destkeystore', os.path.join(base_dir, 'keystore.p12'),
-                           '-deststoretype', 'PKCS12'])
-    debug("exporting key from keystore.p12 into [{0}]".format(base_dir))
-    subprocess.check_call(['openssl', 'pkcs12', '-in', os.path.join(base_dir, 'keystore.p12'), '-passin',
+                           '-deststorepass', passphrase, '-destkeystore', os.path.join(base_dir, keystore_desc.getFileName()),
+                           '-deststoretype', keystore_desc.getType()])
+    debug("exporting key from {0} into [{1}]".format(keystore_desc.getFileName(), base_dir))
+    subprocess.check_call(['openssl', 'pkcs12', '-in', os.path.join(base_dir, keystore_desc.getFileName()), '-passin',
                            "pass:%s" % passphrase, '-nodes', '-nocerts', '-out',
                            os.path.join(base_dir, 'ccm_node.key')])

@@ -3,7 +3,7 @@ import os
 from dse import ConsistencyLevel
 from dse.cluster import NoHostAvailable
 
-from dtest import Tester
+from dtest import Tester, trusttore_type_desc, keystore_type_desc
 from tools.data import create_cf, create_ks, putget
 from tools.decorators import since
 from tools.sslkeygen import generate_ssl_stores
@@ -102,7 +102,7 @@ class NativeTransportSSL(Tester):
                     'client_encryption_options': {
                         'enabled': True,
                         'optional': sslOptional,
-                        'keystore': os.path.join(self.test_path, 'keystore.jks'),
+                        'keystore': os.path.join(self.test_path, keystore_type_desc().getFileName()),
                         'keystore_password': 'cassandra'
                     }
                 })
@@ -110,7 +110,7 @@ class NativeTransportSSL(Tester):
                 cluster.set_configuration_options({
                     'client_encryption_options': {
                         'enabled': True,
-                        'keystore': os.path.join(self.test_path, 'keystore.jks'),
+                        'keystore': os.path.join(self.test_path, keystore_type_desc().getFileName()),
                         'keystore_password': 'cassandra'
                     }
                 })
