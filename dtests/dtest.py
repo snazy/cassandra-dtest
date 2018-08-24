@@ -244,6 +244,7 @@ class KeyStoreDesc:
     def getFileName(self):
         return self.name + '.' + self.extension
 
+
 class DtestTimeoutError(Exception):
     pass
 
