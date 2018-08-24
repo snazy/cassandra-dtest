@@ -3,7 +3,7 @@ import os
 from dse import ConsistencyLevel
 from dse.cluster import NoHostAvailable
 
-from dtest import Tester, trusttore_type_desc, keystore_type_desc
+from dtest import Tester, keystore_type_desc
 from tools.data import create_cf, create_ks, putget
 from tools.decorators import since
 from tools.sslkeygen import generate_ssl_stores
