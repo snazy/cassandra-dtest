@@ -185,12 +185,14 @@ def cleanup_docker_environment_before_test_execution():
     # us an ext4 mount which should talk directly to the underlying device on the host, skipping
     # the aufs pain that we get with anything else running in the docker image. Originally,
     # I had a timeout of 120 seconds (2 minutes), 300 seconds (5 minutes) but sync was still occasionally timing out.
-    p_sync = subprocess.Popen('sudo /bin/sync', shell=True)
+    # Since not all Docker containers have sudo installed for security reasons, make this step optional.
+    p_sync = subprocess.Popen('[ -x "$(which sudo)" ] && sudo /bin/sync', shell=True)
     p_sync.wait(timeout=600)
 
     # turn swap off and back on to make sure it's fully cleared if anything happened to swap
     # from a previous test run
-    p_swap = subprocess.Popen('sudo /sbin/swapoff -a && sudo /sbin/swapon -a', shell=True)
+    # Since not all Docker containers have sudo installed for security reasons, make this step optional.
+    p_swap = subprocess.Popen('[ -x "$(which sudo)" ] && sudo /sbin/swapoff -a && sudo /sbin/swapon -a', shell=True)
     p_swap.wait(timeout=60)
 
 

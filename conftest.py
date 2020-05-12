@@ -229,7 +229,7 @@ def check_logs_for_errors(dtest_setup):
     return errors
 
 
-def copy_logs(request, cluster, directory=None, name=None):
+def copy_logs(request, cluster, directory=None, name=None, symlink=True):
     """Copy the current cluster's log files somewhere, by default to LOG_SAVED_DIR with a name of 'last'"""
     log_saved_dir = "logs"
     try:
@@ -270,8 +270,10 @@ def copy_logs(request, cluster, directory=None, name=None):
     if any_file:
         if os.path.exists(name):
             os.unlink(name)
-        if not is_win():
+        if symlink and not is_win():
             os.symlink(basedir, name)
+        return logdir
+    return None
 
 
 def reset_environment_vars(initial_environment):
@@ -301,7 +303,8 @@ def fixture_dtest_setup(request,
                         fixture_dtest_setup_overrides,
                         fixture_logging_setup,
                         fixture_dtest_cluster_name,
-                        fixture_dtest_create_cluster_func):
+                        fixture_dtest_create_cluster_func,
+                        pytestconfig):
     if running_in_docker():
         cleanup_docker_environment_before_test_execution()
 
@@ -341,8 +344,13 @@ def fixture_dtest_setup(request,
     finally:
         try:
             # save the logs for inspection
+            gradle_plugin = pytestconfig.pluginmanager.get_plugin("gradle-plugin")
             if failed or not dtest_config.delete_logs:
-                copy_logs(request, dtest_setup.cluster)
+                logdir = copy_logs(request, dtest_setup.cluster, symlink=not gradle_plugin)
+                if gradle_plugin:
+                    # If the gradle-plugin ("junit-pytest-plugin") is installed, inform it about the logs to
+                    # get those archived.
+                    gradle_plugin.register_outputs(logdir)
         except Exception as e:
             logger.error("Error saving log:", str(e))
         finally:

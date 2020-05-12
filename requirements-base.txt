@@ -1,0 +1,14 @@
+decorator
+docopt
+enum34
+flaky
+mock
+pytest==3.6.4
+pytest-timeout
+parse
+pycodestyle
+psutil
+thrift==0.10.0
+netifaces
+beautifulsoup4
+lxml
