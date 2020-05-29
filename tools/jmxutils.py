@@ -16,23 +16,6 @@ JOLOKIA_JAR = os.path.join('lib', 'jolokia-jvm-1.2.3-agent.jar')
 CLASSPATH_SEP = ';' if common.is_win() else ':'
 
 
-def jolokia_classpath():
-    if 'JAVA_HOME' in os.environ:
-        tools_jar = os.path.join(os.environ['JAVA_HOME'], 'lib', 'tools.jar')
-        return CLASSPATH_SEP.join((tools_jar, JOLOKIA_JAR))
-    else:
-        logger.warning("Environment variable $JAVA_HOME not present: jmx-based " +
-                       "tests may fail because of missing $JAVA_HOME/lib/tools.jar.")
-        return JOLOKIA_JAR
-
-
-def java_bin():
-    if 'JAVA_HOME' in os.environ:
-        return os.path.join(os.environ['JAVA_HOME'], 'bin', 'java')
-    else:
-        return 'java'
-
-
 def make_mbean(package, type, **kwargs):
     '''
     Builds the name for an mbean.
@@ -199,8 +182,8 @@ class JolokiaAgent(object):
         Starts the Jolokia agent.  The process will fork from the parent
         and continue running until stop() is called.
         """
-        args = (java_bin(),
-                '-cp', jolokia_classpath(),
+        args = (self.java_bin(),
+                '-cp', self.jolokia_classpath(),
                 'org.jolokia.jvmagent.client.AgentLauncher',
                 '--host', self.node.network_interfaces['binary'][0],
                 'start', str(self.node.pid))
@@ -217,8 +200,8 @@ class JolokiaAgent(object):
         """
         Stops the Jolokia agent.
         """
-        args = (java_bin(),
-                '-cp', jolokia_classpath(),
+        args = (self.java_bin(),
+                '-cp', self.jolokia_classpath(),
                 'org.jolokia.jvmagent.client.AgentLauncher',
                 'stop', str(self.node.pid))
         try:
@@ -228,6 +211,30 @@ class JolokiaAgent(object):
             print("Exit status was: %d" % (exc.returncode,))
             print("Output was: %s" % (exc.output,))
             raise
+
+    def jolokia_classpath(self):
+        java_home = self._java_home()
+        if java_home:
+            tools_jar = os.path.join(java_home, 'lib', 'tools.jar')
+            return CLASSPATH_SEP.join((tools_jar, JOLOKIA_JAR)) if os.path.exists(tools_jar) else JOLOKIA_JAR
+        else:
+            logger.warning("Environment variable $JAVA_HOME not present: jmx-based " +
+                           "tests may fail because of missing $JAVA_HOME/lib/tools.jar.")
+            return JOLOKIA_JAR
+
+    def java_bin(self):
+        java_home = self._java_home()
+        return os.path.join(java_home, 'bin', 'java') if java_home else 'java'
+
+    def _java_home(self):
+        env = self.node.get_env()
+        if 'JAVA_HOME' in env:
+            java_home = env['JAVA_HOME']
+        elif 'JAVA_HOME' in os.environ:
+            java_home = os.environ['JAVA_HOME']
+        else:
+            java_home = None
+        return java_home
 
     def _query(self, body, verbose=True):
         request_data = json.dumps(body).encode("utf-8")
